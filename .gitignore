@@ -29,3 +29,5 @@ gpt2json_output/
 
 .DS_Store
 Thumbs.db
+
+*.spec

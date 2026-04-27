@@ -54,6 +54,21 @@ jobs:
             --add-data "gpt2json/assets;gpt2json/assets" `
             scripts/launch_gui.py
 
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          .\packaging\windows\build-installer.ps1
+
+      - name: Build art installer
+        shell: pwsh
+        run: |
+          .\packaging\windows\build-art-installer.ps1
+
       - name: Pack release assets
         shell: pwsh
         run: |
