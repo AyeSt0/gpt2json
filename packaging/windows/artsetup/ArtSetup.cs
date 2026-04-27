@@ -78,13 +78,13 @@ namespace GPT2JSON.ArtSetup
 
             var main = new WpfPath
             {
-                Data = OuterShellGeometry(),
+                Data = ShellSurfaceGeometry(),
                 Fill = new LinearGradientBrush(
                     Color.FromArgb(252, 5, 13, 36),
                     Color.FromArgb(248, 9, 21, 53),
                     36),
-                Stroke = new SolidColorBrush(Color.FromArgb(165, 118, 171, 255)),
-                StrokeThickness = 1.2,
+                Stroke = new SolidColorBrush(Color.FromArgb(118, 118, 171, 255)),
+                StrokeThickness = 0.9,
                 Effect = new DropShadowEffect
                 {
                     BlurRadius = 42,
@@ -97,11 +97,13 @@ namespace GPT2JSON.ArtSetup
             Canvas.SetTop(main, 40);
             root.Children.Add(main);
 
+            AddClosedVoidRim(root);
+
             var shell = new Grid
             {
                 Width = 900,
                 Height = 560,
-                Clip = OuterShellGeometry(),
+                Clip = ShellSurfaceGeometry(),
                 Background = Brushes.Transparent
             };
             Canvas.SetLeft(shell, 40);
@@ -117,12 +119,16 @@ namespace GPT2JSON.ArtSetup
 
             AddIrregularBrandPanel(shell);
             AddGlowGrain(shell);
+            AddContentSafePlate(shell);
 
-            var content = new Grid { Margin = new Thickness(332, 0, 42, 0) };
+            // Interior layout is arranged only after the silhouette is fixed.
+            // This margin is the safe content zone that avoids the top valley,
+            // bottom wave and left organic brand island.
+            var content = new Grid { Margin = new Thickness(402, 70, 42, 26) };
             shell.Children.Add(content);
-            content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(82) });
+            content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(52) });
             content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(105) });
+            content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(86) });
 
             var top = BuildTopBar();
             Grid.SetRow(top, 0);
@@ -156,28 +162,77 @@ namespace GPT2JSON.ArtSetup
         private Geometry OuterShellGeometry()
         {
             // Visible window silhouette, in the 900x560 local coordinate system.
-            // It deliberately avoids a rectangular installer frame: the left brand island
-            // swells outward, the top edge forms a shallow valley, and the bottom edge
-            // floats like a liquid glass plate.
+            // The shape is planned first, then the panels are placed inside its safe zone:
+            // - a swollen left brand island;
+            // - a closed transparent "void lagoon" near the top right;
+            // - a floating lower wave instead of a rectangular installer base.
             return Geometry.Parse(
-                "M124,0 " +
-                "C70,-14 28,18 18,68 " +
-                "C7,122 42,145 30,196 " +
-                "C17,254 -20,291 18,348 " +
-                "C55,404 8,454 36,512 " +
-                "C58,558 113,566 169,548 " +
-                "C224,531 270,552 326,560 " +
-                "L514,560 " +
-                "C590,534 648,544 720,560 " +
-                "L840,560 " +
-                "C879,560 900,538 900,498 " +
-                "L900,64 " +
-                "C900,22 876,0 834,0 " +
-                "L644,0 " +
-                "C584,18 527,32 472,8 " +
-                "C434,-10 399,0 365,25 " +
-                "C329,52 290,39 257,14 " +
-                "C220,-13 168,10 124,0 Z");
+                "M102,7 " +
+                "C56,0 22,28 17,78 " +
+                "C11,132 45,164 30,224 " +
+                "C14,286 -5,334 33,394 " +
+                "C72,454 34,502 82,535 " +
+                "C131,568 200,548 268,550 " +
+                "C346,552 407,534 470,518 " +
+                "C558,496 637,522 722,544 " +
+                "L832,544 " +
+                "C878,544 900,515 900,466 " +
+                "L900,84 " +
+                "C900,34 868,8 818,8 " +
+                "L766,8 " +
+                "C698,10 634,42 560,30 " +
+                "C503,20 454,20 382,44 " +
+                "C326,68 278,46 224,25 " +
+                "C181,9 144,15 102,7 Z");
+        }
+
+        private Geometry VoidHoleGeometry()
+        {
+            return Geometry.Parse(
+                "M596,82 " +
+                "C600,47 636,25 688,29 " +
+                "C736,33 766,60 762,94 " +
+                "C758,129 713,148 660,143 " +
+                "C619,139 592,114 596,82 Z");
+        }
+
+        private Geometry ShellSurfaceGeometry()
+        {
+            return new CombinedGeometry(GeometryCombineMode.Exclude, OuterShellGeometry(), VoidHoleGeometry());
+        }
+
+        private void AddClosedVoidRim(Canvas root)
+        {
+            var voidGlow = new WpfPath
+            {
+                Data = VoidHoleGeometry(),
+                StrokeThickness = 11,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                StrokeLineJoin = PenLineJoin.Round,
+                Stroke = new LinearGradientBrush(Color.FromArgb(190, 31, 215, 255), Color.FromArgb(118, 187, 81, 255), 18),
+                Fill = Brushes.Transparent,
+                Opacity = 0.78,
+                Effect = new BlurEffect { Radius = 6 }
+            };
+            Canvas.SetLeft(voidGlow, 40);
+            Canvas.SetTop(voidGlow, 40);
+            root.Children.Add(voidGlow);
+
+            var voidEdge = new WpfPath
+            {
+                Data = VoidHoleGeometry(),
+                StrokeThickness = 1.6,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                StrokeLineJoin = PenLineJoin.Round,
+                Stroke = new LinearGradientBrush(Color.FromArgb(235, 213, 246, 255), Color.FromArgb(115, 95, 219, 255), 18),
+                Fill = Brushes.Transparent,
+                Opacity = 0.95
+            };
+            Canvas.SetLeft(voidEdge, 40);
+            Canvas.SetTop(voidEdge, 40);
+            root.Children.Add(voidEdge);
         }
 
         private void AddBackdropRings(Canvas root)
@@ -248,7 +303,7 @@ namespace GPT2JSON.ArtSetup
         {
             var brandPath = new WpfPath
             {
-                Data = Geometry.Parse("M0,0 L292,0 C322,54 288,118 306,178 C330,259 282,324 306,402 C326,468 292,526 318,560 L0,560 Z"),
+                Data = Geometry.Parse("M0,0 L306,0 C342,34 322,92 338,154 C356,222 320,274 342,338 C362,402 322,456 340,510 C350,540 326,558 288,560 L0,560 Z"),
                 Fill = new ImageBrush(LoadImage("GPT2JSON.Side.png"))
                 {
                     Stretch = Stretch.UniformToFill,
@@ -260,7 +315,7 @@ namespace GPT2JSON.ArtSetup
 
             var wave = new WpfPath
             {
-                Data = Geometry.Parse("M287,0 C326,62 289,126 310,192 C337,276 281,344 311,424 C331,482 296,531 322,560"),
+                Data = Geometry.Parse("M306,0 C342,34 322,92 338,154 C356,222 320,274 342,338 C362,402 322,456 340,510 C350,540 326,558 288,560"),
                 StrokeThickness = 2.0,
                 Stroke = new LinearGradientBrush(Color.FromArgb(210, 255, 255, 255), Color.FromArgb(20, 255, 255, 255), 90),
                 Fill = Brushes.Transparent,
@@ -270,13 +325,13 @@ namespace GPT2JSON.ArtSetup
 
             var logo = new Border
             {
-                Width = 58,
-                Height = 58,
-                CornerRadius = new CornerRadius(17),
+                Width = 96,
+                Height = 96,
+                CornerRadius = new CornerRadius(32),
                 BorderThickness = new Thickness(1),
                 BorderBrush = new SolidColorBrush(Color.FromArgb(115, 128, 213, 255)),
                 Background = new ImageBrush(LoadImage("GPT2JSON.Icon.png")) { Stretch = Stretch.UniformToFill },
-                Margin = new Thickness(34, 34, 0, 0),
+                Margin = new Thickness(108, 126, 0, 0),
                 HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
                 VerticalAlignment = System.Windows.VerticalAlignment.Top,
                 Effect = new DropShadowEffect { BlurRadius = 18, ShadowDepth = 0, Color = Color.FromRgb(31, 180, 255), Opacity = 0.34 }
@@ -287,9 +342,9 @@ namespace GPT2JSON.ArtSetup
             {
                 Text = "GPT2JSON",
                 Foreground = Brushes.White,
-                FontSize = 32,
+                FontSize = 38,
                 FontWeight = FontWeights.Bold,
-                Margin = new Thickness(34, 104, 0, 0),
+                Margin = new Thickness(76, 302, 0, 0),
                 Effect = new DropShadowEffect { BlurRadius = 18, ShadowDepth = 0, Color = Color.FromRgb(35, 162, 255), Opacity = 0.28 }
             };
             shell.Children.Add(title);
@@ -299,7 +354,7 @@ namespace GPT2JSON.ArtSetup
                 Text = "Sub2API / CPA JSON 导出工具",
                 Foreground = new SolidColorBrush(Color.FromRgb(184, 205, 236)),
                 FontSize = 14,
-                Margin = new Thickness(36, 148, 0, 0)
+                Margin = new Thickness(84, 354, 0, 0)
             };
             shell.Children.Add(sub);
 
@@ -312,7 +367,7 @@ namespace GPT2JSON.ArtSetup
                 Padding = new Thickness(12, 5, 12, 5),
                 HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
                 VerticalAlignment = System.Windows.VerticalAlignment.Bottom,
-                Margin = new Thickness(34, 0, 0, 34),
+                Margin = new Thickness(90, 0, 0, 54),
                 Child = new TextBlock
                 {
                     Text = Version,
@@ -322,6 +377,32 @@ namespace GPT2JSON.ArtSetup
                 }
             };
             shell.Children.Add(version);
+        }
+
+        private void AddContentSafePlate(Grid shell)
+        {
+            var plate = new WpfPath
+            {
+                Data = Geometry.Parse(
+                    "M408,124 " +
+                    "C460,86 534,96 598,116 " +
+                    "C646,132 694,126 724,104 " +
+                    "C760,78 824,70 860,105 " +
+                    "C884,128 888,160 880,196 " +
+                    "L880,438 " +
+                    "C880,492 842,522 790,518 " +
+                    "C708,512 646,508 578,528 " +
+                    "L408,528 " +
+                    "C360,528 334,494 350,450 " +
+                    "C370,394 368,318 354,252 " +
+                    "C340,184 360,138 408,124 Z"),
+                Fill = new LinearGradientBrush(Color.FromArgb(62, 255, 255, 255), Color.FromArgb(12, 255, 255, 255), 48),
+                Stroke = new LinearGradientBrush(Color.FromArgb(80, 174, 224, 255), Color.FromArgb(36, 180, 92, 255), 8),
+                StrokeThickness = 1.1,
+                Opacity = 0.86,
+                Effect = new DropShadowEffect { BlurRadius = 28, ShadowDepth = 0, Opacity = 0.22, Color = Color.FromRgb(17, 123, 201) }
+            };
+            shell.Children.Add(plate);
         }
 
         private void AddGlowGrain(Grid shell)
@@ -339,28 +420,9 @@ namespace GPT2JSON.ArtSetup
 
         private UIElement BuildTopBar()
         {
-            var grid = new Grid { Margin = new Thickness(0, 30, 0, 0) };
+            var grid = new Grid { Margin = new Thickness(0, 0, 0, 0) };
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(94) });
-
-            var badge = new Border
-            {
-                HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
-                VerticalAlignment = System.Windows.VerticalAlignment.Top,
-                Padding = new Thickness(12, 6, 12, 6),
-                CornerRadius = new CornerRadius(16),
-                Background = new SolidColorBrush(Color.FromArgb(38, 90, 180, 255)),
-                BorderBrush = new SolidColorBrush(Color.FromArgb(80, 87, 197, 255)),
-                BorderThickness = new Thickness(1),
-                Child = new TextBlock
-                {
-                    Text = Version,
-                    Foreground = new SolidColorBrush(Color.FromRgb(174, 212, 255)),
-                    FontSize = 12,
-                    FontWeight = FontWeights.SemiBold
-                }
-            };
-            grid.Children.Add(badge);
 
             var buttons = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Right };
             RegisterName("MinButton", WindowButton("—"));
@@ -380,8 +442,10 @@ namespace GPT2JSON.ArtSetup
             {
                 Text = "GPT2JSON 安装",
                 Foreground = Brushes.White,
-                FontSize = 42,
-                FontWeight = FontWeights.Bold,            };
+                FontSize = 43,
+                FontWeight = FontWeights.Bold,
+                Effect = new DropShadowEffect { BlurRadius = 18, ShadowDepth = 0, Color = Color.FromRgb(43, 137, 255), Opacity = 0.18 }
+            };
             panel.Children.Add(title);
 
             var desc = new TextBlock
@@ -394,9 +458,9 @@ namespace GPT2JSON.ArtSetup
             panel.Children.Add(desc);
 
             var features = new WrapPanel { Margin = new Thickness(0, 0, 0, 26) };
-            features.Children.Add(FeaturePill("协议优先"));
-            features.Children.Add(FeaturePill("批量导出"));
-            features.Children.Add(FeaturePill("本地处理"));
+            features.Children.Add(FeaturePill("◇", "协议优先"));
+            features.Children.Add(FeaturePill("▱", "批量导出"));
+            features.Children.Add(FeaturePill("↯", "本地处理"));
             panel.Children.Add(features);
 
             var label = new TextBlock
@@ -419,8 +483,19 @@ namespace GPT2JSON.ArtSetup
                 Padding = new Thickness(18, 0, 10, 0)
             };
             var pathGrid = new Grid();
+            pathGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
             pathGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             pathGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
+            var folderIcon = new TextBlock
+            {
+                Text = "\uE8B7",
+                FontFamily = new FontFamily("Segoe MDL2 Assets"),
+                Foreground = new SolidColorBrush(Color.FromRgb(179, 204, 238)),
+                FontSize = 18,
+                VerticalAlignment = System.Windows.VerticalAlignment.Center,
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Left
+            };
+            pathGrid.Children.Add(folderIcon);
             var box = new TextBox
             {
                 Name = "InstallPathBox",
@@ -432,6 +507,7 @@ namespace GPT2JSON.ArtSetup
                 CaretBrush = Brushes.White
             };
             RegisterName(box.Name, box);
+            Grid.SetColumn(box, 1);
             pathGrid.Children.Add(box);
             var browse = new Button
             {
@@ -444,7 +520,7 @@ namespace GPT2JSON.ArtSetup
                 Style = RoundedButtonStyle(12)
             };
             browse.Click += BrowsePath;
-            Grid.SetColumn(browse, 1);
+            Grid.SetColumn(browse, 2);
             pathGrid.Children.Add(browse);
             pathBorder.Child = pathGrid;
             panel.Children.Add(pathBorder);
@@ -464,7 +540,7 @@ namespace GPT2JSON.ArtSetup
             var install = new Button
             {
                 Name = "InstallButton",
-                Content = "开始安装",
+                Content = "↓  开始安装",
                 Height = 54,
                 FontSize = 17,
                 FontWeight = FontWeights.Bold,
@@ -493,23 +569,35 @@ namespace GPT2JSON.ArtSetup
             return grid;
         }
 
-        private Border FeaturePill(string text)
+        private Border FeaturePill(string icon, string text)
         {
+            var stack = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+            stack.Children.Add(new TextBlock
+            {
+                Text = icon,
+                Foreground = new SolidColorBrush(Color.FromRgb(96, 186, 255)),
+                FontSize = 15,
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 8, 0),
+                VerticalAlignment = System.Windows.VerticalAlignment.Center
+            });
+            stack.Children.Add(new TextBlock
+            {
+                Text = text,
+                Foreground = new SolidColorBrush(Color.FromRgb(220, 233, 255)),
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = System.Windows.VerticalAlignment.Center
+            });
             return new Border
             {
                 CornerRadius = new CornerRadius(14),
-                Padding = new Thickness(12, 7, 12, 7),
+                Padding = new Thickness(13, 7, 13, 7),
                 Margin = new Thickness(0, 0, 10, 8),
-                Background = new SolidColorBrush(Color.FromArgb(36, 255, 255, 255)),
-                BorderBrush = new SolidColorBrush(Color.FromArgb(55, 130, 204, 255)),
+                Background = new LinearGradientBrush(Color.FromArgb(42, 255, 255, 255), Color.FromArgb(24, 107, 155, 255), 0),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(70, 130, 204, 255)),
                 BorderThickness = new Thickness(1),
-                Child = new TextBlock
-                {
-                    Text = text,
-                    Foreground = new SolidColorBrush(Color.FromRgb(195, 220, 255)),
-                    FontSize = 13,
-                    FontWeight = FontWeights.SemiBold
-                }
+                Child = stack
             };
         }
 
@@ -548,14 +636,14 @@ namespace GPT2JSON.ArtSetup
             return new Button
             {
                 Content = text,
-                Width = 38,
-                Height = 32,
-                Margin = new Thickness(4, 0, 0, 0),
+                Width = 42,
+                Height = 34,
+                Margin = new Thickness(5, 0, 0, 0),
                 Foreground = new SolidColorBrush(Color.FromRgb(217, 229, 255)),
-                Background = Brushes.Transparent,
-                BorderBrush = Brushes.Transparent,
+                Background = new SolidColorBrush(Color.FromArgb(32, 255, 255, 255)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(45, 255, 255, 255)),
                 FontSize = text == "×" ? 20 : 15,
-                Style = RoundedButtonStyle(10)
+                Style = RoundedButtonStyle(17)
             };
         }
 
