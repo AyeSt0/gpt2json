@@ -48,8 +48,12 @@ def test_gui_enables_run_only_after_valid_preflight(tmp_path):
     window.sub2api_check.setChecked(True)
     window.cpa_check.setChecked(True)
     window.output_edit.setText("output")
-    assert window.size().width() == 1180
-    assert window.size().height() == 740
+    initial_stack_height = window.input_stack.height()
+    window.resize(1400, 900)
+    app.processEvents()
+    assert window.width() == 1400
+    assert window.height() == 900
+    assert window.input_stack.height() > initial_stack_height
     window.close()
     _clear_settings()
 

@@ -12,6 +12,7 @@
 ### Changed
 
 - GUI preflight now reports skipped rows and separates selected output formats from already generated files.
+- GUI layout is resizable again: input/log areas expand with the window, while advanced options moved to a labeled dialog.
 
 ## [0.1.0] - 2026-04-27
 

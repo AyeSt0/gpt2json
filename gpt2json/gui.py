@@ -25,6 +25,8 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QSizeGrip,
+    QSizePolicy,
     QSpinBox,
     QStackedWidget,
     QToolButton,
@@ -317,9 +319,8 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(APP_NAME)
-        self.setMinimumSize(1120, 720)
+        self.setMinimumSize(980, 640)
         self.resize(1180, 740)
-        self.setFixedSize(1180, 740)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         if ICON_PATH.exists():
@@ -378,6 +379,9 @@ class MainWindow(QMainWindow):
         shell_layout.setSpacing(14)
         shell_layout.addLayout(self._build_header())
         shell_layout.addLayout(self._build_content(), 1)
+        self.size_grip = QSizeGrip(self)
+        self.size_grip.setObjectName("SizeGrip")
+        self.size_grip.raise_()
 
     def _build_header(self) -> QHBoxLayout:
         header = QHBoxLayout()
@@ -437,8 +441,8 @@ class MainWindow(QMainWindow):
         top_row.setSpacing(12)
         top_row.addWidget(self._build_input_card(), 62)
         top_row.addWidget(self._build_settings_card(), 38)
-        left_layout.addLayout(top_row, 70)
-        left_layout.addWidget(self._build_run_card(), 30)
+        left_layout.addLayout(top_row, 1)
+        left_layout.addWidget(self._build_run_card(), 0)
 
         content.addWidget(left, 70)
         content.addWidget(self._build_right_column(), 30)
@@ -483,9 +487,11 @@ class MainWindow(QMainWindow):
 
         self.input_stack = QStackedWidget()
         self.input_stack.setObjectName("InputStack")
-        self.input_stack.setFixedHeight(238)
+        self.input_stack.setMinimumHeight(210)
+        self.input_stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.paste_edit = QPlainTextEdit()
         self.paste_edit.setObjectName("PasteBox")
+        self.paste_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.paste_edit.setPlaceholderText("自动识别账号格式\n当前支持：GPT邮箱----GPT密码----OTP取码源\n每行一个账号，以当前选中的输入来源为准。")
         self.paste_edit.textChanged.connect(self._on_paste_changed)
         self.input_stack.addWidget(self.paste_edit)
@@ -500,14 +506,13 @@ class MainWindow(QMainWindow):
         file_page_layout.addWidget(self.file_drop)
         file_page_layout.addStretch(1)
         self.input_stack.addWidget(file_page)
-        layout.addWidget(self.input_stack)
+        layout.addWidget(self.input_stack, 1)
 
         self.input_hint_label = QLabel()
         self.input_hint_label.setObjectName("HintText")
         self.input_hint_label.setWordWrap(True)
         self.input_hint_label.setMinimumHeight(34)
         layout.addWidget(self.input_hint_label)
-        layout.addStretch(1)
         return card
 
     def _build_settings_card(self) -> QFrame:
@@ -600,6 +605,8 @@ class MainWindow(QMainWindow):
 
     def _build_run_card(self) -> QFrame:
         card = self._card()
+        card.setMinimumHeight(164)
+        card.setMaximumHeight(176)
         layout = QVBoxLayout(card)
         layout.setContentsMargins(16, 12, 16, 14)
         layout.setSpacing(10)
@@ -650,6 +657,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(12)
 
         output_card = self._card()
+        output_card.setMaximumHeight(218)
         output_layout = QVBoxLayout(output_card)
         output_layout.setContentsMargins(16, 14, 16, 14)
         output_layout.setSpacing(12)
@@ -661,7 +669,7 @@ class MainWindow(QMainWindow):
         self.cpa_row = FileOutputRow("cpa_manifest.json", "CPA")
         output_layout.addWidget(self.sub2api_row)
         output_layout.addWidget(self.cpa_row)
-        layout.addWidget(output_card, 28)
+        layout.addWidget(output_card, 0)
 
         log_card = self._card()
         log_layout = QVBoxLayout(log_card)
@@ -685,7 +693,7 @@ class MainWindow(QMainWindow):
         self.log_edit.setReadOnly(True)
         self.log_edit.setPlainText(READY_LOG)
         log_layout.addWidget(self.log_edit, 1)
-        layout.addWidget(log_card, 72)
+        layout.addWidget(log_card, 1)
         return right
 
     def _card(self) -> QFrame:
@@ -742,6 +750,7 @@ class MainWindow(QMainWindow):
             f"""
             #Outer {{ background: transparent; }}
             #Shell {{ background:{p['shell']}; border:1px solid {p['border']}; border-radius:18px; }}
+            #SizeGrip {{ width:18px; height:18px; }}
             #LogoImage {{ min-width:50px; max-width:50px; min-height:50px; max-height:50px; border-radius:14px; }}
             #Title {{ color:{p['text']}; font-size:26px; font-weight:900; letter-spacing:-0.6px; }}
             #Subtitle {{ color:{p['muted']}; font-size:14px; font-weight:500; }}
@@ -1050,6 +1059,17 @@ class MainWindow(QMainWindow):
     def mouseReleaseEvent(self, event) -> None:  # type: ignore[override]
         self._drag_start = None
         super().mouseReleaseEvent(event)
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        if hasattr(self, "size_grip"):
+            grip_size = self.size_grip.sizeHint()
+            margin = 8
+            self.size_grip.move(
+                self.width() - grip_size.width() - margin,
+                self.height() - grip_size.height() - margin,
+            )
+            self.size_grip.raise_()
 
     def mouseDoubleClickEvent(self, event) -> None:  # type: ignore[override]
         if event.button() == Qt.MouseButton.LeftButton and event.position().y() <= 88:
