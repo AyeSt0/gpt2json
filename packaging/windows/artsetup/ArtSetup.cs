@@ -116,26 +116,7 @@ namespace GPT2JSON.ArtSetup
 
             AddBrandLabels(shell);
 
-            // Interior layout is arranged only after the silhouette is fixed.
-            // This margin is the safe content zone that avoids the top valley,
-            // bottom wave and left organic brand island.
-            var content = new Grid { Margin = new Thickness(410, 70, 62, 26) };
-            shell.Children.Add(content);
-            content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(52) });
-            content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(86) });
-
-            var top = BuildTopBar();
-            Grid.SetRow(top, 0);
-            content.Children.Add(top);
-
-            var center = BuildCenterPanel();
-            Grid.SetRow(center, 1);
-            content.Children.Add(center);
-
-            var bottom = BuildBottomBar();
-            Grid.SetRow(bottom, 2);
-            content.Children.Add(bottom);
+            AddInstallerControls(shell);
 
             _dirBox = FindName("InstallPathBox") as TextBox;
             _installButton = FindName("InstallButton") as Button;
@@ -335,6 +316,180 @@ namespace GPT2JSON.ArtSetup
                 }
             };
             shell.Children.Add(version);
+        }
+
+        private void AddInstallerControls(Grid shell)
+        {
+            var overlay = new Canvas { Width = 1040, Height = 560 };
+            shell.Children.Add(overlay);
+
+            var buttons = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+            RegisterName("MinButton", WindowButton("—"));
+            RegisterName("CloseButton", WindowButton("×"));
+            buttons.Children.Add((Button)FindName("MinButton"));
+            buttons.Children.Add((Button)FindName("CloseButton"));
+            Canvas.SetLeft(buttons, 875);
+            Canvas.SetTop(buttons, 72);
+            overlay.Children.Add(buttons);
+
+            var title = new TextBlock
+            {
+                Text = "GPT2JSON 安装",
+                Foreground = Brushes.White,
+                FontSize = 43,
+                FontWeight = FontWeights.Bold,
+                Effect = new DropShadowEffect { BlurRadius = 18, ShadowDepth = 0, Color = Color.FromRgb(43, 137, 255), Opacity = 0.18 }
+            };
+            Canvas.SetLeft(title, 410);
+            Canvas.SetTop(title, 154);
+            overlay.Children.Add(title);
+
+            var desc = new TextBlock
+            {
+                Text = "轻量独立的 Sub2API / CPA JSON 导出工具",
+                Foreground = new SolidColorBrush(Color.FromRgb(161, 179, 214)),
+                FontSize = 16
+            };
+            Canvas.SetLeft(desc, 412);
+            Canvas.SetTop(desc, 214);
+            overlay.Children.Add(desc);
+
+            var features = new WrapPanel();
+            features.Children.Add(FeaturePill("◇", "协议优先"));
+            features.Children.Add(FeaturePill("▱", "批量导出"));
+            features.Children.Add(FeaturePill("↯", "本地处理"));
+            Canvas.SetLeft(features, 410);
+            Canvas.SetTop(features, 256);
+            overlay.Children.Add(features);
+
+            var label = new TextBlock
+            {
+                Text = "安装位置",
+                Foreground = new SolidColorBrush(Color.FromRgb(231, 240, 255)),
+                FontSize = 15,
+                FontWeight = FontWeights.SemiBold
+            };
+            Canvas.SetLeft(label, 410);
+            Canvas.SetTop(label, 326);
+            overlay.Children.Add(label);
+
+            var pathBorder = new Border
+            {
+                Width = 568,
+                Height = 58,
+                CornerRadius = new CornerRadius(18),
+                Background = new SolidColorBrush(Color.FromArgb(62, 255, 255, 255)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(95, 142, 195, 255)),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(18, 0, 10, 0)
+            };
+            var pathGrid = new Grid();
+            pathGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
+            pathGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            pathGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
+            var folderIcon = new TextBlock
+            {
+                Text = "\uE8B7",
+                FontFamily = new FontFamily("Segoe MDL2 Assets"),
+                Foreground = new SolidColorBrush(Color.FromRgb(179, 204, 238)),
+                FontSize = 18,
+                VerticalAlignment = System.Windows.VerticalAlignment.Center,
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Left
+            };
+            pathGrid.Children.Add(folderIcon);
+            var box = new TextBox
+            {
+                Name = "InstallPathBox",
+                Foreground = new SolidColorBrush(Color.FromRgb(225, 238, 255)),
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                FontSize = 15,
+                VerticalContentAlignment = System.Windows.VerticalAlignment.Center,
+                CaretBrush = Brushes.White
+            };
+            RegisterName(box.Name, box);
+            Grid.SetColumn(box, 1);
+            pathGrid.Children.Add(box);
+            var browse = new Button
+            {
+                Content = "浏览",
+                Height = 40,
+                Margin = new Thickness(10, 8, 0, 8),
+                Background = new SolidColorBrush(Color.FromArgb(55, 96, 165, 255)),
+                Foreground = Brushes.White,
+                BorderBrush = new SolidColorBrush(Color.FromArgb(100, 160, 205, 255)),
+                Style = RoundedButtonStyle(12)
+            };
+            browse.Click += BrowsePath;
+            Grid.SetColumn(browse, 2);
+            pathGrid.Children.Add(browse);
+            pathBorder.Child = pathGrid;
+            Canvas.SetLeft(pathBorder, 410);
+            Canvas.SetTop(pathBorder, 362);
+            overlay.Children.Add(pathBorder);
+
+            var progress = new WpfProgressBar
+            {
+                Name = "InstallProgress",
+                Width = 568,
+                Height = 5,
+                Minimum = 0,
+                Maximum = 100,
+                Value = 0,
+                Foreground = new SolidColorBrush(Color.FromRgb(54, 210, 255)),
+                Background = new SolidColorBrush(Color.FromArgb(28, 255, 255, 255)),
+                BorderThickness = new Thickness(0)
+            };
+            RegisterName(progress.Name, progress);
+            Canvas.SetLeft(progress, 410);
+            Canvas.SetTop(progress, 433);
+            overlay.Children.Add(progress);
+
+            var status = new TextBlock
+            {
+                Name = "StatusText",
+                Text = "准备就绪：选择目录后即可开始安装。",
+                Foreground = new SolidColorBrush(Color.FromRgb(137, 158, 196)),
+                FontSize = 12
+            };
+            RegisterName(status.Name, status);
+            Canvas.SetLeft(status, 412);
+            Canvas.SetTop(status, 448);
+            overlay.Children.Add(status);
+
+            var install = new Button
+            {
+                Name = "InstallButton",
+                Content = "↓  开始安装",
+                Width = 172,
+                Height = 54,
+                FontSize = 17,
+                FontWeight = FontWeights.Bold,
+                Foreground = Brushes.White,
+                Background = new LinearGradientBrush(Color.FromRgb(27, 181, 255), Color.FromRgb(176, 69, 255), 0),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(135, 202, 232, 255)),
+                Style = RoundedButtonStyle(18)
+            };
+            RegisterName(install.Name, install);
+            Canvas.SetLeft(install, 655);
+            Canvas.SetTop(install, 464);
+            overlay.Children.Add(install);
+
+            var cancel = new Button
+            {
+                Content = "取消",
+                Width = 132,
+                Height = 54,
+                FontSize = 15,
+                Foreground = new SolidColorBrush(Color.FromRgb(218, 230, 255)),
+                Background = new SolidColorBrush(Color.FromArgb(28, 255, 255, 255)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(86, 163, 190, 255)),
+                Style = RoundedButtonStyle(18)
+            };
+            cancel.Click += delegate { Close(); };
+            Canvas.SetLeft(cancel, 850);
+            Canvas.SetTop(cancel, 464);
+            overlay.Children.Add(cancel);
         }
 
         private void AddContentSafePlate(Grid shell)
