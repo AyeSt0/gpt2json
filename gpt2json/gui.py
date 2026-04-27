@@ -480,13 +480,21 @@ class MainWindow(QMainWindow):
         self.max_btn.clicked.connect(self._toggle_max_restore)
         self.close_btn.clicked.connect(self.close)
 
+        window_controls = QFrame()
+        window_controls.setObjectName("WindowControls")
+        controls_layout = QHBoxLayout(window_controls)
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+        controls_layout.setSpacing(8)
+        controls_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        controls_layout.addWidget(self.theme_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        controls_layout.addSpacing(10)
+        controls_layout.addWidget(self.min_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        controls_layout.addWidget(self.max_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        controls_layout.addWidget(self.close_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+
         header.addWidget(self.logo)
         header.addLayout(title_stack, 1)
-        header.addWidget(self.theme_btn)
-        header.addSpacing(18)
-        header.addWidget(self.min_btn)
-        header.addWidget(self.max_btn)
-        header.addWidget(self.close_btn)
+        header.addWidget(window_controls, 0, Qt.AlignmentFlag.AlignVCenter)
         return header
 
     def _build_content(self) -> QHBoxLayout:
@@ -817,9 +825,10 @@ class MainWindow(QMainWindow):
             #Title {{ color:{p['text']}; font-size:26px; font-weight:900; letter-spacing:-0.6px; }}
             #Subtitle {{ color:{p['muted']}; font-size:14px; font-weight:500; }}
             #StatusPill {{ border-radius:14px; padding:6px 15px; min-width:50px; font-size:13px; font-weight:800; }}
-            #ThemeButton {{ border:1px solid {p['border']}; background:{p['card']}; color:{p['text']}; min-width:34px; max-width:34px; min-height:34px; max-height:34px; border-radius:17px; font-family:'Segoe UI Symbol','Microsoft YaHei UI'; font-size:16px; }}
+            #WindowControls {{ min-height:40px; max-height:40px; }}
+            #ThemeButton {{ border:1px solid {p['border']}; background:{p['card']}; color:{p['text']}; min-width:36px; max-width:36px; min-height:36px; max-height:36px; border-radius:18px; font-family:'Segoe UI Symbol','Microsoft YaHei UI'; font-size:16px; }}
             #ThemeButton:hover {{ border-color:#60A5FA; color:#2563EB; }}
-            #WindowButton, #CloseButton {{ border:none; background:transparent; color:{p['text']}; font-size:19px; min-width:32px; max-width:32px; min-height:30px; max-height:30px; border-radius:8px; }}
+            #WindowButton, #CloseButton {{ border:none; background:transparent; color:{p['text']}; font-size:18px; min-width:36px; max-width:36px; min-height:36px; max-height:36px; border-radius:10px; padding:0; }}
             #WindowButton:hover {{ background:{p['soft']}; }}
             #CloseButton:hover {{ background:#EF4444; color:white; }}
             #Card {{ background:{p['card']}; border:1px solid {p['border']}; border-radius:13px; }}
