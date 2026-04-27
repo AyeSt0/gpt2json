@@ -1,8 +1,8 @@
 from gpt2json.mail_providers import (
     CRED_REFRESH_TOKEN,
+    backend_plan_for_row,
     detect_mail_provider,
     mailbox_context_from_row,
-    provider_plan_for_row,
 )
 from gpt2json.models import AccountRow
 
@@ -37,21 +37,23 @@ def test_mailbox_context_keeps_token_separate_from_gpt_password():
     assert context.refresh_token == "mail-refresh-token"
     assert row.gpt_password == "gpt-password"
 
-    plan = provider_plan_for_row(row)
-    assert plan["provider"] == "microsoft"
-    assert plan["credential_supported"] is True
-    assert "graph" in plan["planned_backends"]
+    plan = backend_plan_for_row(row)
+    assert plan.provider == "microsoft"
+    assert plan.credential_supported is True
+    assert plan.primary_backend == "graph"
+    assert "graph" in plan.planned_backends
 
 
-def test_provider_plan_keeps_no_login_url_as_http_backend():
+def test_backend_plan_keeps_no_login_url_as_http_backend():
     row = AccountRow(
         line_no=1,
         login_email="gpt@example.com",
         password="gpt-password",
         otp_source="https://otp.local/latest",
     )
-    plan = provider_plan_for_row(row)
-    assert plan["provider"] == "no_login_url"
-    assert plan["credential_supported"] is True
-    assert plan["planned_backends"] == ["http_url"]
+    plan = backend_plan_for_row(row)
+    assert plan.provider == "no_login_url"
+    assert plan.credential_supported is True
+    assert plan.primary_backend == "http_url"
+    assert plan.planned_backends == ["http_url"]
 

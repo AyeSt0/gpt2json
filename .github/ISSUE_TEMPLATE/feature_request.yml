@@ -1,19 +1,19 @@
-name: Feature request
-description: Suggest an input format, OTP backend, or UI improvement
+name: 功能建议
+description: 建议新的输入格式、OTP backend 或 GUI 改进
 title: "feat: "
 labels: ["enhancement"]
 body:
   - type: textarea
     id: problem
     attributes:
-      label: Problem
-      description: What should GPT2JSON support?
+      label: 需求背景
+      description: 希望 GPT2JSON 支持什么？
     validations:
       required: true
   - type: textarea
     id: proposal
     attributes:
-      label: Proposal
-      description: Describe the format/backend/UI change. Use synthetic examples only.
+      label: 方案建议
+      description: 描述格式、backend 或 UI 改动。请只使用合成示例。
     validations:
       required: true

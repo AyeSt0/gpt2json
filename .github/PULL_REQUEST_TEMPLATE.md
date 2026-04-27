@@ -1,12 +1,12 @@
 # Pull Request
 
-## Summary
+## 摘要
 
 - 
 
-## Checklist
+## 检查项
 
-- [ ] Tests pass with `python -m pytest -q`.
-- [ ] No real credentials, tokens, cookies, exported JSON, logs, or local paths are included.
-- [ ] New input formats or OTP backends include tests.
-- [ ] Documentation is updated where needed.
+- [ ] 已运行 `python -m pytest -q`。
+- [ ] 没有提交真实账号、密码、token、cookie、导出 JSON、日志或本地路径。
+- [ ] 新增输入格式或 OTP backend 已包含测试。
+- [ ] 必要文档已更新。

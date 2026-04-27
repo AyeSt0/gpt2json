@@ -1,10 +1,10 @@
-# Input format extension guide
+# 输入格式扩展指南
 
-GPT2JSON uses a parser registry so new account file formats can be added without changing the OAuth or export layers.
+GPT2JSON 通过 parser 注册表支持多种账号文件格式。新增格式时，只需要把原始行解析成统一的 `AccountRow`，不需要改 OAuth 登录和 JSON 导出层。
 
 ## Canonical model
 
-Every parser returns `AccountRow` instances:
+每个 parser 都返回 `AccountRow`：
 
 ```python
 AccountRow(
@@ -16,48 +16,47 @@ AccountRow(
 )
 ```
 
-Credential separation is mandatory:
+必须区分 GPT 凭据和邮箱凭据：
 
-| Field | Purpose |
+| 字段 | 用途 |
 | --- | --- |
-| `password` / `gpt_password` | GPT/OpenAI login password. |
-| `email_credential_kind` | Mailbox credential type, e.g. `password`, `app_password`, `token`, `refresh_token`, `cookie`. |
-| `email_password` | Mailbox password or app-specific password. |
-| `email_token` | Mailbox access token. |
-| `email_refresh_token` | Mailbox refresh token. |
-| `email_client_id` | OAuth client identifier when supplied by a format. |
-| `email_extra` | Provider/backend-specific metadata. |
-| `otp_source` | OTP retrieval source. |
+| `password` / `gpt_password` | GPT/OpenAI 登录密码。 |
+| `email_credential_kind` | 邮箱侧凭据类型，如 `password`、`app_password`、`token`、`refresh_token`、`cookie`。 |
+| `email_password` | 邮箱密码或 app-specific password。 |
+| `email_token` | 邮箱 access token。 |
+| `email_refresh_token` | 邮箱 refresh token。 |
+| `email_client_id` | 格式中提供的 OAuth client id。 |
+| `email_extra` | provider/backend 需要的额外元数据。 |
+| `otp_source` | OTP 取码源。 |
 
-## Current format
+## 当前内置格式
 
 ```text
-GPT_EMAIL----GPT_PASSWORD----OTP_SOURCE
+GPT邮箱----GPT密码----OTP取码源
 ```
 
-This maps to:
+映射关系：
 
 ```python
-password = GPT_PASSWORD          # GPT login password
-email_password = ""             # not present in this format
-email_token = ""                # not present in this format
-otp_source = OTP_SOURCE
+password = GPT密码             # GPT 登录密码
+email_password = ""           # 当前格式不提供邮箱密码
+email_token = ""              # 当前格式不提供邮箱 token
+otp_source = OTP取码源
 ```
 
-## Adding a parser
+## 新增 parser
 
-1. Implement a parser in `gpt2json/parsing.py`.
-2. Return `AccountRow` instances with explicit `source_format`.
-3. Register it in `INPUT_FORMATS`.
-4. Add tests with synthetic data only.
+1. 在 `gpt2json/parsing.py` 中实现 parser。
+2. 返回带 `source_format` 的 `AccountRow`。
+3. 注册到 `INPUT_FORMATS`。
+4. 使用合成数据补测试，不要提交真实账号或 token。
 
-Example skeleton:
+示例骨架：
 
 ```python
 def parse_custom_lines(lines: Iterable[str]) -> list[AccountRow]:
     rows = []
     for line_no, line in enumerate(lines, 1):
-        # parse synthetic-safe fields
         rows.append(
             AccountRow(
                 line_no=line_no,

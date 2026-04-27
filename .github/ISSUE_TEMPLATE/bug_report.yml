@@ -1,33 +1,33 @@
-name: Bug report
-description: Report a reproducible problem
+name: Bug 反馈
+description: 报告可复现的问题
 title: "bug: "
 labels: ["bug"]
 body:
   - type: textarea
     id: summary
     attributes:
-      label: Summary
-      description: What happened?
+      label: 问题摘要
+      description: 发生了什么？
     validations:
       required: true
   - type: textarea
     id: reproduce
     attributes:
-      label: Reproduction
-      description: Use synthetic sample data only. Do not paste secrets.
+      label: 复现步骤
+      description: 请只使用合成示例，不要粘贴真实凭据。
       placeholder: |
-        1. Run ...
-        2. Observe ...
+        1. 运行 ...
+        2. 观察到 ...
     validations:
       required: true
   - type: input
     id: version
     attributes:
-      label: Version
+      label: 版本
       placeholder: 0.1.0
   - type: textarea
     id: logs
     attributes:
-      label: Relevant logs
-      description: Redact credentials, tokens, cookies, local usernames, and account data.
+      label: 相关日志
+      description: 请先脱敏账号、token、cookie、本地用户名和账号数据。
       render: text

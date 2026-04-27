@@ -32,12 +32,12 @@ from .engine import ExportConfig, run_export
 from .parsing import read_account_file
 
 APP_NAME = "GPT2JSON"
-APP_SUBTITLE = "Protocol-first Sub2API / CPA exporter"
+APP_SUBTITLE = "协议优先的 Sub2API / CPA JSON 导出工具"
 ICON_PATH = Path(__file__).resolve().parent / "assets" / "gpt2json_icon.png"
 
 
 def load_ui_font() -> str:
-    for font_path in (Path(r"C:\Windows\Fonts\segoeui.ttf"), Path(r"C:\Windows\Fonts\msyh.ttc")):
+    for font_path in (Path(r"C:\Windows\Fonts\msyh.ttc"), Path(r"C:\Windows\Fonts\segoeui.ttf")):
         if font_path.exists():
             font_id = QFontDatabase.addApplicationFont(str(font_path))
             families = QFontDatabase.applicationFontFamilies(font_id)
@@ -138,8 +138,8 @@ class FileOutputRow(QFrame):
         self.name_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.copy_btn = QToolButton()
         self.copy_btn.setObjectName("CopyButton")
-        self.copy_btn.setText("Copy")
-        self.copy_btn.setToolTip("Copy path")
+        self.copy_btn.setText("复制")
+        self.copy_btn.setToolTip("复制路径")
         self.copy_btn.setEnabled(False)
         self.copy_btn.clicked.connect(self.copy_path)
         layout.addWidget(icon)
@@ -218,7 +218,7 @@ class MainWindow(QMainWindow):
         subtitle.setObjectName("Subtitle")
         title_stack.addWidget(title)
         title_stack.addWidget(subtitle)
-        self.status_label = QLabel("●  Ready")
+        self.status_label = QLabel("●  就绪")
         self.status_label.setObjectName("StatusPill")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.min_btn = self._window_button("−")
@@ -249,7 +249,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(card)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(10)
-        layout.addWidget(SectionTitle(1, "Source"))
+        layout.addWidget(SectionTitle(1, "源文件"))
         source_grid = QGridLayout()
         source_grid.setContentsMargins(0, 0, 0, 0)
         source_grid.setHorizontalSpacing(12)
@@ -257,26 +257,26 @@ class MainWindow(QMainWindow):
         self.input_edit = DropLineEdit()
         self.input_edit.setObjectName("PathEdit")
         self.input_edit.setFixedHeight(40)
-        self.input_edit.setPlaceholderText("GPT email----GPT password----OTP source")
-        self.input_edit.setToolTip("Current format: GPT email----GPT password----no-login OTP URL/source. The middle field is not mailbox password.")
+        self.input_edit.setPlaceholderText("GPT邮箱----GPT密码----OTP取码源")
+        self.input_edit.setToolTip("当前格式：GPT邮箱----GPT密码----免登录验证码URL/取码源。第二段不是邮箱密码。")
         self.input_edit.dropped.connect(lambda _p: self.preflight(silent=True))
         self.output_edit = DropLineEdit(directory=True)
         self.output_edit.setObjectName("PathEdit")
         self.output_edit.setFixedHeight(40)
-        self.output_edit.setPlaceholderText("Choose export folder")
+        self.output_edit.setPlaceholderText("选择输出文件夹")
         self.output_edit.setText("output")
-        input_btn = QPushButton("Browse")
+        input_btn = QPushButton("浏览")
         input_btn.setObjectName("BrowseButton")
         input_btn.setFixedHeight(40)
         input_btn.clicked.connect(self.pick_input)
-        output_btn = QPushButton("Browse")
+        output_btn = QPushButton("浏览")
         output_btn.setObjectName("BrowseButton")
         output_btn.setFixedHeight(40)
         output_btn.clicked.connect(self.pick_output)
-        source_grid.addWidget(self._field_label("Account file"), 0, 0)
+        source_grid.addWidget(self._field_label("账号文件"), 0, 0)
         source_grid.addWidget(self.input_edit, 0, 1)
         source_grid.addWidget(input_btn, 0, 2)
-        source_grid.addWidget(self._field_label("Output folder"), 1, 0)
+        source_grid.addWidget(self._field_label("输出目录"), 1, 0)
         source_grid.addWidget(self.output_edit, 1, 1)
         source_grid.addWidget(output_btn, 1, 2)
         source_grid.setColumnMinimumWidth(0, 118)
@@ -288,7 +288,7 @@ class MainWindow(QMainWindow):
         source_holder.setLayout(source_grid)
         layout.addWidget(source_holder)
         layout.addWidget(self._divider())
-        layout.addWidget(SectionTitle(2, "Options"))
+        layout.addWidget(SectionTitle(2, "选项"))
         options_grid = QGridLayout()
         options_grid.setContentsMargins(0, 0, 0, 0)
         options_grid.setHorizontalSpacing(16)
@@ -296,9 +296,9 @@ class MainWindow(QMainWindow):
         self.pool_combo = self._combo(["plus-20", "plus", "default"])
         self.token_type_combo = self._combo(["plus", "free", "team"])
         self.concurrency_spin = self._spin(1, 64, 5)
-        options_grid.addWidget(self._field_label("Pool"), 0, 0)
-        options_grid.addWidget(self._field_label("Type"), 0, 1)
-        options_grid.addWidget(self._field_label("Concurrency"), 0, 2)
+        options_grid.addWidget(self._field_label("池名称"), 0, 0)
+        options_grid.addWidget(self._field_label("令牌类型"), 0, 1)
+        options_grid.addWidget(self._field_label("并发数"), 0, 2)
         options_grid.addWidget(self.pool_combo, 1, 0)
         options_grid.addWidget(self.token_type_combo, 1, 1)
         options_grid.addWidget(self.concurrency_spin, 1, 2)
@@ -308,7 +308,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(options_grid)
         self.advanced_btn = QToolButton()
         self.advanced_btn.setObjectName("AdvancedBar")
-        self.advanced_btn.setText("Advanced OTP  v")
+        self.advanced_btn.setText("高级 OTP 设置  v")
         self.advanced_btn.setFixedHeight(40)
         self.advanced_btn.setCheckable(True)
         self.advanced_btn.clicked.connect(self.toggle_advanced)
@@ -321,9 +321,9 @@ class MainWindow(QMainWindow):
         self.timeout_spin = self._spin(10, 600, 30)
         self.otp_timeout_spin = self._spin(10, 600, 180)
         self.otp_interval_spin = self._spin(1, 60, 3)
-        advanced_grid.addWidget(self._field_label("HTTP timeout"), 0, 0)
-        advanced_grid.addWidget(self._field_label("OTP timeout"), 0, 1)
-        advanced_grid.addWidget(self._field_label("OTP interval"), 0, 2)
+        advanced_grid.addWidget(self._field_label("HTTP 超时"), 0, 0)
+        advanced_grid.addWidget(self._field_label("OTP 超时"), 0, 1)
+        advanced_grid.addWidget(self._field_label("轮询间隔"), 0, 2)
         advanced_grid.addWidget(self.timeout_spin, 1, 0)
         advanced_grid.addWidget(self.otp_timeout_spin, 1, 1)
         advanced_grid.addWidget(self.otp_interval_spin, 1, 2)
@@ -331,14 +331,14 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.advanced_panel)
         format_row = QHBoxLayout()
         format_row.setSpacing(14)
-        format_row.addWidget(self._field_label("Output format"))
+        format_row.addWidget(self._field_label("输出格式"))
         format_row.addSpacing(18)
         format_row.addWidget(self._selected_chip("Sub2API JSON"))
         format_row.addWidget(self._selected_chip("CPA Manifest"))
         format_row.addStretch(1)
         layout.addLayout(format_row)
         layout.addWidget(self._divider())
-        layout.addWidget(SectionTitle(3, "Export"))
+        layout.addWidget(SectionTitle(3, "导出"))
         progress_row = QHBoxLayout()
         progress_row.setSpacing(10)
         self.progress = QProgressBar()
@@ -353,10 +353,10 @@ class MainWindow(QMainWindow):
         layout.addLayout(progress_row)
         stats_row = QHBoxLayout()
         stats_row.setSpacing(0)
-        self.total_stat = InlineStat("Total", "#0F172A")
-        self.success_stat = InlineStat("Success", "#16A34A")
-        self.failed_stat = InlineStat("Failed", "#DC2626")
-        self.running_stat = InlineStat("Running", "#2563EB")
+        self.total_stat = InlineStat("总数", "#0F172A")
+        self.success_stat = InlineStat("成功", "#16A34A")
+        self.failed_stat = InlineStat("失败", "#DC2626")
+        self.running_stat = InlineStat("运行中", "#2563EB")
         for idx, stat in enumerate([self.total_stat, self.success_stat, self.failed_stat, self.running_stat]):
             stats_row.addWidget(stat, 1)
             if idx < 3:
@@ -364,15 +364,15 @@ class MainWindow(QMainWindow):
         layout.addLayout(stats_row)
         buttons = QHBoxLayout()
         buttons.setSpacing(16)
-        self.preflight_btn = QPushButton("Preflight")
+        self.preflight_btn = QPushButton("预检查")
         self.preflight_btn.setObjectName("SecondaryButton")
         self.preflight_btn.setFixedHeight(42)
         self.preflight_btn.clicked.connect(self.preflight)
-        self.run_btn = QPushButton("Start Export")
+        self.run_btn = QPushButton("开始导出")
         self.run_btn.setObjectName("PrimaryButton")
         self.run_btn.setFixedHeight(42)
         self.run_btn.clicked.connect(self.start_run)
-        self.open_out_btn = QPushButton("Open Output")
+        self.open_out_btn = QPushButton("打开输出目录")
         self.open_out_btn.setObjectName("SecondaryButton")
         self.open_out_btn.setFixedHeight(42)
         self.open_out_btn.clicked.connect(self.open_output_dir)
@@ -392,7 +392,7 @@ class MainWindow(QMainWindow):
         output_layout = QVBoxLayout(output_card)
         output_layout.setContentsMargins(16, 16, 16, 16)
         output_layout.setSpacing(14)
-        output_layout.addWidget(self._card_title("JSON", "Output files"))
+        output_layout.addWidget(self._card_title("JSON", "输出文件"))
         self.sub2api_row = FileOutputRow("sub2api_plus_accounts.secret.json")
         self.cpa_row = FileOutputRow("cpa_manifest.json")
         output_layout.addWidget(self.sub2api_row)
@@ -403,11 +403,11 @@ class MainWindow(QMainWindow):
         log_layout = QVBoxLayout(log_card)
         log_layout.setContentsMargins(16, 16, 16, 16)
         log_layout.setSpacing(14)
-        log_layout.addWidget(self._card_title(">_", "Live log"))
+        log_layout.addWidget(self._card_title(">_", "运行日志"))
         self.log_edit = QPlainTextEdit()
         self.log_edit.setObjectName("LogBox")
         self.log_edit.setReadOnly(True)
-        self.log_edit.setPlainText("Waiting to start")
+        self.log_edit.setPlainText("等待开始")
         log_layout.addWidget(self.log_edit, 1)
         layout.addWidget(log_card, 1)
         return right
@@ -546,7 +546,7 @@ class MainWindow(QMainWindow):
     def toggle_advanced(self) -> None:
         visible = self.advanced_btn.isChecked()
         self.advanced_panel.setVisible(visible)
-        self.advanced_btn.setText("Advanced OTP  ^" if visible else "Advanced OTP  v")
+        self.advanced_btn.setText("高级 OTP 设置  ^" if visible else "高级 OTP 设置  v")
 
     def _set_status(self, text: str, mode: str) -> None:
         styles = {
@@ -566,13 +566,13 @@ class MainWindow(QMainWindow):
         self.log_edit.verticalScrollBar().setValue(self.log_edit.verticalScrollBar().maximum())
 
     def pick_input(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Select account file", str(Path.cwd()), "Text Files (*.txt);;All Files (*)")
+        path, _ = QFileDialog.getOpenFileName(self, "选择账号文件", str(Path.cwd()), "文本文件 (*.txt);;所有文件 (*)")
         if path:
             self.input_edit.setText(path)
             self.preflight(silent=True)
 
     def pick_output(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Select output folder", self.output_edit.text() or str(Path.cwd()))
+        path = QFileDialog.getExistingDirectory(self, "选择输出目录", self.output_edit.text() or str(Path.cwd()))
         if path:
             self.output_edit.setText(path)
 
@@ -585,13 +585,13 @@ class MainWindow(QMainWindow):
         input_path = Path(self.input_edit.text().strip())
         if not input_path.exists() or not input_path.is_file():
             if not silent:
-                QMessageBox.warning(self, "Missing input", "Choose an account .txt file first.")
+                QMessageBox.warning(self, "缺少输入", "请先选择账号 .txt 文件。")
             return False
         try:
             rows = read_account_file(input_path)
         except Exception as exc:
             if not silent:
-                QMessageBox.critical(self, "Preflight failed", f"Read failed: {type(exc).__name__}: {exc}")
+                QMessageBox.critical(self, "预检查失败", f"读取失败：{type(exc).__name__}: {exc}")
             return False
         self._total = len(rows)
         self.total_stat.set_value(self._total)
@@ -601,24 +601,24 @@ class MainWindow(QMainWindow):
         self.running_stat.set_value(0)
         self._update_progress()
         if not silent:
-            self.append_log(f"[preflight] valid rows: {self._total} | format=auto | outputs: Sub2API JSON + CPA Manifest")
-            QMessageBox.information(self, "Preflight complete", f"Valid rows: {self._total}\nFormat: Auto detect\nOutputs: Sub2API JSON + CPA Manifest")
+            self.append_log(f"[预检查] 有效行数: {self._total} | 格式=auto | 输出: Sub2API JSON + CPA Manifest")
+            QMessageBox.information(self, "预检查完成", f"有效行数：{self._total}\n格式：自动识别\n输出：Sub2API JSON + CPA Manifest")
         return bool(rows)
 
     def start_run(self) -> None:
         if self._worker_thread and self._worker_thread.is_alive():
-            QMessageBox.information(self, "Running", "The current task is still running.")
+            QMessageBox.information(self, "正在运行", "当前任务还没有结束。")
             return
         input_path = self.input_edit.text().strip()
         output_dir = self.output_edit.text().strip()
         if not input_path:
-            QMessageBox.warning(self, "Missing input", "Choose an account .txt file first.")
+            QMessageBox.warning(self, "缺少输入", "请先选择账号 .txt 文件。")
             return
         if not output_dir:
-            QMessageBox.warning(self, "Missing output", "Choose an output folder first.")
+            QMessageBox.warning(self, "缺少输出", "请先选择输出目录。")
             return
         if not self.preflight(silent=True):
-            QMessageBox.warning(self, "No valid rows", "No valid account rows were found.")
+            QMessageBox.warning(self, "没有有效账号", "账号文件中没有识别到有效行。")
             return
         self._done = self._success = self._failure = self._running = 0
         self.success_stat.set_value(0)
@@ -627,7 +627,7 @@ class MainWindow(QMainWindow):
         self._update_progress()
         self.log_edit.clear()
         self._log_waiting = False
-        self._set_status("●  Running", "running")
+        self._set_status("●  运行中", "running")
         self.run_btn.setEnabled(False)
         self.preflight_btn.setEnabled(False)
         self.sub2api_row.set_path("")
@@ -685,7 +685,7 @@ class MainWindow(QMainWindow):
     def on_done(self, summary: dict) -> None:
         self.run_btn.setEnabled(True)
         self.preflight_btn.setEnabled(True)
-        self._set_status("●  Done", "done")
+        self._set_status("●  完成", "done")
         self._done = int(summary.get("success_count", 0) or 0) + int(summary.get("failure_count", 0) or 0)
         self._running = 0
         self.running_stat.set_value(0)
@@ -695,21 +695,21 @@ class MainWindow(QMainWindow):
         self.sub2api_row.set_path(sub2api_path)
         self.cpa_row.set_path(cpa_path)
         self.append_log("")
-        self.append_log(f"[summary] success={summary.get('success_count', 0)} failure={summary.get('failure_count', 0)}")
+        self.append_log(f"[汇总] 成功={summary.get('success_count', 0)} 失败={summary.get('failure_count', 0)}")
         if sub2api_path:
             self.append_log(f"[sub2api] {sub2api_path}")
         if cpa_path:
             self.append_log(f"[cpa] {cpa_path}")
-        QMessageBox.information(self, "Complete", f"Export complete\nSuccess: {summary.get('success_count', 0)}\nFailed: {summary.get('failure_count', 0)}")
+        QMessageBox.information(self, "完成", f"导出完成\n成功：{summary.get('success_count', 0)}\n失败：{summary.get('failure_count', 0)}")
 
     def on_failed(self, message: str) -> None:
         self.run_btn.setEnabled(True)
         self.preflight_btn.setEnabled(True)
         self._running = 0
         self.running_stat.set_value(0)
-        self._set_status("●  Failed", "failed")
+        self._set_status("●  失败", "failed")
         self.append_log(f"[fatal] {message}")
-        QMessageBox.critical(self, "Run failed", message)
+        QMessageBox.critical(self, "运行失败", message)
 
 
 def main() -> int:

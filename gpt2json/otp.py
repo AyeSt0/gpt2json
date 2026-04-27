@@ -10,7 +10,7 @@ from typing import Any
 
 from curl_cffi import requests
 
-from .mail_providers import mailbox_context_from_row, provider_plan_for_row
+from .mail_providers import backend_plan_for_row
 from .models import AccountRow
 from .parsing import is_url_source, normalize_email, secret_hash
 
@@ -158,17 +158,17 @@ class OtpFetcher:
             return True
         return False
 
-    def provider_plan_for_row(self, row: AccountRow) -> dict[str, object]:
-        return provider_plan_for_row(row)
+    def backend_plan_for_row(self, row: AccountRow) -> dict[str, object]:
+        return backend_plan_for_row(row).to_event()
 
     def has_backend_for_row(self, row: AccountRow) -> bool:
         if self.has_backend_for_source(row.otp_source):
             return True
-        # Mailbox provider adapters are intentionally routed through row-level
-        # methods so future IMAP/Graph/JMAP/provider-API backends do not touch the
+        # Mailbox backends are intentionally routed through row-level methods
+        # so future IMAP/Graph/JMAP/POP3/API implementations do not touch the
         # OAuth login protocol code. Returning False today keeps current
         # behavior unchanged until a concrete adapter is implemented.
-        _context = mailbox_context_from_row(row)
+        _plan = backend_plan_for_row(row)
         return False
 
     def prime_row(self, row: AccountRow, proxies: Any = None) -> None:
@@ -222,8 +222,8 @@ class OtpFetcher:
         code = self.fetch_source_once(row.otp_source, row.login_email, proxies=proxies)
         if code:
             return code
-        # Future mailbox provider adapters plug in here based on
-        # mailbox_context_from_row(row). Current release intentionally only
+        # Future mailbox backend adapters plug in here based on
+        # backend_plan_for_row(row). Current release intentionally only
         # executes URL and command backends.
         return ""
 
@@ -249,7 +249,7 @@ class OtpFetcher:
     def poll_row(self, row: AccountRow, proxies: Any = None) -> str:
         if self.has_backend_for_source(row.otp_source):
             return self.poll_source(row.otp_source, row.login_email, proxies=proxies)
-        # Future provider backends should share the same timeout/interval loop.
+        # Future mailbox backends should share the same timeout/interval loop.
         if not self.has_backend_for_row(row):
             return ""
         deadline = time.time() + self.timeout

@@ -814,7 +814,7 @@ class ProtocolLoginClient:
             if needs_otp:
                 result.otp_required = True
                 result.stage = "email_verification"
-                result.events.append({"stage": "otp_backend_plan", **otp_fetcher.provider_plan_for_row(row)})
+                result.events.append({"stage": "otp_backend_plan", **otp_fetcher.backend_plan_for_row(row)})
                 code = otp_fetcher.poll_row(row, proxies=proxies)
                 if not code:
                     result.status = "otp_timeout"

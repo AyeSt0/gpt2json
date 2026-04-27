@@ -1,20 +1,28 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
 
+from .mail_backends import (
+    BACKEND_API,
+    BACKEND_GRAPH,
+    BACKEND_IMAP,
+    BACKEND_IMAP_XOAUTH2,
+    BACKEND_JMAP,
+    BACKEND_POP3,
+    CRED_APP_PASSWORD,
+    CRED_COOKIE,
+    CRED_OAUTH2,
+    CRED_PASSWORD,
+    CRED_REFRESH_TOKEN,
+    CRED_TOKEN,
+    BackendPlan,
+    CredentialKind,
+    build_backend_plan,
+    normalize_credential_kind,
+    url_backend_plan,
+)
 from .models import AccountRow
 from .parsing import is_url_source, normalize_email
-
-
-CredentialKind = str
-
-CRED_PASSWORD: CredentialKind = "password"
-CRED_APP_PASSWORD: CredentialKind = "app_password"
-CRED_TOKEN: CredentialKind = "token"
-CRED_REFRESH_TOKEN: CredentialKind = "refresh_token"
-CRED_COOKIE: CredentialKind = "cookie"
-CRED_OAUTH2: CredentialKind = "oauth2"
 
 
 @dataclass(frozen=True)
@@ -23,7 +31,7 @@ class MailProviderProfile:
     display_name: str
     domains: tuple[str, ...]
     credential_kinds: tuple[CredentialKind, ...]
-    backends: tuple[str, ...]
+    preferred_backends: tuple[str, ...]
     notes: str = ""
 
 
@@ -48,7 +56,7 @@ GENERIC_IMAP = MailProviderProfile(
     display_name="Generic IMAP",
     domains=(),
     credential_kinds=(CRED_PASSWORD, CRED_APP_PASSWORD, CRED_TOKEN, CRED_REFRESH_TOKEN),
-    backends=("imap",),
+    preferred_backends=(BACKEND_IMAP, BACKEND_IMAP_XOAUTH2),
     notes="Fallback profile for domains that do not have a dedicated adapter yet.",
 )
 
@@ -59,7 +67,7 @@ PROVIDERS: tuple[MailProviderProfile, ...] = (
         display_name="Outlook / Hotmail / Live",
         domains=("outlook.com", "hotmail.com", "live.com", "msn.com", "passport.com"),
         credential_kinds=(CRED_PASSWORD, CRED_APP_PASSWORD, CRED_TOKEN, CRED_REFRESH_TOKEN, CRED_OAUTH2),
-        backends=("graph", "imap_xoauth2", "imap"),
+        preferred_backends=(BACKEND_GRAPH, BACKEND_IMAP_XOAUTH2, BACKEND_IMAP),
         notes="Prefer Graph/OAuth token when provided; app password/basic IMAP can be added as fallback.",
     ),
     MailProviderProfile(
@@ -67,15 +75,15 @@ PROVIDERS: tuple[MailProviderProfile, ...] = (
         display_name="Gmail",
         domains=("gmail.com", "googlemail.com"),
         credential_kinds=(CRED_APP_PASSWORD, CRED_TOKEN, CRED_REFRESH_TOKEN, CRED_OAUTH2),
-        backends=("gmail_api", "imap_xoauth2", "imap"),
-        notes="Prefer Gmail API/OAuth; basic account password is usually not accepted.",
+        preferred_backends=(BACKEND_API, BACKEND_IMAP_XOAUTH2, BACKEND_IMAP),
+        notes="Prefer API/OAuth; basic account password is usually not accepted.",
     ),
     MailProviderProfile(
         id="fastmail",
         display_name="Fastmail",
         domains=("fastmail.com", "fastmail.fm", "fastmail.cn", "messagingengine.com"),
         credential_kinds=(CRED_APP_PASSWORD, CRED_TOKEN, CRED_PASSWORD),
-        backends=("imap", "jmap"),
+        preferred_backends=(BACKEND_JMAP, BACKEND_IMAP),
         notes="Fastmail commonly uses app passwords for IMAP/JMAP integrations.",
     ),
     MailProviderProfile(
@@ -83,7 +91,7 @@ PROVIDERS: tuple[MailProviderProfile, ...] = (
         display_name="iCloud Mail",
         domains=("icloud.com", "me.com", "mac.com"),
         credential_kinds=(CRED_APP_PASSWORD,),
-        backends=("imap",),
+        preferred_backends=(BACKEND_IMAP,),
         notes="iCloud mail access normally requires an app-specific password.",
     ),
     MailProviderProfile(
@@ -91,7 +99,7 @@ PROVIDERS: tuple[MailProviderProfile, ...] = (
         display_name="QQ Mail",
         domains=("qq.com", "vip.qq.com", "foxmail.com"),
         credential_kinds=(CRED_APP_PASSWORD, CRED_PASSWORD, CRED_TOKEN),
-        backends=("imap", "pop3"),
+        preferred_backends=(BACKEND_IMAP, BACKEND_POP3, BACKEND_API),
         notes="QQ/foxmail often use an authorization code instead of the normal mailbox password.",
     ),
     MailProviderProfile(
@@ -99,7 +107,7 @@ PROVIDERS: tuple[MailProviderProfile, ...] = (
         display_name="163 / 126 / Yeah",
         domains=("163.com", "126.com", "yeah.net", "vip.163.com", "vip.126.com"),
         credential_kinds=(CRED_APP_PASSWORD, CRED_PASSWORD, CRED_TOKEN),
-        backends=("imap", "pop3"),
+        preferred_backends=(BACKEND_IMAP, BACKEND_POP3, BACKEND_API),
         notes="NetEase mail commonly uses client authorization code for IMAP/POP.",
     ),
     MailProviderProfile(
@@ -107,7 +115,7 @@ PROVIDERS: tuple[MailProviderProfile, ...] = (
         display_name="Atomic Mail",
         domains=("atomicmail.io", "atomicmail.com"),
         credential_kinds=(CRED_PASSWORD, CRED_APP_PASSWORD, CRED_TOKEN, CRED_REFRESH_TOKEN),
-        backends=("imap", "api"),
+        preferred_backends=(BACKEND_API, BACKEND_IMAP),
         notes="Dedicated adapter can choose API/token or IMAP depending on supplied credential.",
     ),
     MailProviderProfile(
@@ -115,7 +123,7 @@ PROVIDERS: tuple[MailProviderProfile, ...] = (
         display_name="LuckMail",
         domains=("luckmail.com", "luckmail.net", "luckmail.org"),
         credential_kinds=(CRED_PASSWORD, CRED_APP_PASSWORD, CRED_TOKEN, CRED_REFRESH_TOKEN, CRED_COOKIE),
-        backends=("api", "imap", "pop3"),
+        preferred_backends=(BACKEND_API, BACKEND_IMAP, BACKEND_POP3),
         notes="Provider slot reserved for LuckMail-style account/password or token-based mailbox access.",
     ),
 )
@@ -138,24 +146,6 @@ def detect_mail_provider(email_or_domain: str) -> MailProviderProfile:
     if "luckmail" in domain:
         return PROVIDER_BY_ID["luckmail"]
     return PROVIDER_BY_DOMAIN.get(domain, GENERIC_IMAP)
-
-
-def normalize_credential_kind(kind: str) -> CredentialKind:
-    value = str(kind or "").strip().lower().replace("-", "_")
-    aliases = {
-        "pass": CRED_PASSWORD,
-        "pwd": CRED_PASSWORD,
-        "mail_password": CRED_PASSWORD,
-        "app_pwd": CRED_APP_PASSWORD,
-        "app_pass": CRED_APP_PASSWORD,
-        "auth_code": CRED_APP_PASSWORD,
-        "authorization_code": CRED_APP_PASSWORD,
-        "access_token": CRED_TOKEN,
-        "refresh": CRED_REFRESH_TOKEN,
-        "refresh_token": CRED_REFRESH_TOKEN,
-        "oauth": CRED_OAUTH2,
-    }
-    return aliases.get(value, value)
 
 
 def provider_supports_credential(provider: MailProviderProfile, kind: str) -> bool:
@@ -185,27 +175,20 @@ def mailbox_context_from_row(row: AccountRow) -> MailboxContext | None:
     )
 
 
-def provider_plan_for_row(row: AccountRow) -> dict[str, object]:
+def backend_plan_for_row(row: AccountRow) -> BackendPlan:
     if is_url_source(row.otp_source):
-        return {
-            "provider": "no_login_url",
-            "display_name": "No-login OTP URL",
-            "domain": "",
-            "credential_kind": "url",
-            "credential_supported": True,
-            "planned_backends": ["http_url"],
-        }
+        return url_backend_plan()
     context = mailbox_context_from_row(row)
     provider = context.provider if context else detect_mail_provider(row.otp_email or row.otp_source or row.login_email)
     kind = context.credential_kind if context else ""
-    return {
-        "provider": provider.id,
-        "display_name": provider.display_name,
-        "domain": email_domain((context.email if context else row.otp_email or row.otp_source or row.login_email)),
-        "credential_kind": kind,
-        "credential_supported": provider_supports_credential(provider, kind),
-        "planned_backends": list(provider.backends),
-    }
+    return build_backend_plan(
+        source_kind="mailbox",
+        provider=provider.id,
+        display_name=provider.display_name,
+        domain=email_domain((context.email if context else row.otp_email or row.otp_source or row.login_email)),
+        credential_kind=kind,
+        preferred_backends=provider.preferred_backends,
+    )
 
 
 def list_mail_providers() -> list[MailProviderProfile]:

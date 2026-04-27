@@ -1,15 +1,21 @@
-# Security Policy
+# 安全策略
 
-## Supported versions
+## 支持版本
 
-The project is currently pre-1.0. Security fixes target the latest `main` branch and the latest published release.
+当前项目处于 0.x 阶段。安全修复优先面向 `main` 分支和最新发布版本。
 
-## Reporting a vulnerability
+## 报告安全问题
 
-Please report vulnerabilities through GitHub private vulnerability reporting if it is enabled for the repository, or open a minimal issue that does not include secrets or live credentials.
+如发现漏洞，请优先使用 GitHub Private Vulnerability Reporting（如果仓库已启用）。如果需要发 issue，请只提供最小复现信息，不要包含任何真实凭据。
 
-Do not include real account credentials, tokens, cookies, mailbox contents, exported JSON files, or private logs in public issues.
+请不要在公开 issue / PR / 日志中粘贴：
 
-## Secret handling
+- 真实账号；
+- 密码、token、refresh token、cookie；
+- 邮箱内容；
+- 导出的 JSON；
+- 本地数据库或私有日志。
 
-GPT2JSON is designed so source code and release artifacts do not contain user credentials. Generated output files and logs are ignored by `.gitignore`; keep them outside commits and releases.
+## Secret 处理
+
+GPT2JSON 的源码和 release artifact 不应包含用户凭据。输出目录、日志、数据库和 `*.secret.json` 默认被 `.gitignore` 忽略。
