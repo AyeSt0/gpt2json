@@ -763,7 +763,13 @@ class ProtocolLoginClient:
                 allow_redirects=True,
                 timeout=30,
             )
-            result.events.append({"stage": "entry", "status_code": int(getattr(entry, "status_code", 0) or 0), "url": str(getattr(entry, "url", "") or "")[:300]})
+            entry_status = int(getattr(entry, "status_code", 0) or 0)
+            result.events.append({"stage": "entry", "status_code": entry_status, "url": str(getattr(entry, "url", "") or "")[:300]})
+            if entry_status >= 400:
+                result.status = "auth_entry_error"
+                result.stage = "entry"
+                result.reason = f"http_{entry_status}"
+                return result
 
             did = _get_preferred_session_cookie_value(
                 session,
@@ -787,6 +793,11 @@ class ProtocolLoginClient:
             )
             authorize_transition = _extract_transition_targets_from_response(authorize_resp, request_url="https://auth.openai.com/api/accounts/authorize/continue")
             result.events.append({"stage": "authorize_continue", "status_code": authorize_transition["status_code"], "page_type": authorize_transition["page_type"], "continue_url": authorize_transition["continue_url"][:300]})
+            if authorize_transition["status_code"] >= 400:
+                result.status = "authorize_continue_error"
+                result.stage = "authorize_continue"
+                result.reason = authorize_transition["error_code"] or f"http_{authorize_transition['status_code']}"
+                return result
 
             pwd_resp = self._post_with_retry(
                 session,
