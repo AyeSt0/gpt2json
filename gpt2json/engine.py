@@ -1,0 +1,211 @@
+from __future__ import annotations
+
+import json
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Callable
+
+from .formats import build_export, convert_current_token_to_sub, write_json
+from .models import AttemptResult, utc_now_iso
+from .otp import OtpFetcher
+from .parsing import mask_email, mask_source, read_account_file, secret_hash, slug_email
+from .protocol import ProtocolLoginClient
+
+
+Logger = Callable[[str], None]
+EventCallback = Callable[[dict[str, Any]], None]
+
+
+@dataclass
+class ExportConfig:
+    input_path: str
+    out_dir: str
+    concurrency: int = 5
+    pool: str = "plus"
+    token_type: str = "plus"
+    otp_mode: str = "auto"
+    otp_command: str = ""
+    otp_timeout: int = 180
+    otp_interval: int = 3
+    timeout: int = 30
+    verify_ssl: bool = True
+    impersonate: str = "chrome124"
+    input_format: str = "auto"
+
+
+def _compact_json(payload: Any) -> str:
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def _append_jsonl(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(_compact_json(payload) + "\n")
+
+
+def _prepare_token_data(token_json: str, *, pool: str, token_type: str) -> dict[str, Any]:
+    data = json.loads(token_json)
+    if not isinstance(data, dict):
+        raise ValueError("token_json top-level is not an object")
+    data.setdefault("source", "gpt2json")
+    data.setdefault("pool", pool)
+    if token_type:
+        data["type"] = token_type
+    return data
+
+
+def _build_sub_account(token_payload: dict[str, Any], *, pool: str, index: int) -> dict[str, Any]:
+    account = convert_current_token_to_sub(token_payload, index=index)
+    email = str((account.get("extra") or {}).get("email") or token_payload.get("email") or "").strip()
+    if pool and email:
+        account["name"] = f"{pool}-{email}"
+    extra = account.setdefault("extra", {})
+    if isinstance(extra, dict):
+        extra["pool"] = pool
+        extra["source"] = "gpt2json"
+    return account
+
+
+def _safe_result_row(result: AttemptResult) -> dict[str, Any]:
+    return {
+        "line_no": result.row.line_no,
+        "email_hash": secret_hash(result.row.login_email),
+        "login_masked": mask_email(result.row.login_email),
+        "otp_source_masked": mask_source(result.row.otp_source),
+        "status": result.status,
+        "stage": result.stage,
+        "otp_required": bool(result.otp_required),
+        "reason": result.reason,
+        "events": result.events[-8:],
+        "started_at": result.started_at,
+        "finished_at": result.finished_at,
+    }
+
+
+def run_export(
+    config: ExportConfig,
+    *,
+    logger: Logger | None = None,
+    on_event: EventCallback | None = None,
+    client_factory: Callable[[], ProtocolLoginClient] | None = None,
+) -> dict[str, Any]:
+    log = logger or (lambda _text: None)
+    emit = on_event or (lambda _event: None)
+    out_dir = Path(config.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    rows = read_account_file(config.input_path, format_id=config.input_format)
+    summary: dict[str, Any] = {
+        "started_at": utc_now_iso(),
+        "input": str(config.input_path),
+        "out_dir": str(out_dir),
+        "row_count": len(rows),
+        "concurrency": max(1, int(config.concurrency or 1)),
+        "pool": config.pool,
+        "token_type": config.token_type,
+        "otp_mode": config.otp_mode,
+        "input_format": config.input_format,
+    }
+    write_json(out_dir / "progress.json", summary)
+    emit(
+        {
+            "type": "started",
+            "total": len(rows),
+            "out_dir": str(out_dir),
+            "concurrency": summary["concurrency"],
+        }
+    )
+    if not rows:
+        summary["finished_at"] = utc_now_iso()
+        summary["success_count"] = 0
+        summary["error"] = "no_valid_rows"
+        write_json(out_dir / "summary.json", summary)
+        emit({"type": "finished", "summary": summary})
+        return summary
+
+    lock = threading.Lock()
+    results: list[AttemptResult] = []
+    successes: list[dict[str, Any]] = []
+    client_builder = client_factory or (lambda: ProtocolLoginClient(impersonate=config.impersonate, verify_ssl=config.verify_ssl, timeout=config.timeout))
+
+    def run_one(row: Any) -> AttemptResult:
+        emit({"type": "row_start", "line_no": row.line_no, "email_masked": mask_email(row.login_email)})
+        client = client_builder()
+        otp_fetcher = OtpFetcher(
+            mode=config.otp_mode,
+            command=config.otp_command,
+            timeout=config.otp_timeout,
+            interval=config.otp_interval,
+            impersonate=config.impersonate,
+            verify=config.verify_ssl,
+        )
+        return client.login_and_exchange(row, otp_fetcher=otp_fetcher)
+
+    log(f"[+] loaded rows: {len(rows)} | concurrency={summary['concurrency']}")
+    with ThreadPoolExecutor(max_workers=summary["concurrency"]) as executor:
+        future_map = {executor.submit(run_one, row): row for row in rows}
+        for future in as_completed(future_map):
+            result = future.result()
+            with lock:
+                results.append(result)
+                _append_jsonl(out_dir / "results.safe.jsonl", _safe_result_row(result))
+                if result.ok:
+                    token_payload = _prepare_token_data(result.token_json, pool=config.pool, token_type=config.token_type)
+                    successes.append(token_payload)
+            status_line = f"[{result.status}] {mask_email(result.row.login_email)}"
+            if result.reason:
+                status_line += f" | {result.reason}"
+            log(status_line)
+            emit(
+                {
+                    "type": "row_done",
+                    "done": len(results),
+                    "total": len(rows),
+                    "ok": bool(result.ok),
+                    "status": result.status,
+                    "stage": result.stage,
+                    "reason": result.reason,
+                    "line_no": result.row.line_no,
+                    "email_masked": mask_email(result.row.login_email),
+                    "otp_required": bool(result.otp_required),
+                }
+            )
+
+    successes.sort(key=lambda item: str(item.get("email") or ""))
+    sub_accounts: list[dict[str, Any]] = []
+    cpa_dir = out_dir / "CPA"
+    sub_dir = out_dir / "sub_accounts"
+    for index, token_payload in enumerate(successes, 1):
+        email = str(token_payload.get("email") or "").strip()
+        slug = slug_email(email)
+        suffix = f"{int(time.time())}_{index:03d}"
+        write_json(cpa_dir / f"token_{slug}_{suffix}.json", token_payload)
+        sub_account = _build_sub_account(token_payload, pool=config.pool, index=index)
+        sub_accounts.append(sub_account)
+        write_json(sub_dir / f"sub_{slug}_{suffix}.json", sub_account)
+
+    if successes:
+        write_json(
+            out_dir / "cpa_manifest.json",
+            {
+                "exported_at": utc_now_iso(),
+                "count": len(successes),
+                "accounts": successes,
+            },
+        )
+        write_json(out_dir / "sub2api_plus_accounts.secret.json", build_export(sub_accounts))
+
+    summary["finished_at"] = utc_now_iso()
+    summary["success_count"] = len(successes)
+    summary["failure_count"] = len(rows) - len(successes)
+    summary["success_emails"] = sorted(str(item.get("email") or "") for item in successes if str(item.get("email") or "").strip())
+    summary["sub2api_export"] = str(out_dir / "sub2api_plus_accounts.secret.json") if successes else ""
+    summary["cpa_manifest"] = str(out_dir / "cpa_manifest.json") if successes else ""
+    write_json(out_dir / "summary.json", summary)
+    write_json(out_dir / "progress.json", summary)
+    log(f"[done] success={summary['success_count']} failure={summary['failure_count']}")
+    emit({"type": "finished", "summary": summary})
+    return summary
+

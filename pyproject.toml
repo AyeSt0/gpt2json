@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gpt2json"
+version = "0.1.0"
+description = "Protocol-first concurrent exporter for account lines to Sub2API and CPA JSON."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "GPT2JSON Contributors" }]
+keywords = ["sub2api", "cpa", "json", "oauth", "desktop", "exporter"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "curl-cffi>=0.7.4",
+    "selectolax>=0.3.26",
+]
+
+[project.optional-dependencies]
+gui = ["PySide6>=6.7"]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.urls]
+Homepage = "https://github.com/AyeSt0/gpt2json"
+Repository = "https://github.com/AyeSt0/gpt2json"
+Issues = "https://github.com/AyeSt0/gpt2json/issues"
+Documentation = "https://github.com/AyeSt0/gpt2json#readme"
+
+[project.scripts]
+gpt2json = "gpt2json.cli:main"
+gpt2json-gui = "gpt2json.gui:main"
+
+[tool.setuptools.package-data]
+gpt2json = ["assets/*.png"]
+
+[tool.setuptools.packages.find]
+include = ["gpt2json*"]
+exclude = ["tests*", "docs*", "scripts*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+

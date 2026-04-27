@@ -1,0 +1,54 @@
+import json
+from pathlib import Path
+
+from gpt2json.engine import ExportConfig, run_export
+from gpt2json.models import AttemptResult
+from gpt2json.protocol import ProtocolLoginClient
+
+
+class FakeClient(ProtocolLoginClient):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def login_and_exchange(self, row, *, otp_fetcher, proxies=None):
+        del otp_fetcher, proxies
+        if "ok" in row.login_email:
+            token_json = json.dumps(
+                {
+                    "access_token": "a.b.c",
+                    "refresh_token": "refresh",
+                    "account_id": f"acc-{row.line_no}",
+                    "email": row.login_email,
+                    "type": "plus",
+                    "expired": "2026-04-27T00:00:00Z",
+                },
+                ensure_ascii=False,
+            )
+            return AttemptResult(row=row, status="success", stage="callback", token_json=token_json)
+        return AttemptResult(row=row, status="bad_password", stage="password_verify", reason="bad_password")
+
+
+def test_run_export_writes_cpa_and_sub2api(tmp_path: Path):
+    input_path = tmp_path / "accounts.txt"
+    input_path.write_text(
+        "\n".join(
+            [
+                "ok1@example.com----pass----https://otp.local/1",
+                "bad@example.com----pass----https://otp.local/2",
+                "ok2@example.com----pass----https://otp.local/3",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    out_dir = tmp_path / "out"
+    summary = run_export(
+        ExportConfig(input_path=str(input_path), out_dir=str(out_dir), concurrency=3),
+        client_factory=lambda: FakeClient(),
+    )
+    assert summary["success_count"] == 2
+    assert (out_dir / "cpa_manifest.json").exists()
+    assert (out_dir / "sub2api_plus_accounts.secret.json").exists()
+    manifest = json.loads((out_dir / "cpa_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["count"] == 2
+
+

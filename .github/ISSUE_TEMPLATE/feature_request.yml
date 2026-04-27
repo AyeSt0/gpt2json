@@ -1,0 +1,19 @@
+name: Feature request
+description: Suggest an input format, OTP backend, or UI improvement
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What should GPT2JSON support?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Describe the format/backend/UI change. Use synthetic examples only.
+    validations:
+      required: true
