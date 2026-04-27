@@ -47,6 +47,8 @@ def test_gui_enables_run_only_after_valid_preflight(tmp_path):
 
     window.sub2api_check.setChecked(True)
     window.cpa_check.setChecked(True)
+    window.concurrency_spin.setEditText("128")
+    assert window.concurrency_spin.value() == 128
     window.output_edit.setText("output")
     initial_stack_height = window.input_stack.height()
     window.resize(1400, 900)

@@ -123,5 +123,6 @@ def test_resolve_concurrency_auto_caps_at_eight():
     assert resolve_concurrency(0, 3) == 3
     assert resolve_concurrency(0, 20) == 8
     assert resolve_concurrency(5, 20) == 5
+    assert resolve_concurrency(128, 20) == 128
 
 

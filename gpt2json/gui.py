@@ -55,7 +55,7 @@ STAT_SUCCESS_PATH = ASSET_DIR / "stat_success.png"
 STAT_FAILED_PATH = ASSET_DIR / "stat_failed.png"
 STAT_RUNNING_PATH = ASSET_DIR / "stat_running.png"
 
-READY_LOG = "🧭 等你投喂账号文本或账号文件。\n✨ 当前支持：自动识别 / LDXP Plus7 三段式 OTP。\n📮 验证码获取：免登录 URL / HTML API 自动发现；IMAP、Graph、JMAP、POP3、API 已预留。"
+READY_LOG = "🧭 等你投喂账号文本或账号文件。\n✨ 当前支持：自动识别 / LDXP Plus7 三段式 OTP。\n📮 验证码获取：按输入里的取码源自动处理。"
 _UI_FONT_FAMILY = ""
 
 LIGHT_THEME = {
@@ -333,10 +333,10 @@ class FormatCombo(QComboBox):
 
 
 class PresetNumberCombo(QComboBox):
-    def __init__(self, *, minimum: int, maximum: int, presets: list[int], auto_text: str = "自动") -> None:
+    def __init__(self, *, minimum: int, presets: list[int], auto_text: str = "自动", maximum: int | None = None) -> None:
         super().__init__()
         self.minimum = int(minimum)
-        self.maximum = int(maximum)
+        self.maximum = int(maximum) if maximum is not None else None
         self.auto_text = auto_text
         self.setEditable(True)
         self.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
@@ -344,7 +344,7 @@ class PresetNumberCombo(QComboBox):
         self.setFixedHeight(38)
         self.addItem(auto_text, 0)
         for value in presets:
-            if self.minimum <= int(value) <= self.maximum:
+            if self.minimum <= int(value) and (self.maximum is None or int(value) <= self.maximum):
                 self.addItem(str(int(value)), int(value))
         self.setCurrentIndex(0)
 
@@ -356,10 +356,13 @@ class PresetNumberCombo(QComboBox):
             value = int(text)
         except Exception:
             return 0
-        return max(self.minimum, min(self.maximum, value))
+        value = max(self.minimum, value)
+        return min(self.maximum, value) if self.maximum is not None else value
 
     def setValue(self, value: int) -> None:
-        value = max(self.minimum, min(self.maximum, int(value or 0)))
+        value = max(self.minimum, int(value or 0))
+        if self.maximum is not None:
+            value = min(self.maximum, value)
         if value == 0:
             self.setCurrentIndex(0)
             self.setEditText(self.auto_text)
@@ -616,9 +619,9 @@ class MainWindow(QMainWindow):
         compact.setVerticalSpacing(6)
         compact.addWidget(self._field_label("并发数量"), 0, 0)
         compact.addWidget(self._field_label("验证码获取"), 0, 1)
-        self.concurrency_spin = PresetNumberCombo(minimum=0, maximum=64, presets=[1, 2, 4, 8, 12, 16, 24, 32, 64])
-        self.concurrency_spin.setToolTip("可下拉选择常用并发，也可以直接输入 1-64；自动会按账号数上限 8。")
-        self.backend_label = QLabel("自动：URL / HTML")
+        self.concurrency_spin = PresetNumberCombo(minimum=0, presets=[1, 2, 4, 8, 12, 16, 24, 32, 64])
+        self.concurrency_spin.setToolTip("可下拉选择常用并发，也可以直接输入任意正整数；自动会按账号数上限 8。")
+        self.backend_label = QLabel("按输入自动")
         self.backend_label.setObjectName("BackendPill")
         self.backend_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         compact.addWidget(self.concurrency_spin, 1, 0)
@@ -626,11 +629,6 @@ class MainWindow(QMainWindow):
         compact.setColumnStretch(0, 1)
         compact.setColumnStretch(1, 2)
         layout.addLayout(compact)
-
-        self.backend_hint_label = QLabel("仅账号触发邮箱验证码时启用；邮箱协议后续接入 IMAP / Graph / JMAP / POP3 / API。")
-        self.backend_hint_label.setObjectName("HintText")
-        self.backend_hint_label.setWordWrap(True)
-        layout.addWidget(self.backend_hint_label)
 
         output_grid = QGridLayout()
         output_grid.setHorizontalSpacing(8)
@@ -914,12 +912,13 @@ class MainWindow(QMainWindow):
         self._save_settings()
 
     def _restore_settings(self) -> None:
-        def int_setting(key: str, default: int, minimum: int, maximum: int) -> int:
+        def int_setting(key: str, default: int, minimum: int, maximum: int | None = None) -> int:
             try:
                 value = int(self.settings.value(key, default) or default)
             except Exception:
                 value = default
-            return max(minimum, min(maximum, value))
+            value = max(minimum, value)
+            return min(maximum, value) if maximum is not None else value
 
         theme = str(self.settings.value("theme", "light") or "light")
         self._theme = "dark" if theme == "dark" else "light"
@@ -933,7 +932,7 @@ class MainWindow(QMainWindow):
                 break
         self.sub2api_check.setChecked(str(self.settings.value("export_sub2api", "true")).lower() != "false")
         self.cpa_check.setChecked(str(self.settings.value("export_cpa", "true")).lower() != "false")
-        self.concurrency_spin.setValue(int_setting("concurrency", 0, 0, 64))
+        self.concurrency_spin.setValue(int_setting("concurrency", 0, 0))
         self.timeout_spin.setValue(int_setting("timeout", 30, 10, 600))
         self.otp_timeout_spin.setValue(int_setting("otp_timeout", 180, 10, 600))
         self.otp_interval_spin.setValue(int_setting("otp_interval", 3, 1, 60))
