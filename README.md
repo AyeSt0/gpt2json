@@ -58,9 +58,29 @@ user@example.test----example-gpt-password----https://otp-service.test/latest?mai
 - **文件或粘贴输入**：桌面版支持导入账号文件，也支持直接粘贴多行账号。
 - **协议优先**：默认走 HTTP/OAuth 流程，不依赖浏览器自动化。
 - **自动并发**：并发数默认 `自动`，也可以手动指定。
-- **验证码处理**：支持免登录 URL 取码，少数触发验证码的账号也会自动尝试处理。
+- **验证码处理**：支持免登录 URL 取码；可自动识别 JSON / 文本接口，以及前端 HTML 里暴露的取码 API。
 - **导出可选**：可单独导出 `Sub2API JSON` 或 `CPA Manifest`，也可以两个都导出。
 - **脱敏日志**：运行过程展示进度和状态，尽量避免在日志中暴露敏感信息。
+
+## 协议后端规划
+
+GPT2JSON 会尽量向协议层收敛，而不是绑定某一家邮箱服务商名称。当前已接入：
+
+| 后端 | 状态 | 用途 |
+| --- | --- | --- |
+| OAuth/HTTP 登录 | 已实现 | 协议方式获取本地可导入的 JSON。 |
+| HTTP no-login URL | 已实现 | 免登录取码链接，支持 JSON、文本、HTML 内 API 自动发现。 |
+| External command | 已实现 | 通过本地命令扩展自定义取码。 |
+
+后续预留并逐步实现：
+
+| 后端 | 典型用途 |
+| --- | --- |
+| IMAP / IMAP XOAUTH2 | 邮箱账密、应用密码、OAuth Token 取码。 |
+| Graph | Graph 兼容邮箱 Token 取码。 |
+| JMAP | Fastmail、LuckMail 或其它 JMAP/API 型邮箱。 |
+| POP3 | 简单邮箱协议兜底。 |
+| Provider API | AtomicMail、LuckMail 等自定义 API 型来源。 |
 
 ## 桌面版
 

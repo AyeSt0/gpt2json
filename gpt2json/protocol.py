@@ -27,6 +27,39 @@ PAGE_TYPE_HINTS = (
     ("/log-in", "login"),
 )
 
+DEFAULT_IMPERSONATE = "chrome136"
+
+AUTH_NAV_HEADERS = {
+    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "accept-language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
+    "cache-control": "no-cache",
+    "pragma": "no-cache",
+    "sec-fetch-dest": "document",
+    "sec-fetch-mode": "navigate",
+    "sec-fetch-site": "same-site",
+    "sec-fetch-user": "?1",
+    "upgrade-insecure-requests": "1",
+}
+
+AUTH_JSON_HEADERS = {
+    "accept": "application/json",
+    "accept-language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
+    "content-type": "application/json",
+    "origin": "https://auth.openai.com",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin",
+}
+
+
+def _headers(base: dict[str, str], **overrides: Any) -> dict[str, str]:
+    merged = dict(base)
+    for key, value in overrides.items():
+        text = str(value or "").strip()
+        if text:
+            merged[key.replace("_", "-")] = text
+    return merged
+
 
 def _response_json_or_empty(response: Any) -> dict[str, Any]:
     try:
@@ -486,8 +519,8 @@ def _is_consent_branch(*, page_type: str, continue_url: str) -> bool:
 
 
 class ProtocolLoginClient:
-    def __init__(self, *, impersonate: str = "chrome124", verify_ssl: bool = True, timeout: int = 30) -> None:
-        self.impersonate = str(impersonate or "chrome124").strip() or "chrome124"
+    def __init__(self, *, impersonate: str = DEFAULT_IMPERSONATE, verify_ssl: bool = True, timeout: int = 30) -> None:
+        self.impersonate = str(impersonate or DEFAULT_IMPERSONATE).strip() or DEFAULT_IMPERSONATE
         self.verify_ssl = bool(verify_ssl)
         self.timeout = max(10, int(timeout or 30))
 
@@ -571,7 +604,15 @@ class ProtocolLoginClient:
                     verify=self.verify_ssl,
                 )
                 return token_json, ""
-            final_resp = self._request(session, "GET", current_url, proxies=proxies, allow_redirects=False, timeout=15)
+            final_resp = self._request(
+                session,
+                "GET",
+                current_url,
+                proxies=proxies,
+                headers=_headers(AUTH_NAV_HEADERS, referer="https://auth.openai.com/"),
+                allow_redirects=False,
+                timeout=15,
+            )
             next_url = ""
             if final_resp.status_code in {301, 302, 303, 307, 308}:
                 next_url = _normalize_absolute_url(current_url, (getattr(final_resp, "headers", {}) or {}).get("Location") or "")
@@ -590,7 +631,12 @@ class ProtocolLoginClient:
                     consent_resp = self._post_with_retry(
                         session,
                         current_url,
-                        headers={"content-type": "application/x-www-form-urlencoded"},
+                        headers={
+                            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                            "content-type": "application/x-www-form-urlencoded",
+                            "origin": "https://auth.openai.com",
+                            "referer": current_url,
+                        },
                         data={"action": "accept"},
                         proxies=proxies,
                         timeout=15,
@@ -610,7 +656,10 @@ class ProtocolLoginClient:
         select_resp = self._post_with_retry(
             session,
             "https://auth.openai.com/api/accounts/workspace/select",
-            headers={"referer": str(referer or "https://auth.openai.com/sign-in-with-chatgpt/codex/consent").strip(), "content-type": "application/json"},
+            headers=_headers(
+                AUTH_JSON_HEADERS,
+                referer=str(referer or "https://auth.openai.com/sign-in-with-chatgpt/codex/consent").strip(),
+            ),
             data=json.dumps({"workspace_id": workspace_id}, ensure_ascii=False, separators=(",", ":")),
             proxies=proxies,
             timeout=30,
@@ -640,7 +689,7 @@ class ProtocolLoginClient:
                 body = {"org_id": org_id}
                 if selected_project_id:
                     body["project_id"] = selected_project_id
-                headers = {"content-type": "application/json"}
+                headers = _headers(AUTH_JSON_HEADERS, referer="https://auth.openai.com/sign-in-with-chatgpt/codex/consent")
                 if sentinel_token:
                     headers["openai-sentinel-token"] = sentinel_token
                 org_resp = self._post_with_retry(
@@ -759,7 +808,7 @@ class ProtocolLoginClient:
                 "GET",
                 oauth_start.auth_url,
                 proxies=proxies,
-                headers={"referer": "https://chatgpt.com/"},
+                headers=_headers(AUTH_NAV_HEADERS, referer="https://chatgpt.com/"),
                 allow_redirects=True,
                 timeout=30,
             )
@@ -782,12 +831,11 @@ class ProtocolLoginClient:
             authorize_resp = self._post_with_retry(
                 session,
                 "https://auth.openai.com/api/accounts/authorize/continue",
-                headers={
-                    "referer": "https://auth.openai.com/log-in",
-                    "accept": "application/json",
-                    "content-type": "application/json",
-                    "openai-sentinel-token": sentinel,
-                },
+                headers=_headers(
+                    AUTH_JSON_HEADERS,
+                    referer="https://auth.openai.com/log-in",
+                    **{"openai-sentinel-token": sentinel},
+                ),
                 json_body={"username": {"value": row.login_email, "kind": "email"}, "screen_hint": "login"},
                 proxies=proxies,
             )
@@ -802,12 +850,11 @@ class ProtocolLoginClient:
             pwd_resp = self._post_with_retry(
                 session,
                 "https://auth.openai.com/api/accounts/password/verify",
-                headers={
-                    "referer": authorize_transition["continue_url"] or "https://auth.openai.com/log-in/password",
-                    "accept": "application/json",
-                    "content-type": "application/json",
-                    "openai-sentinel-token": sentinel,
-                },
+                headers=_headers(
+                    AUTH_JSON_HEADERS,
+                    referer=authorize_transition["continue_url"] or "https://auth.openai.com/log-in/password",
+                    **{"openai-sentinel-token": sentinel},
+                ),
                 json_body={"password": row.gpt_password},
                 proxies=proxies,
             )
@@ -828,18 +875,37 @@ class ProtocolLoginClient:
                 result.events.append({"stage": "otp_backend_plan", **otp_fetcher.backend_plan_for_row(row)})
                 code = otp_fetcher.poll_row(row, proxies=proxies)
                 if not code:
+                    otp_details = otp_fetcher.last_details_for_row(row)
+                    result.events.append(
+                        {
+                            "stage": "otp_fetch",
+                            "backend": otp_details.backend,
+                            "status_code": otp_details.status_code,
+                            "code_present": False,
+                            "signature": otp_details.signature[:12],
+                        }
+                    )
                     result.status = "otp_timeout"
                     result.reason = "otp_timeout"
                     return result
+                otp_details = otp_fetcher.last_details_for_row(row)
+                result.events.append(
+                    {
+                        "stage": "otp_fetch",
+                        "backend": otp_details.backend,
+                        "status_code": otp_details.status_code,
+                        "code_present": True,
+                        "signature": otp_details.signature[:12],
+                    }
+                )
                 otp_resp = self._post_with_retry(
                     session,
                     "https://auth.openai.com/api/accounts/email-otp/validate",
-                    headers={
-                        "referer": "https://auth.openai.com/email-verification",
-                        "accept": "application/json",
-                        "content-type": "application/json",
-                        "openai-sentinel-token": sentinel,
-                    },
+                    headers=_headers(
+                        AUTH_JSON_HEADERS,
+                        referer="https://auth.openai.com/email-verification",
+                        **{"openai-sentinel-token": sentinel},
+                    ),
                     json_body={"code": code},
                     proxies=proxies,
                 )

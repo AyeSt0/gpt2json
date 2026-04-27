@@ -12,7 +12,7 @@ from .formats import build_export, convert_current_token_to_sub, write_json
 from .models import AttemptResult, utc_now_iso
 from .otp import OtpFetcher
 from .parsing import mask_email, mask_source, parse_by_format, read_account_file, secret_hash, slug_email
-from .protocol import ProtocolLoginClient
+from .protocol import DEFAULT_IMPERSONATE, ProtocolLoginClient
 
 
 Logger = Callable[[str], None]
@@ -35,7 +35,7 @@ class ExportConfig:
     otp_interval: int = 3
     timeout: int = 30
     verify_ssl: bool = True
-    impersonate: str = "chrome124"
+    impersonate: str = DEFAULT_IMPERSONATE
     input_format: str = "auto"
 
 

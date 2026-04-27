@@ -16,4 +16,6 @@
 - 并发数默认自动，CLI 支持 `--stdin` 管道输入。
 - 输入格式 parser 注册表与 auto-detect 入口。
 - Backend-first 邮箱 OTP 注册表骨架，围绕 IMAP / Graph / JMAP / POP3 / API 扩展。
+- HTTP no-login OTP 支持 HTML 前端内 API 自动发现，避免从脚本常量误取验证码。
+- 协议登录默认指纹更新为 `chrome136`，并补齐更接近浏览器导航 / JSON 请求的默认头。
 - GitHub-ready 项目元数据、测试、文档和模板。

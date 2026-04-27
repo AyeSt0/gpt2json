@@ -8,6 +8,7 @@ from pathlib import Path
 from . import __version__
 from .engine import ExportConfig, run_export
 from .parsing import list_input_formats
+from .protocol import DEFAULT_IMPERSONATE
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -28,7 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--otp-timeout", type=int, default=180, help="OTP 等待超时秒数")
     parser.add_argument("--otp-interval", type=int, default=3, help="OTP 轮询间隔秒数")
     parser.add_argument("--timeout", type=int, default=30, help="HTTP 超时秒数")
-    parser.add_argument("--impersonate", default="chrome124", help="curl-cffi impersonate 指纹")
+    parser.add_argument("--impersonate", default=DEFAULT_IMPERSONATE, help="curl-cffi impersonate 指纹")
     parser.add_argument("--insecure", action="store_true", help="关闭 TLS 证书校验")
     return parser
 
