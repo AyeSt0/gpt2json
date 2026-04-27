@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Build Windows release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[gui]"
+          python -m pip install build pyinstaller twine pytest ruff
+
+      - name: Test
+        shell: pwsh
+        run: |
+          python -m pytest -q
+          python -m ruff check gpt2json tests
+
+      - name: Build Python packages
+        shell: pwsh
+        run: |
+          python -m build
+          python -m twine check dist/*
+
+      - name: Build portable GUI
+        shell: pwsh
+        run: |
+          pyinstaller `
+            --noconfirm `
+            --clean `
+            --windowed `
+            --name GPT2JSON `
+            --icon gpt2json/assets/gpt2json_icon.ico `
+            --add-data "gpt2json/assets;gpt2json/assets" `
+            scripts/launch_gui.py
+
+      - name: Pack release assets
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release | Out-Null
+          Compress-Archive -Path dist/GPT2JSON/* -DestinationPath release/GPT2JSON-windows-x64.zip -Force
+          Copy-Item dist/gpt2json-*.whl release/
+          Copy-Item dist/gpt2json-*.tar.gz release/
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GPT2JSON-release-assets
+          path: release/*
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title "GPT2JSON $tag" --notes "自动构建的 GPT2JSON 发布包。"
+          }
+          gh release upload $tag release/* --clobber
