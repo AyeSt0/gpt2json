@@ -11,7 +11,7 @@ from typing import Any, Callable
 from .formats import build_export, convert_current_token_to_sub, write_json
 from .models import AttemptResult, utc_now_iso
 from .otp import OtpFetcher
-from .parsing import mask_email, mask_source, read_account_file, secret_hash, slug_email
+from .parsing import mask_email, mask_source, parse_by_format, read_account_file, secret_hash, slug_email
 from .protocol import ProtocolLoginClient
 
 
@@ -23,9 +23,12 @@ EventCallback = Callable[[dict[str, Any]], None]
 class ExportConfig:
     input_path: str
     out_dir: str
-    concurrency: int = 5
-    pool: str = "plus"
+    input_text: str = ""
+    concurrency: int = 0
+    pool: str = ""
     token_type: str = "plus"
+    export_sub2api: bool = True
+    export_cpa: bool = True
     otp_mode: str = "auto"
     otp_command: str = ""
     otp_timeout: int = 180
@@ -34,6 +37,22 @@ class ExportConfig:
     verify_ssl: bool = True
     impersonate: str = "chrome124"
     input_format: str = "auto"
+
+
+def resolve_concurrency(requested: int, row_count: int) -> int:
+    requested_int = int(requested or 0)
+    if requested_int <= 0:
+        return min(8, max(1, int(row_count or 1)))
+    return max(1, requested_int)
+
+
+def _load_rows(config: ExportConfig) -> tuple[list[Any], str]:
+    inline_text = str(config.input_text or "")
+    if str(config.input_path or "") == "<stdin>":
+        return parse_by_format(inline_text.splitlines(), format_id=config.input_format), "stdin"
+    if inline_text.strip():
+        return parse_by_format(inline_text.splitlines(), format_id=config.input_format), "paste"
+    return read_account_file(config.input_path, format_id=config.input_format), str(config.input_path)
 
 
 def _compact_json(payload: Any) -> str:
@@ -51,7 +70,8 @@ def _prepare_token_data(token_json: str, *, pool: str, token_type: str) -> dict[
     if not isinstance(data, dict):
         raise ValueError("token_json top-level is not an object")
     data.setdefault("source", "gpt2json")
-    data.setdefault("pool", pool)
+    if pool:
+        data.setdefault("pool", pool)
     if token_type:
         data["type"] = token_type
     return data
@@ -64,8 +84,9 @@ def _build_sub_account(token_payload: dict[str, Any], *, pool: str, index: int) 
         account["name"] = f"{pool}-{email}"
     extra = account.setdefault("extra", {})
     if isinstance(extra, dict):
-        extra["pool"] = pool
         extra["source"] = "gpt2json"
+        if pool:
+            extra["pool"] = pool
     return account
 
 
@@ -96,15 +117,23 @@ def run_export(
     emit = on_event or (lambda _event: None)
     out_dir = Path(config.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    rows = read_account_file(config.input_path, format_id=config.input_format)
+    rows, input_source = _load_rows(config)
+    export_sub2api = bool(config.export_sub2api)
+    export_cpa = bool(config.export_cpa)
+    if not (export_sub2api or export_cpa):
+        raise ValueError("at least one export format must be selected")
+    concurrency = resolve_concurrency(config.concurrency, len(rows))
     summary: dict[str, Any] = {
         "started_at": utc_now_iso(),
-        "input": str(config.input_path),
+        "input": input_source,
         "out_dir": str(out_dir),
         "row_count": len(rows),
-        "concurrency": max(1, int(config.concurrency or 1)),
+        "concurrency": concurrency,
+        "concurrency_mode": "auto" if int(config.concurrency or 0) <= 0 else "manual",
         "pool": config.pool,
         "token_type": config.token_type,
+        "export_sub2api": export_sub2api,
+        "export_cpa": export_cpa,
         "otp_mode": config.otp_mode,
         "input_format": config.input_format,
     }
@@ -114,7 +143,7 @@ def run_export(
             "type": "started",
             "total": len(rows),
             "out_dir": str(out_dir),
-            "concurrency": summary["concurrency"],
+            "concurrency": concurrency,
         }
     )
     if not rows:
@@ -143,8 +172,8 @@ def run_export(
         )
         return client.login_and_exchange(row, otp_fetcher=otp_fetcher)
 
-    log(f"[+] loaded rows: {len(rows)} | concurrency={summary['concurrency']}")
-    with ThreadPoolExecutor(max_workers=summary["concurrency"]) as executor:
+    log(f"[+] loaded rows: {len(rows)} | concurrency={concurrency} ({summary['concurrency_mode']})")
+    with ThreadPoolExecutor(max_workers=concurrency) as executor:
         future_map = {executor.submit(run_one, row): row for row in rows}
         for future in as_completed(future_map):
             result = future.result()
@@ -181,12 +210,14 @@ def run_export(
         email = str(token_payload.get("email") or "").strip()
         slug = slug_email(email)
         suffix = f"{int(time.time())}_{index:03d}"
-        write_json(cpa_dir / f"token_{slug}_{suffix}.json", token_payload)
-        sub_account = _build_sub_account(token_payload, pool=config.pool, index=index)
-        sub_accounts.append(sub_account)
-        write_json(sub_dir / f"sub_{slug}_{suffix}.json", sub_account)
+        if export_cpa:
+            write_json(cpa_dir / f"token_{slug}_{suffix}.json", token_payload)
+        if export_sub2api:
+            sub_account = _build_sub_account(token_payload, pool=config.pool, index=index)
+            sub_accounts.append(sub_account)
+            write_json(sub_dir / f"sub_{slug}_{suffix}.json", sub_account)
 
-    if successes:
+    if successes and export_cpa:
         write_json(
             out_dir / "cpa_manifest.json",
             {
@@ -195,14 +226,15 @@ def run_export(
                 "accounts": successes,
             },
         )
-        write_json(out_dir / "sub2api_plus_accounts.secret.json", build_export(sub_accounts))
+    if successes and export_sub2api:
+        write_json(out_dir / "sub2api_accounts.secret.json", build_export(sub_accounts))
 
     summary["finished_at"] = utc_now_iso()
     summary["success_count"] = len(successes)
     summary["failure_count"] = len(rows) - len(successes)
     summary["success_emails"] = sorted(str(item.get("email") or "") for item in successes if str(item.get("email") or "").strip())
-    summary["sub2api_export"] = str(out_dir / "sub2api_plus_accounts.secret.json") if successes else ""
-    summary["cpa_manifest"] = str(out_dir / "cpa_manifest.json") if successes else ""
+    summary["sub2api_export"] = str(out_dir / "sub2api_accounts.secret.json") if successes and export_sub2api else ""
+    summary["cpa_manifest"] = str(out_dir / "cpa_manifest.json") if successes and export_cpa else ""
     write_json(out_dir / "summary.json", summary)
     write_json(out_dir / "progress.json", summary)
     log(f"[done] success={summary['success_count']} failure={summary['failure_count']}")

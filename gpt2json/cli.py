@@ -12,11 +12,14 @@ from .engine import ExportConfig, run_export
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="GPT2JSON：协议优先的 Sub2API / CPA JSON 导出工具。")
     parser.add_argument("--version", action="version", version=f"GPT2JSON {__version__}")
-    parser.add_argument("--input", required=True, help="账号文本文件：GPT邮箱----GPT密码----OTP取码源")
+    parser.add_argument("--input", help="账号文本文件：GPT邮箱----GPT密码----OTP取码源")
+    parser.add_argument("--stdin", action="store_true", help="从标准输入读取账号文本；优先级高于 --input")
     parser.add_argument("--out-dir", required=True, help="输出目录")
-    parser.add_argument("--concurrency", type=int, default=5, help="并发数")
-    parser.add_argument("--pool", default="plus", help="Sub2API 池名称")
-    parser.add_argument("--token-type", default="plus", help="令牌类型")
+    parser.add_argument("--concurrency", type=int, default=0, help="并发数；0 表示自动")
+    parser.add_argument("--name-prefix", dest="pool", default="", help="可选：给 Sub2API 账号 name 增加前缀（默认不写）")
+    parser.add_argument("--token-type", default="plus", help="高级：写入 token type 字段")
+    parser.add_argument("--sub2api", action=argparse.BooleanOptionalAction, default=True, help="是否导出 Sub2API JSON")
+    parser.add_argument("--cpa", action=argparse.BooleanOptionalAction, default=True, help="是否导出 CPA JSON")
     parser.add_argument("--input-format", default="auto", help="输入格式：auto 或 dash_otp")
     parser.add_argument("--otp-mode", default="auto", choices=["auto", "command", "none"], help="OTP 模式")
     parser.add_argument("--otp-command", default="", help="外部取码命令模板")
@@ -29,20 +32,29 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if not args.stdin and not args.input:
+        parser.error("请提供 --input 账号文件，或使用 --stdin 从标准输入读取。")
+    if not (args.sub2api or args.cpa):
+        parser.error("请至少保留一种导出格式：--sub2api 或 --cpa。")
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    input_text = sys.stdin.read() if args.stdin else ""
 
     def logger(text: str) -> None:
         print(text, flush=True)
 
     summary = run_export(
         ExportConfig(
-            input_path=args.input,
+            input_path=args.input or "<stdin>",
             out_dir=str(out_dir),
-            concurrency=max(1, int(args.concurrency or 1)),
+            input_text=input_text,
+            concurrency=int(args.concurrency or 0),
             pool=args.pool,
             token_type=args.token_type,
+            export_sub2api=bool(args.sub2api),
+            export_cpa=bool(args.cpa),
             input_format=args.input_format,
             otp_mode=args.otp_mode,
             otp_command=args.otp_command,

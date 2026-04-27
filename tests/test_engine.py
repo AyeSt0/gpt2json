@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from gpt2json.engine import ExportConfig, run_export
+from gpt2json.engine import ExportConfig, resolve_concurrency, run_export
 from gpt2json.models import AttemptResult
 from gpt2json.protocol import ProtocolLoginClient
 
@@ -28,18 +28,19 @@ class FakeClient(ProtocolLoginClient):
         return AttemptResult(row=row, status="bad_password", stage="password_verify", reason="bad_password")
 
 
+def account_text() -> str:
+    return "\n".join(
+        [
+            "ok1@example.com----pass----https://otp.local/1",
+            "bad@example.com----pass----https://otp.local/2",
+            "ok2@example.com----pass----https://otp.local/3",
+        ]
+    )
+
+
 def test_run_export_writes_cpa_and_sub2api(tmp_path: Path):
     input_path = tmp_path / "accounts.txt"
-    input_path.write_text(
-        "\n".join(
-            [
-                "ok1@example.com----pass----https://otp.local/1",
-                "bad@example.com----pass----https://otp.local/2",
-                "ok2@example.com----pass----https://otp.local/3",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    input_path.write_text(account_text(), encoding="utf-8")
     out_dir = tmp_path / "out"
     summary = run_export(
         ExportConfig(input_path=str(input_path), out_dir=str(out_dir), concurrency=3),
@@ -47,8 +48,63 @@ def test_run_export_writes_cpa_and_sub2api(tmp_path: Path):
     )
     assert summary["success_count"] == 2
     assert (out_dir / "cpa_manifest.json").exists()
-    assert (out_dir / "sub2api_plus_accounts.secret.json").exists()
+    assert (out_dir / "sub2api_accounts.secret.json").exists()
     manifest = json.loads((out_dir / "cpa_manifest.json").read_text(encoding="utf-8"))
     assert manifest["count"] == 2
+
+
+def test_run_export_accepts_pasted_input_and_auto_concurrency(tmp_path: Path):
+    out_dir = tmp_path / "out"
+    summary = run_export(
+        ExportConfig(input_path="missing.txt", out_dir=str(out_dir), input_text=account_text(), concurrency=0),
+        client_factory=lambda: FakeClient(),
+    )
+    assert summary["input"] == "paste"
+    assert summary["concurrency"] == 3
+    assert summary["concurrency_mode"] == "auto"
+    assert summary["success_count"] == 2
+
+
+def test_run_export_cpa_only(tmp_path: Path):
+    out_dir = tmp_path / "out"
+    summary = run_export(
+        ExportConfig(
+            input_path="missing.txt",
+            out_dir=str(out_dir),
+            input_text=account_text(),
+            export_sub2api=False,
+            export_cpa=True,
+        ),
+        client_factory=lambda: FakeClient(),
+    )
+    assert summary["sub2api_export"] == ""
+    assert summary["cpa_manifest"]
+    assert (out_dir / "cpa_manifest.json").exists()
+    assert not (out_dir / "sub2api_accounts.secret.json").exists()
+
+
+def test_run_export_sub2api_only(tmp_path: Path):
+    out_dir = tmp_path / "out"
+    summary = run_export(
+        ExportConfig(
+            input_path="missing.txt",
+            out_dir=str(out_dir),
+            input_text=account_text(),
+            export_sub2api=True,
+            export_cpa=False,
+        ),
+        client_factory=lambda: FakeClient(),
+    )
+    assert summary["cpa_manifest"] == ""
+    assert summary["sub2api_export"]
+    assert (out_dir / "sub2api_accounts.secret.json").exists()
+    assert not (out_dir / "cpa_manifest.json").exists()
+
+
+def test_resolve_concurrency_auto_caps_at_eight():
+    assert resolve_concurrency(0, 0) == 1
+    assert resolve_concurrency(0, 3) == 3
+    assert resolve_concurrency(0, 20) == 8
+    assert resolve_concurrency(5, 20) == 5
 
 

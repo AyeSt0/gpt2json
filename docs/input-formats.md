@@ -1,6 +1,6 @@
 # 输入格式扩展指南
 
-GPT2JSON 通过 parser 注册表支持多种账号文件格式。新增格式时，只需要把原始行解析成统一的 `AccountRow`，不需要改 OAuth 登录和 JSON 导出层。
+GPT2JSON 通过 parser 注册表支持多种账号文本格式。文本可以来自文件、桌面 GUI 粘贴框或 CLI stdin。新增格式时，只需要把原始行解析成统一的 `AccountRow`，不需要改 OAuth 登录和 JSON 导出层。
 
 ## Canonical model
 

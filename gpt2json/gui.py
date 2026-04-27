@@ -6,10 +6,10 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QObject, Qt, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QFont, QFontDatabase, QPixmap
+from PySide6.QtCore import QSize
+from PySide6.QtGui import QDesktopServices, QFont, QFontDatabase, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
-    QComboBox,
     QFileDialog,
     QFrame,
     QGraphicsDropShadowEffect,
@@ -29,11 +29,55 @@ from PySide6.QtWidgets import (
 )
 
 from .engine import ExportConfig, run_export
-from .parsing import read_account_file
+from .parsing import parse_by_format, read_account_file
 
 APP_NAME = "GPT2JSON"
-APP_SUBTITLE = "协议优先的 Sub2API / CPA JSON 导出工具"
+APP_SUBTITLE = "协议优先 · JSON 导出器"
 ICON_PATH = Path(__file__).resolve().parent / "assets" / "gpt2json_icon.png"
+ASSET_DIR = Path(__file__).resolve().parent / "assets"
+THEME_SUN_PATH = ASSET_DIR / "theme_sun.png"
+THEME_MOON_PATH = ASSET_DIR / "theme_moon.png"
+UI_INPUT_PATH = ASSET_DIR / "ui_input.png"
+UI_SETTINGS_PATH = ASSET_DIR / "ui_settings.png"
+UI_OUTPUT_PATH = ASSET_DIR / "ui_output.png"
+UI_LOG_PATH = ASSET_DIR / "ui_log.png"
+UI_UPLOAD_PATH = ASSET_DIR / "ui_upload.png"
+
+LIGHT_THEME = {
+    "shell": "#F6F8FC",
+    "card": "#FFFFFF",
+    "soft": "#F8FAFD",
+    "input": "#FFFFFF",
+    "border": "#D9E2EF",
+    "border2": "#CBD8EA",
+    "text": "#0F172A",
+    "muted": "#64748B",
+    "muted2": "#94A3B8",
+    "progress": "#E2E8F0",
+    "log": "#FBFCFE",
+    "shadow": "#8FA2BD",
+    "status_bg": "#DCFCE7",
+    "status_fg": "#15803D",
+    "status_bd": "#B7E4C7",
+}
+
+DARK_THEME = {
+    "shell": "#08111F",
+    "card": "#0F1A29",
+    "soft": "#142235",
+    "input": "#101B2A",
+    "border": "#26364A",
+    "border2": "#334760",
+    "text": "#F8FAFC",
+    "muted": "#94A3B8",
+    "muted2": "#64748B",
+    "progress": "#334155",
+    "log": "#0C1624",
+    "shadow": "#000000",
+    "status_bg": "#123B2A",
+    "status_fg": "#86EFAC",
+    "status_bd": "#1F6B43",
+}
 
 
 def load_ui_font() -> str:
@@ -86,53 +130,123 @@ class DropLineEdit(QLineEdit):
         event.acceptProposedAction()
 
 
-class SectionTitle(QWidget):
-    def __init__(self, number: int, title: str) -> None:
+class FileDropBox(QFrame):
+    clicked = Signal()
+    path_changed = Signal(str)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.path = ""
+        self.setAcceptDrops(True)
+        self.setObjectName("FileDropBox")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(14, 0, 14, 0)
+        layout.setSpacing(10)
+        icon = QLabel("TXT")
+        icon.setObjectName("DropIcon")
+        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        if UI_UPLOAD_PATH.exists():
+            icon.setPixmap(QPixmap(str(UI_UPLOAD_PATH)).scaled(20, 20, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        self.label = QLabel("拖入账号文件或点击选择")
+        self.label.setObjectName("DropText")
+        suffix = QLabel(".txt / auto")
+        suffix.setObjectName("DropSuffix")
+        layout.addWidget(icon)
+        layout.addWidget(self.label, 1)
+        layout.addWidget(suffix)
+
+    def set_path(self, value: str) -> None:
+        self.path = str(value or "").strip()
+        self.label.setText(Path(self.path).name if self.path else "拖入账号文件或点击选择")
+        self.setToolTip(self.path)
+        self.path_changed.emit(self.path)
+
+    def dragEnterEvent(self, event) -> None:  # type: ignore[override]
+        if event.mimeData().hasUrls() or event.mimeData().hasText():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event) -> None:  # type: ignore[override]
+        mime = event.mimeData()
+        value = ""
+        if mime.hasUrls():
+            value = mime.urls()[0].toLocalFile()
+        elif mime.hasText():
+            value = mime.text().strip()
+        if value and Path(value).is_file():
+            self.set_path(value)
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def mouseReleaseEvent(self, event) -> None:  # type: ignore[override]
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+
+
+class SectionHeader(QWidget):
+    def __init__(self, icon: str | Path, title: str) -> None:
         super().__init__()
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
-        badge = QLabel(str(number))
-        badge.setObjectName("StepBadge")
-        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label = QLabel(title)
-        label.setObjectName("SectionTitle")
-        layout.addWidget(badge)
-        layout.addWidget(label)
+        layout.setSpacing(9)
+        icon_label = QLabel()
+        icon_label.setObjectName("SectionIcon")
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_path = Path(icon) if not isinstance(icon, Path) else icon
+        if icon_path.exists():
+            icon_label.setPixmap(QPixmap(str(icon_path)).scaled(20, 20, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        else:
+            icon_label.setText(str(icon))
+        title_label = QLabel(title)
+        title_label.setObjectName("SectionTitle")
+        layout.addWidget(icon_label)
+        layout.addWidget(title_label)
         layout.addStretch(1)
 
 
-class InlineStat(QWidget):
-    def __init__(self, title: str, color: str) -> None:
+class InlineStat(QFrame):
+    def __init__(self, icon: str, title: str, color: str) -> None:
         super().__init__()
-        self.value_label = QLabel("0")
-        self.value_label.setObjectName("StatValue")
-        self.value_label.setStyleSheet(f"color: {color};")
+        self.setObjectName("StatCard")
+        icon_label = QLabel(icon)
+        icon_label.setObjectName("StatIcon")
+        icon_label.setStyleSheet(f"background:{color};")
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_label = QLabel(title)
         title_label.setObjectName("StatTitle")
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 2, 0, 2)
-        layout.setSpacing(4)
-        layout.addWidget(title_label)
-        layout.addWidget(self.value_label)
+        self.value_label = QLabel("0")
+        self.value_label.setObjectName("StatValue")
+        text = QVBoxLayout()
+        text.setContentsMargins(0, 0, 0, 0)
+        text.setSpacing(0)
+        text.addWidget(title_label)
+        text.addWidget(self.value_label)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 6, 10, 6)
+        layout.setSpacing(8)
+        layout.addWidget(icon_label)
+        layout.addLayout(text, 1)
 
     def set_value(self, value: int | str) -> None:
         self.value_label.setText(str(value))
 
 
 class FileOutputRow(QFrame):
-    def __init__(self, filename: str) -> None:
+    def __init__(self, filename: str, badge: str) -> None:
         super().__init__()
         self.setObjectName("OutputRow")
-        self.setFixedHeight(52)
         self.path = ""
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(14, 0, 8, 0)
+        layout.setContentsMargins(12, 0, 8, 0)
         layout.setSpacing(10)
-        icon = QLabel("JSON")
-        icon.setObjectName("FileIcon")
+        badge_label = QLabel(badge)
+        badge_label.setObjectName("OutputBadge")
+        badge_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.name_label = QLabel(filename)
         self.name_label.setObjectName("OutputName")
         self.name_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -142,7 +256,7 @@ class FileOutputRow(QFrame):
         self.copy_btn.setToolTip("复制路径")
         self.copy_btn.setEnabled(False)
         self.copy_btn.clicked.connect(self.copy_path)
-        layout.addWidget(icon)
+        layout.addWidget(badge_label)
         layout.addWidget(self.name_label, 1)
         layout.addWidget(self.copy_btn)
 
@@ -160,8 +274,8 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(APP_NAME)
-        self.setMinimumSize(980, 680)
-        self.resize(1000, 700)
+        self.setMinimumSize(1120, 720)
+        self.resize(1180, 740)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.bridge = WorkerBridge()
@@ -171,6 +285,9 @@ class MainWindow(QMainWindow):
         self.bridge.failed.connect(self.on_failed)
         self._worker_thread: threading.Thread | None = None
         self._drag_start: Any = None
+        self._theme = "light"
+        self._status_text = "就绪"
+        self._status_mode = "ready"
         self._total = 0
         self._done = 0
         self._success = 0
@@ -186,16 +303,17 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(outer)
         outer_layout = QVBoxLayout(outer)
         outer_layout.setContentsMargins(10, 10, 10, 10)
+
         self.shell = QFrame()
         self.shell.setObjectName("Shell")
-        shadow = QGraphicsDropShadowEffect(self.shell)
-        shadow.setBlurRadius(26)
-        shadow.setOffset(0, 8)
-        shadow.setColor(Qt.GlobalColor.gray)
-        self.shell.setGraphicsEffect(shadow)
+        self.shadow = QGraphicsDropShadowEffect(self.shell)
+        self.shadow.setBlurRadius(28)
+        self.shadow.setOffset(0, 10)
+        self.shell.setGraphicsEffect(self.shadow)
         outer_layout.addWidget(self.shell)
+
         shell_layout = QVBoxLayout(self.shell)
-        shell_layout.setContentsMargins(24, 22, 24, 22)
+        shell_layout.setContentsMargins(22, 18, 22, 18)
         shell_layout.setSpacing(14)
         shell_layout.addLayout(self._build_header())
         shell_layout.addLayout(self._build_content(), 1)
@@ -207,30 +325,39 @@ class MainWindow(QMainWindow):
         self.logo.setObjectName("LogoImage")
         self.logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         if ICON_PATH.exists():
-            self.logo.setPixmap(QPixmap(str(ICON_PATH)).scaled(48, 48, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            self.logo.setPixmap(QPixmap(str(ICON_PATH)).scaled(50, 50, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
         else:
-            self.logo.setText("G")
+            self.logo.setText("GJ")
+
         title_stack = QVBoxLayout()
-        title_stack.setSpacing(1)
+        title_stack.setSpacing(0)
         title = QLabel(APP_NAME)
         title.setObjectName("Title")
         subtitle = QLabel(APP_SUBTITLE)
         subtitle.setObjectName("Subtitle")
         title_stack.addWidget(title)
         title_stack.addWidget(subtitle)
-        self.status_label = QLabel("●  就绪")
+
+        self.status_label = QLabel(self._status_text)
         self.status_label.setObjectName("StatusPill")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.theme_btn = QToolButton()
+        self.theme_btn.setObjectName("ThemeButton")
+        self.theme_btn.setToolTip("切换深色 / 浅色")
+        self.theme_btn.setIconSize(QSize(22, 22))
+        self.theme_btn.clicked.connect(self.toggle_theme)
         self.min_btn = self._window_button("−")
         self.max_btn = self._window_button("□")
         self.close_btn = self._window_button("×", close=True)
         self.min_btn.clicked.connect(self.showMinimized)
         self.max_btn.clicked.connect(self._toggle_max_restore)
         self.close_btn.clicked.connect(self.close)
+
         header.addWidget(self.logo)
         header.addLayout(title_stack, 1)
         header.addWidget(self.status_label)
-        header.addSpacing(70)
+        header.addWidget(self.theme_btn)
+        header.addSpacing(18)
         header.addWidget(self.min_btn)
         header.addWidget(self.max_btn)
         header.addWidget(self.close_btn)
@@ -238,86 +365,127 @@ class MainWindow(QMainWindow):
 
     def _build_content(self) -> QHBoxLayout:
         content = QHBoxLayout()
-        content.setSpacing(16)
-        content.addWidget(self._build_main_card(), 65)
-        content.addWidget(self._build_right_column(), 35)
+        content.setSpacing(14)
+
+        left = QWidget()
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(12)
+        top_row = QHBoxLayout()
+        top_row.setSpacing(12)
+        top_row.addWidget(self._build_input_card(), 62)
+        top_row.addWidget(self._build_settings_card(), 38)
+        left_layout.addLayout(top_row, 70)
+        left_layout.addWidget(self._build_run_card(), 30)
+
+        content.addWidget(left, 70)
+        content.addWidget(self._build_right_column(), 30)
         return content
 
-    def _build_main_card(self) -> QFrame:
-        card = QFrame()
-        card.setObjectName("Card")
+    def _build_input_card(self) -> QFrame:
+        card = self._card()
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(10)
-        layout.addWidget(SectionTitle(1, "源文件"))
-        source_grid = QGridLayout()
-        source_grid.setContentsMargins(0, 0, 0, 0)
-        source_grid.setHorizontalSpacing(12)
-        source_grid.setVerticalSpacing(10)
-        self.input_edit = DropLineEdit()
-        self.input_edit.setObjectName("PathEdit")
-        self.input_edit.setFixedHeight(40)
-        self.input_edit.setPlaceholderText("GPT邮箱----GPT密码----OTP取码源")
-        self.input_edit.setToolTip("当前格式：GPT邮箱----GPT密码----免登录验证码URL/取码源。第二段不是邮箱密码。")
-        self.input_edit.dropped.connect(lambda _p: self.preflight(silent=True))
+        layout.addWidget(SectionHeader(UI_INPUT_PATH, "账号输入"))
+
+        tabs = QHBoxLayout()
+        tabs.setSpacing(0)
+        self.paste_tab = QPushButton("粘贴文本")
+        self.paste_tab.setObjectName("SegmentLeft")
+        self.paste_tab.setCheckable(True)
+        self.paste_tab.setChecked(True)
+        self.file_tab = QPushButton("导入文件")
+        self.file_tab.setObjectName("SegmentRight")
+        self.file_tab.setCheckable(True)
+        self.paste_tab.clicked.connect(lambda: self._select_input_mode("paste"))
+        self.file_tab.clicked.connect(lambda: self._select_input_mode("file"))
+        tabs.addWidget(self.paste_tab)
+        tabs.addWidget(self.file_tab)
+        layout.addLayout(tabs)
+
+        self.paste_edit = QPlainTextEdit()
+        self.paste_edit.setObjectName("PasteBox")
+        self.paste_edit.setPlaceholderText("1  GPT邮箱----GPT密码----OTP取码源\n2  每行一个账号，粘贴内容优先于文件\n3")
+        self.paste_edit.textChanged.connect(self._on_paste_changed)
+        layout.addWidget(self.paste_edit, 1)
+
+        self.file_drop = FileDropBox()
+        self.file_drop.clicked.connect(self.pick_input)
+        self.file_drop.path_changed.connect(lambda _p: self.preflight(silent=True))
+        layout.addWidget(self.file_drop)
+
+        hint = QLabel("第二段是 GPT/OpenAI 登录密码，不是邮箱密码。")
+        hint.setObjectName("HintText")
+        layout.addWidget(hint)
+        return card
+
+    def _build_settings_card(self) -> QFrame:
+        card = self._card()
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(12)
+        layout.addWidget(SectionHeader(UI_SETTINGS_PATH, "导出设置"))
+
+        layout.addWidget(self._field_label("导出格式"))
+        format_row = QHBoxLayout()
+        format_row.setSpacing(8)
+        self.sub2api_check = self._chip_button("Sub2API JSON", checked=True)
+        self.cpa_check = self._chip_button("CPA Manifest", checked=True)
+        format_row.addWidget(self.sub2api_check)
+        format_row.addWidget(self.cpa_check)
+        format_row.addStretch(1)
+        layout.addLayout(format_row)
+
+        compact = QGridLayout()
+        compact.setHorizontalSpacing(10)
+        compact.setVerticalSpacing(6)
+        compact.addWidget(self._field_label("并发"), 0, 0)
+        compact.addWidget(self._field_label("OTP Backend"), 0, 1)
+        self.concurrency_spin = self._spin(0, 64, 0)
+        self.concurrency_spin.setSpecialValueText("自动")
+        self.backend_label = QLabel("Auto · HTTP URL")
+        self.backend_label.setObjectName("BackendPill")
+        self.backend_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        compact.addWidget(self.concurrency_spin, 1, 0)
+        compact.addWidget(self.backend_label, 1, 1)
+        compact.setColumnStretch(0, 1)
+        compact.setColumnStretch(1, 2)
+        layout.addLayout(compact)
+
+        future_row = QHBoxLayout()
+        future_row.setSpacing(6)
+        for text in ("IMAP", "Graph", "JMAP"):
+            future_row.addWidget(self._small_badge(text))
+        future_row.addStretch(1)
+        layout.addLayout(future_row)
+
+        output_grid = QGridLayout()
+        output_grid.setHorizontalSpacing(8)
+        output_grid.addWidget(self._field_label("输出目录"), 0, 0, 1, 2)
         self.output_edit = DropLineEdit(directory=True)
         self.output_edit.setObjectName("PathEdit")
-        self.output_edit.setFixedHeight(40)
-        self.output_edit.setPlaceholderText("选择输出文件夹")
         self.output_edit.setText("output")
-        input_btn = QPushButton("浏览")
-        input_btn.setObjectName("BrowseButton")
-        input_btn.setFixedHeight(40)
-        input_btn.clicked.connect(self.pick_input)
+        self.output_edit.setPlaceholderText("选择输出目录")
         output_btn = QPushButton("浏览")
         output_btn.setObjectName("BrowseButton")
-        output_btn.setFixedHeight(40)
         output_btn.clicked.connect(self.pick_output)
-        source_grid.addWidget(self._field_label("账号文件"), 0, 0)
-        source_grid.addWidget(self.input_edit, 0, 1)
-        source_grid.addWidget(input_btn, 0, 2)
-        source_grid.addWidget(self._field_label("输出目录"), 1, 0)
-        source_grid.addWidget(self.output_edit, 1, 1)
-        source_grid.addWidget(output_btn, 1, 2)
-        source_grid.setColumnMinimumWidth(0, 118)
-        source_grid.setRowMinimumHeight(0, 42)
-        source_grid.setRowMinimumHeight(1, 42)
-        source_grid.setColumnStretch(1, 1)
-        source_holder = QWidget()
-        source_holder.setFixedHeight(90)
-        source_holder.setLayout(source_grid)
-        layout.addWidget(source_holder)
-        layout.addWidget(self._divider())
-        layout.addWidget(SectionTitle(2, "选项"))
-        options_grid = QGridLayout()
-        options_grid.setContentsMargins(0, 0, 0, 0)
-        options_grid.setHorizontalSpacing(16)
-        options_grid.setVerticalSpacing(8)
-        self.pool_combo = self._combo(["plus-20", "plus", "default"])
-        self.token_type_combo = self._combo(["plus", "free", "team"])
-        self.concurrency_spin = self._spin(1, 64, 5)
-        options_grid.addWidget(self._field_label("池名称"), 0, 0)
-        options_grid.addWidget(self._field_label("令牌类型"), 0, 1)
-        options_grid.addWidget(self._field_label("并发数"), 0, 2)
-        options_grid.addWidget(self.pool_combo, 1, 0)
-        options_grid.addWidget(self.token_type_combo, 1, 1)
-        options_grid.addWidget(self.concurrency_spin, 1, 2)
-        options_grid.setColumnStretch(0, 2)
-        options_grid.setColumnStretch(1, 2)
-        options_grid.setColumnStretch(2, 1)
-        layout.addLayout(options_grid)
+        output_grid.addWidget(self.output_edit, 1, 0)
+        output_grid.addWidget(output_btn, 1, 1)
+        output_grid.setColumnStretch(0, 1)
+        layout.addLayout(output_grid)
+
         self.advanced_btn = QToolButton()
         self.advanced_btn.setObjectName("AdvancedBar")
-        self.advanced_btn.setText("高级 OTP 设置  v")
-        self.advanced_btn.setFixedHeight(40)
+        self.advanced_btn.setText("高级选项（点击展开）  ﹀")
         self.advanced_btn.setCheckable(True)
         self.advanced_btn.clicked.connect(self.toggle_advanced)
         layout.addWidget(self.advanced_btn)
+
         self.advanced_panel = QWidget()
         advanced_grid = QGridLayout(self.advanced_panel)
         advanced_grid.setContentsMargins(0, 0, 0, 0)
-        advanced_grid.setHorizontalSpacing(12)
-        advanced_grid.setVerticalSpacing(8)
+        advanced_grid.setHorizontalSpacing(8)
         self.timeout_spin = self._spin(10, 600, 30)
         self.otp_timeout_spin = self._spin(10, 600, 180)
         self.otp_interval_spin = self._spin(1, 60, 3)
@@ -329,18 +497,16 @@ class MainWindow(QMainWindow):
         advanced_grid.addWidget(self.otp_interval_spin, 1, 2)
         self.advanced_panel.setVisible(False)
         layout.addWidget(self.advanced_panel)
-        format_row = QHBoxLayout()
-        format_row.setSpacing(14)
-        format_row.addWidget(self._field_label("输出格式"))
-        format_row.addSpacing(18)
-        format_row.addWidget(self._selected_chip("Sub2API JSON"))
-        format_row.addWidget(self._selected_chip("CPA Manifest"))
-        format_row.addStretch(1)
-        layout.addLayout(format_row)
-        layout.addWidget(self._divider())
-        layout.addWidget(SectionTitle(3, "导出"))
+        layout.addStretch(1)
+        return card
+
+    def _build_run_card(self) -> QFrame:
+        card = self._card()
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(16, 12, 16, 14)
+        layout.setSpacing(10)
         progress_row = QHBoxLayout()
-        progress_row.setSpacing(10)
+        progress_row.setSpacing(8)
         self.progress = QProgressBar()
         self.progress.setObjectName("Progress")
         self.progress.setTextVisible(False)
@@ -351,30 +517,27 @@ class MainWindow(QMainWindow):
         progress_row.addWidget(self.progress, 1)
         progress_row.addWidget(self.percent_label)
         layout.addLayout(progress_row)
-        stats_row = QHBoxLayout()
-        stats_row.setSpacing(0)
-        self.total_stat = InlineStat("总数", "#0F172A")
-        self.success_stat = InlineStat("成功", "#16A34A")
-        self.failed_stat = InlineStat("失败", "#DC2626")
-        self.running_stat = InlineStat("运行中", "#2563EB")
-        for idx, stat in enumerate([self.total_stat, self.success_stat, self.failed_stat, self.running_stat]):
-            stats_row.addWidget(stat, 1)
-            if idx < 3:
-                stats_row.addWidget(self._vertical_divider())
-        layout.addLayout(stats_row)
+
+        stats = QHBoxLayout()
+        stats.setSpacing(10)
+        self.total_stat = InlineStat("N", "总数", "#2563EB")
+        self.success_stat = InlineStat("OK", "成功", "#16A34A")
+        self.failed_stat = InlineStat("!", "失败", "#DC2626")
+        self.running_stat = InlineStat("...", "运行中", "#F59E0B")
+        for stat in (self.total_stat, self.success_stat, self.failed_stat, self.running_stat):
+            stats.addWidget(stat, 1)
+        layout.addLayout(stats)
+
         buttons = QHBoxLayout()
-        buttons.setSpacing(16)
+        buttons.setSpacing(10)
         self.preflight_btn = QPushButton("预检查")
         self.preflight_btn.setObjectName("SecondaryButton")
-        self.preflight_btn.setFixedHeight(42)
-        self.preflight_btn.clicked.connect(self.preflight)
+        self.preflight_btn.clicked.connect(lambda: self.preflight(silent=False))
         self.run_btn = QPushButton("开始导出")
         self.run_btn.setObjectName("PrimaryButton")
-        self.run_btn.setFixedHeight(42)
         self.run_btn.clicked.connect(self.start_run)
         self.open_out_btn = QPushButton("打开输出目录")
         self.open_out_btn.setObjectName("SecondaryButton")
-        self.open_out_btn.setFixedHeight(42)
         self.open_out_btn.clicked.connect(self.open_output_dir)
         buttons.addWidget(self.preflight_btn, 1)
         buttons.addWidget(self.run_btn, 2)
@@ -386,31 +549,36 @@ class MainWindow(QMainWindow):
         right = QWidget()
         layout = QVBoxLayout(right)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(18)
-        output_card = QFrame()
-        output_card.setObjectName("Card")
+        layout.setSpacing(12)
+
+        output_card = self._card()
         output_layout = QVBoxLayout(output_card)
-        output_layout.setContentsMargins(16, 16, 16, 16)
-        output_layout.setSpacing(14)
-        output_layout.addWidget(self._card_title("JSON", "输出文件"))
-        self.sub2api_row = FileOutputRow("sub2api_plus_accounts.secret.json")
-        self.cpa_row = FileOutputRow("cpa_manifest.json")
+        output_layout.setContentsMargins(16, 14, 16, 14)
+        output_layout.setSpacing(12)
+        output_layout.addWidget(SectionHeader(UI_OUTPUT_PATH, "输出文件"))
+        self.sub2api_row = FileOutputRow("sub2api_accounts.secret.json", "Sub2API")
+        self.cpa_row = FileOutputRow("cpa_manifest.json", "CPA")
         output_layout.addWidget(self.sub2api_row)
         output_layout.addWidget(self.cpa_row)
-        layout.addWidget(output_card)
-        log_card = QFrame()
-        log_card.setObjectName("Card")
+        layout.addWidget(output_card, 28)
+
+        log_card = self._card()
         log_layout = QVBoxLayout(log_card)
-        log_layout.setContentsMargins(16, 16, 16, 16)
-        log_layout.setSpacing(14)
-        log_layout.addWidget(self._card_title(">_", "运行日志"))
+        log_layout.setContentsMargins(16, 14, 16, 14)
+        log_layout.setSpacing(12)
+        log_layout.addWidget(SectionHeader(UI_LOG_PATH, "运行日志"))
         self.log_edit = QPlainTextEdit()
         self.log_edit.setObjectName("LogBox")
         self.log_edit.setReadOnly(True)
-        self.log_edit.setPlainText("等待开始")
+        self.log_edit.setPlainText("[12:00:00] 系统就绪，等待任务开始\n[12:00:00] 当前并发：自动\n[12:00:00] OTP Backend：Auto")
         log_layout.addWidget(self.log_edit, 1)
-        layout.addWidget(log_card, 1)
+        layout.addWidget(log_card, 72)
         return right
+
+    def _card(self) -> QFrame:
+        card = QFrame()
+        card.setObjectName("Card")
+        return card
 
     def _window_button(self, text: str, *, close: bool = False) -> QToolButton:
         button = QToolButton()
@@ -423,110 +591,132 @@ class MainWindow(QMainWindow):
         label.setObjectName("FieldLabel")
         return label
 
-    def _card_title(self, icon: str, text: str) -> QWidget:
-        widget = QWidget()
-        layout = QHBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
-        icon_label = QLabel(icon)
-        icon_label.setObjectName("TitleIcon")
-        label = QLabel(text)
-        label.setObjectName("RightTitle")
-        layout.addWidget(icon_label)
-        layout.addWidget(label)
-        layout.addStretch(1)
-        return widget
+    def _chip_button(self, text: str, *, checked: bool = False) -> QPushButton:
+        button = QPushButton(text)
+        button.setObjectName("ChipButton")
+        button.setCheckable(True)
+        button.setChecked(checked)
+        return button
 
-    def _combo(self, values: list[str]) -> QComboBox:
-        combo = QComboBox()
-        combo.setEditable(True)
-        combo.addItems(values)
-        combo.setCurrentText(values[0])
-        combo.setFixedHeight(40)
-        return combo
+    def _small_badge(self, text: str) -> QLabel:
+        label = QLabel(text)
+        label.setObjectName("SmallBadge")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        return label
 
     def _spin(self, minimum: int, maximum: int, value: int) -> QSpinBox:
         spin = QSpinBox()
         spin.setRange(minimum, maximum)
         spin.setValue(value)
-        spin.setFixedHeight(40)
+        spin.setFixedHeight(38)
         return spin
 
-    def _selected_chip(self, text: str) -> QLabel:
-        chip = QLabel(text)
-        chip.setObjectName("SelectedChip")
-        chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        chip.setFixedHeight(36)
-        return chip
-
-    def _divider(self) -> QFrame:
-        line = QFrame()
-        line.setObjectName("Divider")
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setFixedHeight(1)
-        return line
-
-    def _vertical_divider(self) -> QFrame:
-        line = QFrame()
-        line.setObjectName("VerticalDivider")
-        line.setFrameShape(QFrame.Shape.VLine)
-        line.setFixedWidth(1)
-        return line
+    def palette(self) -> dict[str, str]:
+        return DARK_THEME if self._theme == "dark" else LIGHT_THEME
 
     def apply_style(self) -> None:
-        font = QFont(load_ui_font(), 10)
-        QApplication.instance().setFont(font)  # type: ignore[union-attr]
+        p = self.palette()
+        QApplication.instance().setFont(QFont(load_ui_font(), 10))  # type: ignore[union-attr]
+        self.shadow.setColor(Qt.GlobalColor.black if self._theme == "dark" else Qt.GlobalColor.gray)
+        self.theme_btn.setText("")
+        icon_path = THEME_MOON_PATH if self._theme == "dark" else THEME_SUN_PATH
+        if icon_path.exists():
+            self.theme_btn.setIcon(QIcon(str(icon_path)))
+        else:
+            self.theme_btn.setText("月" if self._theme == "dark" else "日")
         self.setStyleSheet(
-            """
-            #Outer { background: transparent; }
-            #Shell { background: #F6F8FC; border: 1px solid #D9E2EF; border-radius: 18px; }
-            #LogoImage { min-width:48px; max-width:48px; min-height:48px; max-height:48px; border-radius:13px; }
-            #Title { color:#0F172A; font-size:26px; font-weight:800; letter-spacing:-0.5px; }
-            #Subtitle { color:#64748B; font-size:14px; font-weight:500; }
-            #StatusPill { color:#079345; background:#DCFCE7; border:1px solid #B7E4C7; border-radius:18px; padding:7px 18px; min-width:78px; font-size:14px; font-weight:700; }
-            #WindowButton, #CloseButton { border:none; background:transparent; color:#0F172A; font-size:20px; min-width:34px; max-width:34px; min-height:30px; max-height:30px; border-radius:8px; }
-            #WindowButton:hover { background:#E8EEF8; }
-            #CloseButton:hover { background:#FEE2E2; color:#DC2626; }
-            #Card { background:rgba(255,255,255,0.92); border:1px solid #D8E1EE; border-radius:14px; }
-            #StepBadge { min-width:28px; max-width:28px; min-height:28px; max-height:28px; border-radius:8px; color:white; font-size:16px; font-weight:800; background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #22A7FF,stop:1 #6D4DFF); }
-            #SectionTitle, #RightTitle { color:#0F172A; font-size:17px; font-weight:800; }
-            #TitleIcon { color:#1E40AF; font-weight:900; font-size:12px; min-width:34px; }
-            #FieldLabel { color:#283752; font-size:13px; font-weight:500; }
-            QLineEdit, QComboBox, QSpinBox { min-height:38px; border-radius:8px; padding-left:12px; padding-right:10px; color:#0F172A; background:#FFFFFF; border:1px solid #D5DFEC; font-size:13px; }
-            QLineEdit:focus, QComboBox:focus, QSpinBox:focus { border:1px solid #60A5FA; background:#FFFFFF; }
-            QLineEdit::placeholder { color:#8A95A8; }
-            QComboBox::drop-down { border:none; width:28px; }
-            QSpinBox::up-button, QSpinBox::down-button { width:22px; border:none; background:transparent; }
-            #BrowseButton { min-height:38px; min-width:78px; border-radius:8px; color:#0F172A; background:#FFFFFF; border:1px solid #D5DFEC; font-weight:600; }
-            #BrowseButton:hover, #SecondaryButton:hover, #AdvancedBar:hover { background:#EFF6FF; border-color:#93C5FD; }
-            #AdvancedBar { min-height:40px; border-radius:8px; padding:0 12px; text-align:left; color:#0F172A; background:#FBFCFE; border:1px solid #D5DFEC; font-size:13px; font-weight:500; }
-            #SelectedChip { min-height:34px; min-width:142px; padding:0 14px; border-radius:8px; color:white; font-weight:800; font-size:13px; background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #2563EB,stop:1 #7C3AED); }
-            #Divider { background:#E1E7F0; border:none; }
-            #VerticalDivider { background:#E4EAF2; border:none; min-height:48px; }
-            #Progress { height:9px; border-radius:5px; border:none; background:#E2E8F0; }
-            #Progress::chunk { border-radius:5px; background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #2563EB,stop:1 #7C3AED); }
-            #PercentLabel { color:#2563EB; font-size:14px; font-weight:700; min-width:34px; }
-            #StatTitle { color:#475569; font-size:12px; font-weight:500; }
-            #StatValue { font-size:24px; font-weight:900; }
-            #SecondaryButton { min-height:42px; border-radius:9px; color:#17233C; background:#FFFFFF; border:1px solid #D5DFEC; font-weight:700; font-size:13px; }
-            #PrimaryButton { min-height:42px; border:none; border-radius:9px; color:white; font-weight:800; font-size:13px; background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #1677FF,stop:1 #7C3AED); }
-            #PrimaryButton:hover { background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #0F63D6,stop:1 #6D28D9); }
-            #PrimaryButton:disabled, #SecondaryButton:disabled { background:#E2E8F0; color:#94A3B8; border:1px solid #CBD5E1; }
-            #OutputRow { min-height:50px; background:#FBFCFE; border:1px solid #DCE4EF; border-radius:9px; }
-            #OutputName { color:#0F172A; font-size:13px; font-weight:500; }
-            #FileIcon { color:#334155; font-size:10px; font-weight:800; min-width:28px; }
-            #CopyButton { border:none; background:transparent; color:#1E3A8A; min-width:44px; max-width:44px; min-height:28px; max-height:28px; border-radius:6px; font-size:11px; font-weight:700; }
-            #CopyButton:hover { background:#DBEAFE; }
-            #CopyButton:disabled { color:#A8B2C2; }
-            #LogBox { border-radius:9px; border:1px solid #D8E1EE; background:#FBFCFE; color:#64748B; padding:12px; font-family:Consolas, 'Cascadia Mono', monospace; font-size:12px; }
+            f"""
+            #Outer {{ background: transparent; }}
+            #Shell {{ background:{p['shell']}; border:1px solid {p['border']}; border-radius:18px; }}
+            #LogoImage {{ min-width:50px; max-width:50px; min-height:50px; max-height:50px; border-radius:14px; }}
+            #Title {{ color:{p['text']}; font-size:26px; font-weight:900; letter-spacing:-0.6px; }}
+            #Subtitle {{ color:{p['muted']}; font-size:14px; font-weight:500; }}
+            #StatusPill {{ border-radius:14px; padding:6px 15px; min-width:50px; font-size:13px; font-weight:800; }}
+            #ThemeButton {{ border:1px solid {p['border']}; background:{p['card']}; color:{p['text']}; min-width:34px; max-width:34px; min-height:34px; max-height:34px; border-radius:17px; font-family:'Segoe UI Symbol','Microsoft YaHei UI'; font-size:16px; }}
+            #ThemeButton:hover {{ border-color:#60A5FA; color:#2563EB; }}
+            #WindowButton, #CloseButton {{ border:none; background:transparent; color:{p['text']}; font-size:19px; min-width:32px; max-width:32px; min-height:30px; max-height:30px; border-radius:8px; }}
+            #WindowButton:hover {{ background:{p['soft']}; }}
+            #CloseButton:hover {{ background:#EF4444; color:white; }}
+            #Card {{ background:{p['card']}; border:1px solid {p['border']}; border-radius:13px; }}
+            #SectionIcon {{ color:#2563EB; min-width:22px; max-width:22px; font-size:18px; }}
+            #SectionTitle {{ color:{p['text']}; font-size:17px; font-weight:900; }}
+            #FieldLabel {{ color:{p['text']}; font-size:12px; font-weight:800; }}
+            #HintText {{ color:{p['muted']}; font-size:12px; }}
+            #SegmentLeft, #SegmentRight {{ min-height:37px; border:1px solid {p['border']}; color:{p['muted']}; background:{p['soft']}; font-size:13px; font-weight:800; }}
+            #SegmentLeft {{ border-top-left-radius:8px; border-bottom-left-radius:8px; border-right:none; }}
+            #SegmentRight {{ border-top-right-radius:8px; border-bottom-right-radius:8px; }}
+            #SegmentLeft:checked, #SegmentRight:checked {{ color:#2563EB; background:{p['input']}; border-color:#3B82F6; }}
+            #PasteBox {{ border-radius:9px; padding:10px; color:{p['text']}; background:{p['input']}; border:1px solid #3B82F6; font-family:Consolas, 'Microsoft YaHei UI', monospace; font-size:12px; }}
+            #PasteBox:focus {{ border:1px solid #60A5FA; }}
+            #FileDropBox {{ min-height:44px; max-height:44px; border-radius:9px; background:{p['soft']}; border:1px dashed {p['border2']}; }}
+            #FileDropBox:hover {{ border-color:#3B82F6; }}
+            #DropIcon, #DropText, #DropSuffix {{ color:{p['muted']}; font-size:12px; font-weight:800; }}
+            QLineEdit, QSpinBox {{ min-height:36px; border-radius:8px; padding-left:10px; padding-right:8px; color:{p['text']}; background:{p['input']}; border:1px solid {p['border']}; font-size:12px; font-weight:700; }}
+            QLineEdit:focus, QSpinBox:focus {{ border:1px solid #60A5FA; }}
+            QSpinBox::up-button, QSpinBox::down-button {{ width:20px; border:none; background:transparent; }}
+            #BrowseButton {{ min-height:36px; min-width:62px; border-radius:8px; color:{p['text']}; background:{p['soft']}; border:1px solid {p['border']}; font-weight:800; }}
+            #BrowseButton:hover, #AdvancedBar:hover, #SecondaryButton:hover {{ border-color:#3B82F6; color:#2563EB; }}
+            #ChipButton {{ min-height:38px; padding:0 12px; border-radius:8px; color:{p['muted']}; background:{p['soft']}; border:1px solid {p['border']}; font-size:12px; font-weight:900; }}
+            #ChipButton:checked {{ color:white; border:1px solid #2563EB; background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #2563EB,stop:1 #7C3AED); }}
+            #BackendPill, #SmallBadge {{ min-height:36px; border-radius:8px; padding:0 9px; color:{p['muted']}; background:{p['soft']}; border:1px solid {p['border']}; font-size:12px; font-weight:800; }}
+            #SmallBadge {{ min-width:52px; max-height:26px; min-height:26px; color:{p['muted2']}; }}
+            #AdvancedBar {{ min-height:38px; border-radius:8px; padding:0 12px; text-align:left; color:{p['muted']}; background:{p['soft']}; border:1px solid {p['border']}; font-size:12px; font-weight:800; }}
+            #Progress {{ height:9px; border-radius:5px; border:none; background:{p['progress']}; }}
+            #Progress::chunk {{ border-radius:5px; background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #2563EB,stop:1 #7C3AED); }}
+            #PercentLabel {{ color:#2563EB; font-size:13px; font-weight:900; min-width:32px; }}
+            #StatCard {{ background:{p['soft']}; border:1px solid {p['border']}; border-radius:9px; }}
+            #StatIcon {{ color:white; min-width:34px; max-width:34px; min-height:30px; max-height:30px; border-radius:15px; font-size:11px; font-weight:900; }}
+            #StatTitle {{ color:{p['muted']}; font-size:11px; font-weight:700; }}
+            #StatValue {{ color:{p['text']}; font-size:21px; font-weight:900; }}
+            #PrimaryButton {{ min-height:44px; border:none; border-radius:9px; color:white; font-weight:900; font-size:14px; background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #1677FF,stop:1 #7C3AED); }}
+            #PrimaryButton:hover {{ background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #0F63D6,stop:1 #6D28D9); }}
+            #PrimaryButton:disabled, #SecondaryButton:disabled {{ background:{p['progress']}; color:{p['muted2']}; border:1px solid {p['border']}; }}
+            #SecondaryButton {{ min-height:42px; border-radius:9px; color:{p['text']}; background:{p['soft']}; border:1px solid {p['border']}; font-weight:900; font-size:13px; }}
+            #OutputRow {{ min-height:54px; background:{p['soft']}; border:1px solid {p['border']}; border-radius:9px; }}
+            #OutputBadge {{ color:white; background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #2563EB,stop:1 #7C3AED); min-width:54px; max-width:54px; min-height:26px; max-height:26px; border-radius:7px; font-size:10px; font-weight:900; }}
+            #OutputName {{ color:{p['text']}; font-size:12px; font-weight:700; }}
+            #CopyButton {{ border:none; background:transparent; color:{p['muted2']}; min-width:42px; max-width:42px; min-height:28px; max-height:28px; border-radius:6px; font-size:11px; font-weight:800; }}
+            #CopyButton:hover {{ color:#2563EB; background:{p['card']}; }}
+            #LogBox {{ border-radius:9px; border:1px solid {p['border']}; background:{p['log']}; color:{p['muted']}; padding:11px; font-family:Consolas, 'Cascadia Mono', monospace; font-size:12px; }}
             """
         )
+        self._apply_status_style()
+
+    def _apply_status_style(self) -> None:
+        if self._status_mode == "running":
+            style = "color:#6D28D9;background:#EDE9FE;border:1px solid #DDD6FE;"
+        elif self._status_mode == "failed":
+            style = "color:#DC2626;background:#FEE2E2;border:1px solid #FECACA;"
+        else:
+            p = self.palette()
+            style = f"color:{p['status_fg']};background:{p['status_bg']};border:1px solid {p['status_bd']};"
+        self.status_label.setText(self._status_text)
+        self.status_label.setStyleSheet(style + "border-radius:14px;padding:6px 15px;min-width:50px;font-size:13px;font-weight:800;")
+
+    def toggle_theme(self) -> None:
+        self._theme = "dark" if self._theme == "light" else "light"
+        self.apply_style()
+
+    def _select_input_mode(self, mode: str) -> None:
+        is_paste = mode == "paste"
+        self.paste_tab.setChecked(is_paste)
+        self.file_tab.setChecked(not is_paste)
+        if is_paste:
+            self.paste_edit.setFocus()
+        else:
+            self.pick_input()
+
+    def _on_paste_changed(self) -> None:
+        if self._paste_text():
+            self.paste_tab.setChecked(True)
+            self.file_tab.setChecked(False)
+        self.preflight(silent=True)
 
     def _toggle_max_restore(self) -> None:
         self.showNormal() if self.isMaximized() else self.showMaximized()
 
     def mousePressEvent(self, event) -> None:  # type: ignore[override]
-        if event.button() == Qt.MouseButton.LeftButton and event.position().y() <= 92:
+        if event.button() == Qt.MouseButton.LeftButton and event.position().y() <= 88:
             self._drag_start = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()
         else:
@@ -546,17 +736,12 @@ class MainWindow(QMainWindow):
     def toggle_advanced(self) -> None:
         visible = self.advanced_btn.isChecked()
         self.advanced_panel.setVisible(visible)
-        self.advanced_btn.setText("高级 OTP 设置  ^" if visible else "高级 OTP 设置  v")
+        self.advanced_btn.setText("高级选项（点击收起）  ︿" if visible else "高级选项（点击展开）  ﹀")
 
     def _set_status(self, text: str, mode: str) -> None:
-        styles = {
-            "ready": "color:#079345;background:#DCFCE7;border:1px solid #B7E4C7;",
-            "running": "color:#6D28D9;background:#EDE9FE;border:1px solid #DDD6FE;",
-            "done": "color:#15803D;background:#DCFCE7;border:1px solid #BBF7D0;",
-            "failed": "color:#DC2626;background:#FEE2E2;border:1px solid #FECACA;",
-        }
-        self.status_label.setText(text)
-        self.status_label.setStyleSheet(styles.get(mode, styles["ready"]) + "border-radius:18px;padding:7px 18px;min-width:78px;font-size:14px;font-weight:700;")
+        self._status_text = text.replace("●", "").strip()
+        self._status_mode = mode
+        self._apply_status_style()
 
     def append_log(self, text: str) -> None:
         if self._log_waiting:
@@ -568,7 +753,9 @@ class MainWindow(QMainWindow):
     def pick_input(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "选择账号文件", str(Path.cwd()), "文本文件 (*.txt);;所有文件 (*)")
         if path:
-            self.input_edit.setText(path)
+            self.file_drop.set_path(path)
+            self.paste_tab.setChecked(False)
+            self.file_tab.setChecked(True)
             self.preflight(silent=True)
 
     def pick_output(self) -> None:
@@ -577,23 +764,47 @@ class MainWindow(QMainWindow):
             self.output_edit.setText(path)
 
     def open_output_dir(self) -> None:
-        path = Path(self.output_edit.text().strip() or Path.cwd())
+        path = Path(self.output_edit.text().strip() or "output")
         path.mkdir(parents=True, exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
 
-    def preflight(self, silent: bool = False) -> bool:
-        input_path = Path(self.input_edit.text().strip())
+    def _paste_text(self) -> str:
+        return self.paste_edit.toPlainText().strip()
+
+    def _input_path(self) -> str:
+        return self.file_drop.path.strip()
+
+    def _selected_output_labels(self) -> str:
+        labels: list[str] = []
+        if self.sub2api_check.isChecked():
+            labels.append("Sub2API JSON")
+        if self.cpa_check.isChecked():
+            labels.append("CPA Manifest")
+        return " + ".join(labels)
+
+    def _preview_rows(self) -> tuple[bool, int]:
+        paste_text = self._paste_text()
+        if paste_text:
+            rows = parse_by_format(paste_text.splitlines(), format_id="auto")
+            return True, len(rows)
+        input_path = Path(self._input_path())
         if not input_path.exists() or not input_path.is_file():
-            if not silent:
-                QMessageBox.warning(self, "缺少输入", "请先选择账号 .txt 文件。")
-            return False
+            return False, 0
+        rows = read_account_file(input_path)
+        return True, len(rows)
+
+    def preflight(self, silent: bool = False) -> bool:
         try:
-            rows = read_account_file(input_path)
+            has_input, row_count = self._preview_rows()
         except Exception as exc:
             if not silent:
                 QMessageBox.critical(self, "预检查失败", f"读取失败：{type(exc).__name__}: {exc}")
             return False
-        self._total = len(rows)
+        if not has_input:
+            if not silent:
+                QMessageBox.warning(self, "缺少输入", "请粘贴账号文本，或导入账号文件。")
+            return False
+        self._total = row_count
         self.total_stat.set_value(self._total)
         self._done = self._success = self._failure = self._running = 0
         self.success_stat.set_value(0)
@@ -601,24 +812,29 @@ class MainWindow(QMainWindow):
         self.running_stat.set_value(0)
         self._update_progress()
         if not silent:
-            self.append_log(f"[预检查] 有效行数: {self._total} | 格式=auto | 输出: Sub2API JSON + CPA Manifest")
-            QMessageBox.information(self, "预检查完成", f"有效行数：{self._total}\n格式：自动识别\n输出：Sub2API JSON + CPA Manifest")
-        return bool(rows)
+            outputs = self._selected_output_labels() or "未选择"
+            self.append_log(f"[预检查] 有效行数: {self._total} | 格式=auto | 输出: {outputs}")
+            QMessageBox.information(self, "预检查完成", f"有效行数：{self._total}\n格式：自动识别\n输出：{outputs}")
+        return bool(row_count)
 
     def start_run(self) -> None:
         if self._worker_thread and self._worker_thread.is_alive():
             QMessageBox.information(self, "正在运行", "当前任务还没有结束。")
             return
-        input_path = self.input_edit.text().strip()
+        input_path = self._input_path()
+        paste_text = self._paste_text()
         output_dir = self.output_edit.text().strip()
-        if not input_path:
-            QMessageBox.warning(self, "缺少输入", "请先选择账号 .txt 文件。")
+        if not paste_text and not input_path:
+            QMessageBox.warning(self, "缺少输入", "请粘贴账号文本，或导入账号文件。")
             return
         if not output_dir:
             QMessageBox.warning(self, "缺少输出", "请先选择输出目录。")
             return
+        if not (self.sub2api_check.isChecked() or self.cpa_check.isChecked()):
+            QMessageBox.warning(self, "缺少导出格式", "请至少选择 Sub2API JSON 或 CPA Manifest。")
+            return
         if not self.preflight(silent=True):
-            QMessageBox.warning(self, "没有有效账号", "账号文件中没有识别到有效行。")
+            QMessageBox.warning(self, "没有有效账号", "输入内容中没有识别到有效行。")
             return
         self._done = self._success = self._failure = self._running = 0
         self.success_stat.set_value(0)
@@ -627,17 +843,18 @@ class MainWindow(QMainWindow):
         self._update_progress()
         self.log_edit.clear()
         self._log_waiting = False
-        self._set_status("●  运行中", "running")
+        self._set_status("运行中", "running")
         self.run_btn.setEnabled(False)
         self.preflight_btn.setEnabled(False)
         self.sub2api_row.set_path("")
         self.cpa_row.set_path("")
         config = ExportConfig(
-            input_path=input_path,
+            input_path=input_path or "<paste>",
             out_dir=output_dir,
+            input_text=paste_text,
             concurrency=int(self.concurrency_spin.value()),
-            pool=self.pool_combo.currentText().strip() or "plus-20",
-            token_type=self.token_type_combo.currentText().strip() or "plus",
+            export_sub2api=self.sub2api_check.isChecked(),
+            export_cpa=self.cpa_check.isChecked(),
             otp_timeout=int(self.otp_timeout_spin.value()),
             otp_interval=int(self.otp_interval_spin.value()),
             timeout=int(self.timeout_spin.value()),
@@ -685,7 +902,7 @@ class MainWindow(QMainWindow):
     def on_done(self, summary: dict) -> None:
         self.run_btn.setEnabled(True)
         self.preflight_btn.setEnabled(True)
-        self._set_status("●  完成", "done")
+        self._set_status("完成", "done")
         self._done = int(summary.get("success_count", 0) or 0) + int(summary.get("failure_count", 0) or 0)
         self._running = 0
         self.running_stat.set_value(0)
@@ -707,7 +924,7 @@ class MainWindow(QMainWindow):
         self.preflight_btn.setEnabled(True)
         self._running = 0
         self.running_stat.set_value(0)
-        self._set_status("●  失败", "failed")
+        self._set_status("失败", "failed")
         self.append_log(f"[fatal] {message}")
         QMessageBox.critical(self, "运行失败", message)
 
