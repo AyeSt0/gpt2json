@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import os
 import sys
 import threading
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QObject, QSettings, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QObject, QSettings, QSize, QStandardPaths, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QFont, QFontDatabase, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -61,6 +62,37 @@ STAT_TOTAL_PATH = ASSET_DIR / "stat_total.png"
 STAT_SUCCESS_PATH = ASSET_DIR / "stat_success.png"
 STAT_FAILED_PATH = ASSET_DIR / "stat_failed.png"
 STAT_RUNNING_PATH = ASSET_DIR / "stat_running.png"
+
+
+def settings_file_path() -> Path:
+    """Return the file-backed settings path.
+
+    Qt's default QSettings backend writes to the Windows registry.  GPT2JSON keeps
+    GUI preferences in an ini file instead so the application itself remains
+    registry-free; only the optional installer creates the normal Windows
+    uninstall entry.
+    """
+
+    override = os.environ.get("GPT2JSON_SETTINGS_PATH", "").strip()
+    if override:
+        return Path(override).expanduser()
+
+    if sys.platform.startswith("win"):
+        local_app_data = os.environ.get("LOCALAPPDATA", "").strip()
+        if local_app_data:
+            return Path(local_app_data) / APP_NAME / "settings.ini"
+
+    base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.GenericConfigLocation)
+    if base:
+        return Path(base) / APP_NAME / "settings.ini"
+
+    return Path.home() / ".gpt2json" / "settings.ini"
+
+
+def create_app_settings() -> QSettings:
+    path = settings_file_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return QSettings(str(path), QSettings.Format.IniFormat)
 
 READY_LOG = "🧭 等你投喂账号文本或账号文件。\n✨ 当前支持：自动识别 / LDXP Plus7 三段式 OTP。\n📮 验证码获取：按输入里的取码源自动处理。"
 _UI_FONT_FAMILY = ""
@@ -392,7 +424,7 @@ class MainWindow(QMainWindow):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         if APP_ICON_PATH.exists():
             self.setWindowIcon(QIcon(str(APP_ICON_PATH)))
-        self.settings = QSettings(ORG_NAME, APP_NAME)
+        self.settings = create_app_settings()
         self.bridge = WorkerBridge()
         self.bridge.log.connect(self.append_log)
         self.bridge.event.connect(self.on_event)

@@ -36,10 +36,12 @@ namespace GPT2JSON.ArtSetup
         private const string Version = "v" + AppVersion;
         private readonly TextBox _dirBox;
         private readonly Button _installButton;
+        private readonly Button _secondaryButton;
         private readonly WpfProgressBar _progress;
         private readonly TextBlock _status;
         private readonly Button _closeButton;
         private readonly Button _minButton;
+        private bool _installCompleted;
 
         public InstallerWindow()
         {
@@ -106,6 +108,7 @@ namespace GPT2JSON.ArtSetup
 
             _dirBox = FindName("InstallPathBox") as TextBox;
             _installButton = FindName("InstallButton") as Button;
+            _secondaryButton = FindName("SecondaryButton") as Button;
             _progress = FindName("InstallProgress") as WpfProgressBar;
             _status = FindName("StatusText") as TextBlock;
             _closeButton = FindName("CloseButton") as Button;
@@ -114,7 +117,15 @@ namespace GPT2JSON.ArtSetup
             if (_dirBox != null)
                 _dirBox.Text = EnsureAppInstallPath(DefaultInstallPath());
             if (_installButton != null)
-                _installButton.Click += async delegate { await InstallAsync(); };
+                _installButton.Click += async delegate
+                {
+                    if (_installCompleted)
+                    {
+                        TryLaunchInstalledApp();
+                        return;
+                    }
+                    await InstallAsync();
+                };
             if (_closeButton != null)
                 _closeButton.Click += delegate { Close(); };
             if (_minButton != null)
@@ -362,6 +373,7 @@ namespace GPT2JSON.ArtSetup
 
             var cancel = new Button
             {
+                Name = "SecondaryButton",
                 Content = "取消",
                 Width = 132,
                 Height = 54,
@@ -371,6 +383,7 @@ namespace GPT2JSON.ArtSetup
                 BorderBrush = new SolidColorBrush(Color.FromArgb(86, 163, 190, 255)),
                 Style = RoundedButtonStyle(18)
             };
+            RegisterName(cancel.Name, cancel);
             cancel.Click += delegate { Close(); };
             Canvas.SetLeft(cancel, 850);
             Canvas.SetTop(cancel, 434);
@@ -524,7 +537,9 @@ namespace GPT2JSON.ArtSetup
                 if (code != 0)
                     throw new InvalidOperationException("安装核心返回错误码：" + code);
 
+                _installCompleted = true;
                 SetBusy(false, "安装完成：GPT2JSON 已准备好。", 100);
+                SetCompletedState();
                 TryLaunchInstalledApp();
             }
             catch (Exception ex)
@@ -540,6 +555,16 @@ namespace GPT2JSON.ArtSetup
             if (_dirBox != null) _dirBox.IsEnabled = !busy;
             if (_status != null) _status.Text = text;
             if (_progress != null) Motion.AnimateProgress(_progress, progress);
+        }
+
+        private void SetCompletedState()
+        {
+            if (_installButton != null)
+                _installButton.Content = "↗  打开软件";
+            if (_secondaryButton != null)
+                _secondaryButton.Content = "关闭";
+            if (_dirBox != null)
+                _dirBox.IsEnabled = false;
         }
 
         private string ExtractInstaller()

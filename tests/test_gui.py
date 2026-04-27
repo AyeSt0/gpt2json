@@ -1,14 +1,16 @@
 import os
+import tempfile
+from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ.setdefault("GPT2JSON_SETTINGS_PATH", str(Path(tempfile.gettempdir()) / "gpt2json-test-settings.ini"))
 
 import pytest
 
 QtWidgets = pytest.importorskip("PySide6.QtWidgets")
 QtTest = pytest.importorskip("PySide6.QtTest")
-QtCore = pytest.importorskip("PySide6.QtCore")
 
-from gpt2json.gui import APP_NAME, APP_VERSION, ORG_NAME, MainWindow  # noqa: E402
+from gpt2json.gui import APP_NAME, APP_VERSION, MainWindow, create_app_settings  # noqa: E402
 
 
 def _app():
@@ -17,7 +19,7 @@ def _app():
 
 
 def _clear_settings():
-    settings = QtCore.QSettings(ORG_NAME, APP_NAME)
+    settings = create_app_settings()
     settings.clear()
     settings.sync()
 
