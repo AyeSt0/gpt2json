@@ -48,6 +48,8 @@ def test_gui_enables_run_only_after_valid_preflight(tmp_path):
     window.sub2api_check.setChecked(True)
     window.cpa_check.setChecked(True)
     window.output_edit.setText("output")
+    assert window.size().width() == 1180
+    assert window.size().height() == 740
     window.close()
     _clear_settings()
 
@@ -66,9 +68,10 @@ def test_gui_input_mode_switch_and_clear(tmp_path):
     app.processEvents()
 
     assert window._input_mode == "file"
-    assert not window.paste_edit.isVisible()
-    assert window.file_drop.isVisible()
+    assert window.input_stack.currentIndex() == 1
     assert window._last_preflight_count == 1
+    assert window.sub2api_row.isVisible()
+    assert window.cpa_row.isVisible()
 
     window.clear_input()
     app.processEvents()

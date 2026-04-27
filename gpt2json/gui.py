@@ -11,6 +11,8 @@ from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QFrame,
     QGraphicsDropShadowEffect,
@@ -24,6 +26,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSpinBox,
+    QStackedWidget,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -316,6 +319,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(APP_NAME)
         self.setMinimumSize(1120, 720)
         self.resize(1180, 740)
+        self.setFixedSize(1180, 740)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         if ICON_PATH.exists():
@@ -398,6 +402,7 @@ class MainWindow(QMainWindow):
         self.status_label = QLabel(self._status_text)
         self.status_label.setObjectName("StatusPill")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setFixedWidth(94)
         self.theme_btn = QToolButton()
         self.theme_btn.setObjectName("ThemeButton")
         self.theme_btn.setToolTip("切换深色 / 浅色")
@@ -476,16 +481,26 @@ class MainWindow(QMainWindow):
         source_row.addWidget(self.clear_input_btn)
         layout.addLayout(source_row)
 
+        self.input_stack = QStackedWidget()
+        self.input_stack.setObjectName("InputStack")
+        self.input_stack.setFixedHeight(238)
         self.paste_edit = QPlainTextEdit()
         self.paste_edit.setObjectName("PasteBox")
-        self.paste_edit.setPlaceholderText("自动识别账号格式\n当前支持：GPT邮箱----GPT密码----OTP取码源\n每行一个账号，粘贴内容优先于文件。")
+        self.paste_edit.setPlaceholderText("自动识别账号格式\n当前支持：GPT邮箱----GPT密码----OTP取码源\n每行一个账号，以当前选中的输入来源为准。")
         self.paste_edit.textChanged.connect(self._on_paste_changed)
-        layout.addWidget(self.paste_edit, 1)
+        self.input_stack.addWidget(self.paste_edit)
 
+        file_page = QWidget()
+        file_page_layout = QVBoxLayout(file_page)
+        file_page_layout.setContentsMargins(0, 0, 0, 0)
+        file_page_layout.setSpacing(10)
         self.file_drop = FileDropBox()
         self.file_drop.clicked.connect(self.pick_input)
         self.file_drop.path_changed.connect(self._on_file_changed)
-        layout.addWidget(self.file_drop, 1)
+        file_page_layout.addWidget(self.file_drop)
+        file_page_layout.addStretch(1)
+        self.input_stack.addWidget(file_page)
+        layout.addWidget(self.input_stack)
 
         self.input_hint_label = QLabel()
         self.input_hint_label.setObjectName("HintText")
@@ -569,26 +584,16 @@ class MainWindow(QMainWindow):
 
         self.advanced_btn = QToolButton()
         self.advanced_btn.setObjectName("AdvancedBar")
-        self.advanced_btn.setText("高级选项（点击展开）  ﹀")
-        self.advanced_btn.setCheckable(True)
-        self.advanced_btn.clicked.connect(self.toggle_advanced)
+        self.advanced_btn.setText("高级选项（弹窗配置）  ›")
+        self.advanced_btn.setCheckable(False)
+        self.advanced_btn.clicked.connect(self.open_advanced_dialog)
         layout.addWidget(self.advanced_btn)
 
-        self.advanced_panel = QWidget()
-        advanced_grid = QGridLayout(self.advanced_panel)
-        advanced_grid.setContentsMargins(0, 0, 0, 0)
-        advanced_grid.setHorizontalSpacing(8)
         self.timeout_spin = self._spin(10, 600, 30)
         self.otp_timeout_spin = self._spin(10, 600, 180)
         self.otp_interval_spin = self._spin(1, 60, 3)
-        advanced_grid.addWidget(self._field_label("HTTP 超时"), 0, 0)
-        advanced_grid.addWidget(self._field_label("OTP 超时"), 0, 1)
-        advanced_grid.addWidget(self._field_label("轮询间隔"), 0, 2)
-        advanced_grid.addWidget(self.timeout_spin, 1, 0)
-        advanced_grid.addWidget(self.otp_timeout_spin, 1, 1)
-        advanced_grid.addWidget(self.otp_interval_spin, 1, 2)
-        self.advanced_panel.setVisible(False)
-        layout.addWidget(self.advanced_panel)
+        for spin in (self.timeout_spin, self.otp_timeout_spin, self.otp_interval_spin):
+            spin.setVisible(False)
         layout.addStretch(1)
         return card
 
@@ -819,7 +824,7 @@ class MainWindow(QMainWindow):
             p = self.palette()
             style = f"color:{p['status_fg']};background:{p['status_bg']};border:1px solid {p['status_bd']};"
         self.status_label.setText(self._status_text)
-        self.status_label.setStyleSheet(style + "border-radius:14px;padding:6px 15px;min-width:50px;font-size:13px;font-weight:800;")
+        self.status_label.setStyleSheet(style + "border-radius:14px;padding:6px 8px;min-width:94px;max-width:94px;font-size:13px;font-weight:800;")
 
     def toggle_theme(self) -> None:
         self._theme = "dark" if self._theme == "light" else "light"
@@ -850,10 +855,7 @@ class MainWindow(QMainWindow):
         self.timeout_spin.setValue(int_setting("timeout", 30, 10, 600))
         self.otp_timeout_spin.setValue(int_setting("otp_timeout", 180, 10, 600))
         self.otp_interval_spin.setValue(int_setting("otp_interval", 3, 1, 60))
-        advanced_visible = str(self.settings.value("advanced_visible", "false")).lower() == "true"
-        self.advanced_btn.setChecked(advanced_visible)
-        self.advanced_panel.setVisible(advanced_visible)
-        self.advanced_btn.setText("高级选项（点击收起）  ︿" if advanced_visible else "高级选项（点击展开）  ﹀")
+        self.advanced_btn.setText("高级选项（弹窗配置）  ›")
 
     def _save_settings(self) -> None:
         self.settings.setValue("theme", self._theme)
@@ -865,7 +867,6 @@ class MainWindow(QMainWindow):
         self.settings.setValue("timeout", int(self.timeout_spin.value()))
         self.settings.setValue("otp_timeout", int(self.otp_timeout_spin.value()))
         self.settings.setValue("otp_interval", int(self.otp_interval_spin.value()))
-        self.settings.setValue("advanced_visible", self.advanced_panel.isVisible())
 
     def _schedule_preflight(self) -> None:
         if self._is_running:
@@ -900,8 +901,7 @@ class MainWindow(QMainWindow):
         is_paste = self._input_mode == "paste"
         self.paste_tab.setChecked(is_paste)
         self.file_tab.setChecked(not is_paste)
-        self.paste_edit.setVisible(is_paste)
-        self.file_drop.setVisible(not is_paste)
+        self.input_stack.setCurrentIndex(0 if is_paste else 1)
         self.input_source_label.setText(self._active_input_label())
         self._refresh_controls_state()
 
@@ -920,8 +920,10 @@ class MainWindow(QMainWindow):
 
     def _refresh_output_format_state(self, *_args: Any) -> None:
         if hasattr(self, "sub2api_row"):
-            self.sub2api_row.setVisible(self.sub2api_check.isChecked() or bool(self.sub2api_row.path))
-            self.cpa_row.setVisible(self.cpa_check.isChecked() or bool(self.cpa_row.path))
+            self.sub2api_row.setVisible(True)
+            self.cpa_row.setVisible(True)
+            self.sub2api_row.setEnabled(self.sub2api_check.isChecked() or bool(self.sub2api_row.path))
+            self.cpa_row.setEnabled(self.cpa_check.isChecked() or bool(self.cpa_row.path))
             any_selected = self.sub2api_check.isChecked() or self.cpa_check.isChecked()
             self.output_hint_label.setText("生成完成后可打开或复制文件路径。" if any_selected else "请至少勾选一种导出格式。")
         self._refresh_controls_state()
@@ -1070,11 +1072,40 @@ class MainWindow(QMainWindow):
         self._save_settings()
         super().closeEvent(event)
 
-    def toggle_advanced(self) -> None:
-        visible = self.advanced_btn.isChecked()
-        self.advanced_panel.setVisible(visible)
-        self.advanced_btn.setText("高级选项（点击收起）  ︿" if visible else "高级选项（点击展开）  ﹀")
-        self._save_settings()
+    def open_advanced_dialog(self) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("高级选项")
+        dialog.setModal(True)
+        dialog.setFixedSize(360, 180)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(18, 16, 18, 14)
+        layout.setSpacing(12)
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(8)
+        http_spin = self._spin(10, 600, int(self.timeout_spin.value()))
+        otp_spin = self._spin(10, 600, int(self.otp_timeout_spin.value()))
+        interval_spin = self._spin(1, 60, int(self.otp_interval_spin.value()))
+        grid.addWidget(self._field_label("HTTP 超时"), 0, 0)
+        grid.addWidget(self._field_label("OTP 超时"), 0, 1)
+        grid.addWidget(self._field_label("轮询间隔"), 0, 2)
+        grid.addWidget(http_spin, 1, 0)
+        grid.addWidget(otp_spin, 1, 1)
+        grid.addWidget(interval_spin, 1, 2)
+        layout.addLayout(grid)
+        hint = QLabel("单位：秒。保存后会用于下一次导出。")
+        hint.setObjectName("HintText")
+        layout.addWidget(hint)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.setStyleSheet(self.styleSheet())
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.timeout_spin.setValue(http_spin.value())
+            self.otp_timeout_spin.setValue(otp_spin.value())
+            self.otp_interval_spin.setValue(interval_spin.value())
+            self._save_settings()
 
     def _set_status(self, text: str, mode: str) -> None:
         self._status_text = text.replace("●", "").strip()
