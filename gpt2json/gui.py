@@ -489,6 +489,8 @@ class MainWindow(QMainWindow):
 
         self.input_hint_label = QLabel()
         self.input_hint_label.setObjectName("HintText")
+        self.input_hint_label.setWordWrap(True)
+        self.input_hint_label.setMinimumHeight(34)
         layout.addWidget(self.input_hint_label)
         return card
 
@@ -1015,7 +1017,7 @@ class MainWindow(QMainWindow):
         format_id = self._input_format()
         if format_id == "auto":
             self.paste_edit.setPlaceholderText("粘贴账号文本，或导入账号文件。\n每行一个账号；字段含义以识别到的账号格式为准。\n当前默认自动识别。")
-            self.input_hint_label.setText("当前为自动识别；不同账号格式的字段语义以所选格式说明为准。")
+            self.input_hint_label.setText("自动识别：字段语义以识别到的账号格式为准。")
         else:
             for fmt in list_input_formats():
                 if fmt.id == format_id:
