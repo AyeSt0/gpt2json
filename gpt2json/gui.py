@@ -507,6 +507,7 @@ class MainWindow(QMainWindow):
         self.input_hint_label.setWordWrap(True)
         self.input_hint_label.setMinimumHeight(34)
         layout.addWidget(self.input_hint_label)
+        layout.addStretch(1)
         return card
 
     def _build_settings_card(self) -> QFrame:
@@ -1076,31 +1077,62 @@ class MainWindow(QMainWindow):
         dialog = QDialog(self)
         dialog.setWindowTitle("高级选项")
         dialog.setModal(True)
-        dialog.setFixedSize(360, 180)
+        dialog.setObjectName("AdvancedDialog")
+        dialog.setFixedSize(460, 286)
         layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(18, 16, 18, 14)
-        layout.setSpacing(12)
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(8)
+        layout.setContentsMargins(20, 18, 20, 16)
+        layout.setSpacing(10)
+        title = QLabel("高级选项")
+        title.setObjectName("DialogTitle")
+        subtitle = QLabel("这些参数只影响下一次导出；普通情况下保持默认即可。")
+        subtitle.setObjectName("DialogSubtitle")
+        layout.addWidget(title)
+        layout.addWidget(subtitle)
         http_spin = self._spin(10, 600, int(self.timeout_spin.value()))
         otp_spin = self._spin(10, 600, int(self.otp_timeout_spin.value()))
         interval_spin = self._spin(1, 60, int(self.otp_interval_spin.value()))
-        grid.addWidget(self._field_label("HTTP 超时"), 0, 0)
-        grid.addWidget(self._field_label("OTP 超时"), 0, 1)
-        grid.addWidget(self._field_label("轮询间隔"), 0, 2)
-        grid.addWidget(http_spin, 1, 0)
-        grid.addWidget(otp_spin, 1, 1)
-        grid.addWidget(interval_spin, 1, 2)
+        for spin in (http_spin, otp_spin, interval_spin):
+            spin.setFixedWidth(110)
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(10)
+
+        def add_row(row: int, label: str, help_text: str, spin: QSpinBox) -> None:
+            label_box = QVBoxLayout()
+            label_box.setContentsMargins(0, 0, 0, 0)
+            label_box.setSpacing(2)
+            name = QLabel(label)
+            name.setObjectName("DialogField")
+            desc = QLabel(help_text)
+            desc.setObjectName("DialogHelp")
+            label_box.addWidget(name)
+            label_box.addWidget(desc)
+            grid.addLayout(label_box, row, 0)
+            grid.addWidget(spin, row, 1)
+
+        add_row(0, "HTTP 请求超时（秒）", "登录、OAuth、接口请求的单次等待时间。", http_spin)
+        add_row(1, "验证码等待超时（秒）", "触发邮箱验证码后，最多轮询取码源多久。", otp_spin)
+        add_row(2, "验证码轮询间隔（秒）", "两次取码请求之间的间隔，过低可能触发限流。", interval_spin)
+        grid.setColumnStretch(0, 1)
         layout.addLayout(grid)
-        hint = QLabel("单位：秒。保存后会用于下一次导出。")
-        hint.setObjectName("HintText")
-        layout.addWidget(hint)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
-        dialog.setStyleSheet(self.styleSheet())
+        p = self.palette()
+        dialog.setStyleSheet(
+            f"""
+            #AdvancedDialog {{ background:{p['card']}; }}
+            #DialogTitle {{ color:{p['text']}; font-size:18px; font-weight:900; }}
+            #DialogSubtitle, #DialogHelp {{ color:{p['muted']}; font-size:12px; }}
+            #DialogField {{ color:{p['text']}; font-size:13px; font-weight:800; }}
+            QSpinBox {{ min-height:36px; border-radius:8px; padding-left:10px; padding-right:8px; color:{p['text']}; background:{p['input']}; border:1px solid {p['border']}; font-size:12px; font-weight:800; }}
+            QSpinBox:focus {{ border:1px solid #60A5FA; }}
+            QSpinBox::up-button, QSpinBox::down-button {{ width:20px; border:none; background:transparent; }}
+            QPushButton {{ min-height:32px; min-width:72px; border-radius:8px; color:{p['text']}; background:{p['soft']}; border:1px solid {p['border']}; font-weight:800; }}
+            QPushButton:hover {{ border-color:#3B82F6; color:#2563EB; }}
+            """
+        )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.timeout_spin.setValue(http_spin.value())
             self.otp_timeout_spin.setValue(otp_spin.value())
