@@ -18,4 +18,5 @@
 - Backend-first 邮箱 OTP 注册表骨架，围绕 IMAP / Graph / JMAP / POP3 / API 扩展。
 - HTTP no-login OTP 支持 HTML 前端内 API 自动发现，避免从脚本常量误取验证码。
 - 协议登录默认指纹更新为 `chrome136`，并补齐更接近浏览器导航 / JSON 请求的默认头。
+- GUI 输入来源、导出格式、输出文件和运行状态联动重构；浅色 / 深色预览与图标素材更新。
 - GitHub-ready 项目元数据、测试、文档和模板。

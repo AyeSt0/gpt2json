@@ -5,11 +5,11 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QObject, Qt, QUrl, Signal
-from PySide6.QtCore import QSize
+from PySide6.QtCore import QObject, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QFont, QFontDatabase, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QComboBox,
     QFileDialog,
     QFrame,
@@ -43,6 +43,8 @@ UI_SETTINGS_PATH = ASSET_DIR / "ui_settings.png"
 UI_OUTPUT_PATH = ASSET_DIR / "ui_output.png"
 UI_LOG_PATH = ASSET_DIR / "ui_log.png"
 UI_UPLOAD_PATH = ASSET_DIR / "ui_upload.png"
+
+READY_LOG = "系统就绪，选择输入来源后开始预检查。\n当前支持：自动识别 / LDXP Plus7 三段式 OTP。\n取码后端：HTTP URL / HTML API 自动发现；IMAP、Graph、JMAP、POP3、API 预留。"
 
 LIGHT_THEME = {
     "shell": "#F6F8FC",
@@ -242,6 +244,7 @@ class FileOutputRow(QFrame):
         super().__init__()
         self.setObjectName("OutputRow")
         self.path = ""
+        self.default_filename = filename
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 0, 8, 0)
         layout.setSpacing(10)
@@ -251,6 +254,12 @@ class FileOutputRow(QFrame):
         self.name_label = QLabel(filename)
         self.name_label.setObjectName("OutputName")
         self.name_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.open_btn = QToolButton()
+        self.open_btn.setObjectName("CopyButton")
+        self.open_btn.setText("打开")
+        self.open_btn.setToolTip("打开文件")
+        self.open_btn.setEnabled(False)
+        self.open_btn.clicked.connect(self.open_path)
         self.copy_btn = QToolButton()
         self.copy_btn.setObjectName("CopyButton")
         self.copy_btn.setText("复制")
@@ -259,12 +268,19 @@ class FileOutputRow(QFrame):
         self.copy_btn.clicked.connect(self.copy_path)
         layout.addWidget(badge_label)
         layout.addWidget(self.name_label, 1)
+        layout.addWidget(self.open_btn)
         layout.addWidget(self.copy_btn)
 
     def set_path(self, path: str) -> None:
         self.path = path
+        self.name_label.setText(Path(path).name if path else self.default_filename)
+        self.open_btn.setEnabled(bool(path))
         self.copy_btn.setEnabled(bool(path))
         self.setToolTip(path)
+
+    def open_path(self) -> None:
+        if self.path:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(self.path).resolve())))
 
     def copy_path(self) -> None:
         if self.path:
@@ -286,6 +302,8 @@ class MainWindow(QMainWindow):
         self.resize(1180, 740)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        if ICON_PATH.exists():
+            self.setWindowIcon(QIcon(str(ICON_PATH)))
         self.bridge = WorkerBridge()
         self.bridge.log.connect(self.append_log)
         self.bridge.event.connect(self.on_event)
@@ -294,6 +312,8 @@ class MainWindow(QMainWindow):
         self._worker_thread: threading.Thread | None = None
         self._drag_start: Any = None
         self._theme = "light"
+        self._input_mode = "paste"
+        self._is_running = False
         self._status_text = "就绪"
         self._status_mode = "ready"
         self._total = 0
@@ -302,8 +322,15 @@ class MainWindow(QMainWindow):
         self._failure = 0
         self._running = 0
         self._log_waiting = True
+        self._preflight_timer = QTimer(self)
+        self._preflight_timer.setSingleShot(True)
+        self._preflight_timer.setInterval(260)
+        self._preflight_timer.timeout.connect(lambda: self.preflight(silent=True))
         self._build_ui()
         self.apply_style()
+        self._refresh_input_mode()
+        self._refresh_output_format_state()
+        self._refresh_controls_state()
 
     def _build_ui(self) -> None:
         outer = QWidget(self)
@@ -406,11 +433,19 @@ class MainWindow(QMainWindow):
         self.file_tab = QPushButton("导入文件")
         self.file_tab.setObjectName("SegmentRight")
         self.file_tab.setCheckable(True)
+        self.input_mode_group = QButtonGroup(self)
+        self.input_mode_group.setExclusive(True)
+        self.input_mode_group.addButton(self.paste_tab)
+        self.input_mode_group.addButton(self.file_tab)
         self.paste_tab.clicked.connect(lambda: self._select_input_mode("paste"))
         self.file_tab.clicked.connect(lambda: self._select_input_mode("file"))
         tabs.addWidget(self.paste_tab)
         tabs.addWidget(self.file_tab)
         layout.addLayout(tabs)
+
+        self.input_source_label = QLabel("当前来源：粘贴文本")
+        self.input_source_label.setObjectName("SourcePill")
+        layout.addWidget(self.input_source_label)
 
         self.paste_edit = QPlainTextEdit()
         self.paste_edit.setObjectName("PasteBox")
@@ -420,8 +455,8 @@ class MainWindow(QMainWindow):
 
         self.file_drop = FileDropBox()
         self.file_drop.clicked.connect(self.pick_input)
-        self.file_drop.path_changed.connect(lambda _p: self.preflight(silent=True))
-        layout.addWidget(self.file_drop)
+        self.file_drop.path_changed.connect(self._on_file_changed)
+        layout.addWidget(self.file_drop, 1)
 
         self.input_hint_label = QLabel()
         self.input_hint_label.setObjectName("HintText")
@@ -458,6 +493,8 @@ class MainWindow(QMainWindow):
         format_row.setSpacing(8)
         self.sub2api_check = self._chip_button("Sub2API JSON", checked=True)
         self.cpa_check = self._chip_button("CPA Manifest", checked=True)
+        self.sub2api_check.clicked.connect(self._refresh_output_format_state)
+        self.cpa_check.clicked.connect(self._refresh_output_format_state)
         format_row.addWidget(self.sub2api_check)
         format_row.addWidget(self.cpa_check)
         format_row.addStretch(1)
@@ -467,10 +504,10 @@ class MainWindow(QMainWindow):
         compact.setHorizontalSpacing(10)
         compact.setVerticalSpacing(6)
         compact.addWidget(self._field_label("并发"), 0, 0)
-        compact.addWidget(self._field_label("OTP Backend"), 0, 1)
+        compact.addWidget(self._field_label("取码后端"), 0, 1)
         self.concurrency_spin = self._spin(0, 64, 0)
         self.concurrency_spin.setSpecialValueText("自动")
-        self.backend_label = QLabel("Auto · HTTP URL")
+        self.backend_label = QLabel("Auto · HTTP URL / HTML API")
         self.backend_label.setObjectName("BackendPill")
         self.backend_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         compact.addWidget(self.concurrency_spin, 1, 0)
@@ -479,12 +516,9 @@ class MainWindow(QMainWindow):
         compact.setColumnStretch(1, 2)
         layout.addLayout(compact)
 
-        future_row = QHBoxLayout()
-        future_row.setSpacing(6)
-        for text in ("IMAP", "Graph", "JMAP"):
-            future_row.addWidget(self._small_badge(text))
-        future_row.addStretch(1)
-        layout.addLayout(future_row)
+        self.backend_hint_label = QLabel("后续按协议扩展：IMAP / Graph / JMAP / POP3 / API")
+        self.backend_hint_label.setObjectName("HintText")
+        layout.addWidget(self.backend_hint_label)
 
         output_grid = QGridLayout()
         output_grid.setHorizontalSpacing(8)
@@ -493,11 +527,12 @@ class MainWindow(QMainWindow):
         self.output_edit.setObjectName("PathEdit")
         self.output_edit.setText("output")
         self.output_edit.setPlaceholderText("选择输出目录")
-        output_btn = QPushButton("浏览")
-        output_btn.setObjectName("BrowseButton")
-        output_btn.clicked.connect(self.pick_output)
+        self.output_edit.textChanged.connect(self._refresh_controls_state)
+        self.output_btn = QPushButton("浏览")
+        self.output_btn.setObjectName("BrowseButton")
+        self.output_btn.clicked.connect(self.pick_output)
         output_grid.addWidget(self.output_edit, 1, 0)
-        output_grid.addWidget(output_btn, 1, 1)
+        output_grid.addWidget(self.output_btn, 1, 1)
         output_grid.setColumnStretch(0, 1)
         layout.addLayout(output_grid)
 
@@ -582,6 +617,9 @@ class MainWindow(QMainWindow):
         output_layout.setContentsMargins(16, 14, 16, 14)
         output_layout.setSpacing(12)
         output_layout.addWidget(SectionHeader(UI_OUTPUT_PATH, "输出文件"))
+        self.output_hint_label = QLabel("勾选导出格式后，生成的文件会在这里显示。")
+        self.output_hint_label.setObjectName("HintText")
+        output_layout.addWidget(self.output_hint_label)
         self.sub2api_row = FileOutputRow("sub2api_accounts.secret.json", "Sub2API")
         self.cpa_row = FileOutputRow("cpa_manifest.json", "CPA")
         output_layout.addWidget(self.sub2api_row)
@@ -596,7 +634,7 @@ class MainWindow(QMainWindow):
         self.log_edit = QPlainTextEdit()
         self.log_edit.setObjectName("LogBox")
         self.log_edit.setReadOnly(True)
-        self.log_edit.setPlainText("[12:00:00] 系统就绪，等待任务开始\n[12:00:00] 当前并发：自动\n[12:00:00] OTP Backend：Auto")
+        self.log_edit.setPlainText(READY_LOG)
         log_layout.addWidget(self.log_edit, 1)
         layout.addWidget(log_card, 72)
         return right
@@ -645,11 +683,12 @@ class MainWindow(QMainWindow):
         QApplication.instance().setFont(QFont(load_ui_font(), 10))  # type: ignore[union-attr]
         self.shadow.setColor(Qt.GlobalColor.black if self._theme == "dark" else Qt.GlobalColor.gray)
         self.theme_btn.setText("")
-        icon_path = THEME_MOON_PATH if self._theme == "dark" else THEME_SUN_PATH
+        icon_path = THEME_SUN_PATH if self._theme == "dark" else THEME_MOON_PATH
+        self.theme_btn.setToolTip("切换到浅色模式" if self._theme == "dark" else "切换到深色模式")
         if icon_path.exists():
             self.theme_btn.setIcon(QIcon(str(icon_path)))
         else:
-            self.theme_btn.setText("月" if self._theme == "dark" else "日")
+            self.theme_btn.setText("☀" if self._theme == "dark" else "☾")
         self.setStyleSheet(
             f"""
             #Outer {{ background: transparent; }}
@@ -668,6 +707,7 @@ class MainWindow(QMainWindow):
             #SectionTitle {{ color:{p['text']}; font-size:17px; font-weight:900; }}
             #FieldLabel {{ color:{p['text']}; font-size:12px; font-weight:800; }}
             #HintText {{ color:{p['muted']}; font-size:12px; }}
+            #SourcePill {{ min-height:30px; border-radius:8px; padding:0 10px; color:{p['muted']}; background:{p['soft']}; border:1px solid {p['border']}; font-size:12px; font-weight:800; }}
             #SegmentLeft, #SegmentRight {{ min-height:37px; border:1px solid {p['border']}; color:{p['muted']}; background:{p['soft']}; font-size:13px; font-weight:800; }}
             #SegmentLeft {{ border-top-left-radius:8px; border-bottom-left-radius:8px; border-right:none; }}
             #SegmentRight {{ border-top-right-radius:8px; border-bottom-right-radius:8px; }}
@@ -686,6 +726,7 @@ class MainWindow(QMainWindow):
             #BrowseButton:hover, #AdvancedBar:hover, #SecondaryButton:hover {{ border-color:#3B82F6; color:#2563EB; }}
             #ChipButton {{ min-height:38px; padding:0 12px; border-radius:8px; color:{p['muted']}; background:{p['soft']}; border:1px solid {p['border']}; font-size:12px; font-weight:900; }}
             #ChipButton:checked {{ color:white; border:1px solid #2563EB; background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #2563EB,stop:1 #7C3AED); }}
+            #ChipButton:disabled {{ color:{p['muted2']}; background:{p['progress']}; border:1px solid {p['border']}; }}
             #BackendPill, #SmallBadge {{ min-height:36px; border-radius:8px; padding:0 9px; color:{p['muted']}; background:{p['soft']}; border:1px solid {p['border']}; font-size:12px; font-weight:800; }}
             #SmallBadge {{ min-width:52px; max-height:26px; min-height:26px; color:{p['muted2']}; }}
             #AdvancedBar {{ min-height:38px; border-radius:8px; padding:0 12px; text-align:left; color:{p['muted']}; background:{p['soft']}; border:1px solid {p['border']}; font-size:12px; font-weight:800; }}
@@ -711,10 +752,25 @@ class MainWindow(QMainWindow):
         self._apply_status_style()
 
     def _apply_status_style(self) -> None:
+        dark = self._theme == "dark"
         if self._status_mode == "running":
-            style = "color:#6D28D9;background:#EDE9FE;border:1px solid #DDD6FE;"
+            style = (
+                "color:#C4B5FD;background:#24154B;border:1px solid #5B21B6;"
+                if dark
+                else "color:#6D28D9;background:#EDE9FE;border:1px solid #DDD6FE;"
+            )
+        elif self._status_mode == "warning":
+            style = (
+                "color:#FDE68A;background:#3A2607;border:1px solid #92400E;"
+                if dark
+                else "color:#B45309;background:#FEF3C7;border:1px solid #FDE68A;"
+            )
         elif self._status_mode == "failed":
-            style = "color:#DC2626;background:#FEE2E2;border:1px solid #FECACA;"
+            style = (
+                "color:#FCA5A5;background:#3F1212;border:1px solid #7F1D1D;"
+                if dark
+                else "color:#DC2626;background:#FEE2E2;border:1px solid #FECACA;"
+            )
         else:
             p = self.palette()
             style = f"color:{p['status_fg']};background:{p['status_bg']};border:1px solid {p['status_bd']};"
@@ -725,20 +781,102 @@ class MainWindow(QMainWindow):
         self._theme = "dark" if self._theme == "light" else "light"
         self.apply_style()
 
-    def _select_input_mode(self, mode: str) -> None:
-        is_paste = mode == "paste"
+    def _schedule_preflight(self) -> None:
+        if self._is_running:
+            return
+        self._preflight_timer.start()
+
+    def _reset_counts(self, total: int = 0) -> None:
+        if not hasattr(self, "total_stat"):
+            return
+        self._total = int(total or 0)
+        self._done = self._success = self._failure = self._running = 0
+        self.total_stat.set_value(self._total)
+        self.success_stat.set_value(0)
+        self.failed_stat.set_value(0)
+        self.running_stat.set_value(0)
+        self._update_progress()
+
+    def _active_input_label(self) -> str:
+        if self._input_mode == "file":
+            path = self._input_path()
+            return f"当前来源：文件 · {Path(path).name}" if path else "当前来源：文件 · 等待选择"
+        count = len([line for line in self._paste_text().splitlines() if line.strip()])
+        return f"当前来源：粘贴文本 · {count} 行原始文本" if count else "当前来源：粘贴文本"
+
+    def _refresh_input_mode(self) -> None:
+        is_paste = self._input_mode == "paste"
         self.paste_tab.setChecked(is_paste)
         self.file_tab.setChecked(not is_paste)
-        if is_paste:
+        self.paste_edit.setVisible(is_paste)
+        self.file_drop.setVisible(not is_paste)
+        self.input_source_label.setText(self._active_input_label())
+        self._refresh_controls_state()
+
+    def _select_input_mode(self, mode: str) -> None:
+        self._input_mode = "file" if mode == "file" else "paste"
+        self._refresh_input_mode()
+        if self._input_mode == "paste":
             self.paste_edit.setFocus()
-        else:
-            self.pick_input()
+        elif self._input_path():
+            self._schedule_preflight()
+
+    def _on_file_changed(self, _path: str = "") -> None:
+        self._input_mode = "file"
+        self._refresh_input_mode()
+        self._schedule_preflight()
+
+    def _refresh_output_format_state(self, *_args: Any) -> None:
+        if hasattr(self, "sub2api_row"):
+            self.sub2api_row.setVisible(self.sub2api_check.isChecked())
+            self.cpa_row.setVisible(self.cpa_check.isChecked())
+            any_selected = self.sub2api_check.isChecked() or self.cpa_check.isChecked()
+            self.output_hint_label.setText("生成完成后可打开或复制文件路径。" if any_selected else "请至少勾选一种导出格式。")
+        self._refresh_controls_state()
+
+    def _has_active_input(self) -> bool:
+        if self._input_mode == "paste":
+            return bool(self._paste_text())
+        path = Path(self._input_path())
+        return bool(str(path)) and path.exists() and path.is_file()
+
+    def _refresh_controls_state(self, *_args: Any) -> None:
+        if not hasattr(self, "run_btn"):
+            return
+        output_selected = self.sub2api_check.isChecked() or self.cpa_check.isChecked()
+        has_output = bool(self.output_edit.text().strip())
+        has_input = self._has_active_input()
+        can_start = (not self._is_running) and output_selected and has_output and has_input
+        self.run_btn.setEnabled(can_start)
+        self.preflight_btn.setEnabled((not self._is_running) and has_input)
+        for widget in (
+            self.paste_tab,
+            self.file_tab,
+            self.paste_edit,
+            self.file_drop,
+            self.input_format_combo,
+            self.sub2api_check,
+            self.cpa_check,
+            self.concurrency_spin,
+            self.output_edit,
+            self.output_btn,
+            self.advanced_btn,
+            self.timeout_spin,
+            self.otp_timeout_spin,
+            self.otp_interval_spin,
+        ):
+            widget.setEnabled(not self._is_running)
+        self.open_out_btn.setEnabled(bool(has_output))
+
+    def _set_running(self, running: bool) -> None:
+        self._is_running = bool(running)
+        self._refresh_controls_state()
 
     def _on_paste_changed(self) -> None:
         if self._paste_text():
-            self.paste_tab.setChecked(True)
-            self.file_tab.setChecked(False)
-        self.preflight(silent=True)
+            self._input_mode = "paste"
+        self._refresh_input_mode()
+        self._schedule_preflight()
 
     def _on_input_format_changed(self) -> None:
         format_id = self._input_format()
@@ -751,10 +889,11 @@ class MainWindow(QMainWindow):
                     self.paste_edit.setPlaceholderText(fmt.placeholder or fmt.description or fmt.label)
                     self.input_hint_label.setText(fmt.description or "字段语义以当前账号格式为准。")
                     break
-        self.preflight(silent=True)
+        self._schedule_preflight()
 
     def _toggle_max_restore(self) -> None:
         self.showNormal() if self.isMaximized() else self.showMaximized()
+        self.max_btn.setText("❐" if self.isMaximized() else "□")
 
     def mousePressEvent(self, event) -> None:  # type: ignore[override]
         if event.button() == Qt.MouseButton.LeftButton and event.position().y() <= 88:
@@ -795,9 +934,9 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "选择账号文件", str(Path.cwd()), "文本文件 (*.txt);;所有文件 (*)")
         if path:
             self.file_drop.set_path(path)
-            self.paste_tab.setChecked(False)
-            self.file_tab.setChecked(True)
-            self.preflight(silent=True)
+            self._input_mode = "file"
+            self._refresh_input_mode()
+            self._schedule_preflight()
 
     def pick_output(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "选择输出目录", self.output_edit.text() or str(Path.cwd()))
@@ -835,9 +974,11 @@ class MainWindow(QMainWindow):
         return " + ".join(labels)
 
     def _preview_rows(self) -> tuple[bool, int]:
-        paste_text = self._paste_text()
         input_format = self._input_format()
-        if paste_text:
+        if self._input_mode == "paste":
+            paste_text = self._paste_text()
+            if not paste_text:
+                return False, 0
             rows = parse_by_format(paste_text.splitlines(), format_id=input_format)
             return True, len(rows)
         input_path = Path(self._input_path())
@@ -847,6 +988,8 @@ class MainWindow(QMainWindow):
         return True, len(rows)
 
     def preflight(self, silent: bool = False) -> bool:
+        if self._is_running:
+            return True
         try:
             has_input, row_count = self._preview_rows()
         except Exception as exc:
@@ -854,16 +997,11 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "预检查失败", f"读取失败：{type(exc).__name__}: {exc}")
             return False
         if not has_input:
+            self._reset_counts(0)
             if not silent:
                 QMessageBox.warning(self, "缺少输入", "请粘贴账号文本，或导入账号文件。")
             return False
-        self._total = row_count
-        self.total_stat.set_value(self._total)
-        self._done = self._success = self._failure = self._running = 0
-        self.success_stat.set_value(0)
-        self.failed_stat.set_value(0)
-        self.running_stat.set_value(0)
-        self._update_progress()
+        self._reset_counts(row_count)
         if not silent:
             outputs = self._selected_output_labels() or "未选择"
             input_format_label = self._input_format_label()
@@ -875,8 +1013,8 @@ class MainWindow(QMainWindow):
         if self._worker_thread and self._worker_thread.is_alive():
             QMessageBox.information(self, "正在运行", "当前任务还没有结束。")
             return
-        input_path = self._input_path()
-        paste_text = self._paste_text()
+        input_path = self._input_path() if self._input_mode == "file" else ""
+        paste_text = self._paste_text() if self._input_mode == "paste" else ""
         output_dir = self.output_edit.text().strip()
         if not paste_text and not input_path:
             QMessageBox.warning(self, "缺少输入", "请粘贴账号文本，或导入账号文件。")
@@ -890,16 +1028,11 @@ class MainWindow(QMainWindow):
         if not self.preflight(silent=True):
             QMessageBox.warning(self, "没有有效账号", "输入内容中没有识别到有效行。")
             return
-        self._done = self._success = self._failure = self._running = 0
-        self.success_stat.set_value(0)
-        self.failed_stat.set_value(0)
-        self.running_stat.set_value(0)
-        self._update_progress()
+        self._reset_counts(self._total)
         self.log_edit.clear()
         self._log_waiting = False
         self._set_status("运行中", "running")
-        self.run_btn.setEnabled(False)
-        self.preflight_btn.setEnabled(False)
+        self._set_running(True)
         self.sub2api_row.set_path("")
         self.cpa_row.set_path("")
         config = ExportConfig(
@@ -954,10 +1087,16 @@ class MainWindow(QMainWindow):
             self._update_progress()
 
     def on_done(self, summary: dict) -> None:
-        self.run_btn.setEnabled(True)
-        self.preflight_btn.setEnabled(True)
-        self._set_status("完成", "done")
-        self._done = int(summary.get("success_count", 0) or 0) + int(summary.get("failure_count", 0) or 0)
+        self._set_running(False)
+        success_count = int(summary.get("success_count", 0) or 0)
+        failure_count = int(summary.get("failure_count", 0) or 0)
+        if success_count and failure_count:
+            self._set_status("部分完成", "warning")
+        elif success_count:
+            self._set_status("完成", "done")
+        else:
+            self._set_status("无成功", "failed")
+        self._done = success_count + failure_count
         self._running = 0
         self.running_stat.set_value(0)
         self._update_progress()
@@ -966,16 +1105,15 @@ class MainWindow(QMainWindow):
         self.sub2api_row.set_path(sub2api_path)
         self.cpa_row.set_path(cpa_path)
         self.append_log("")
-        self.append_log(f"[汇总] 成功={summary.get('success_count', 0)} 失败={summary.get('failure_count', 0)}")
+        self.append_log(f"[汇总] 成功={success_count} 失败={failure_count}")
         if sub2api_path:
             self.append_log(f"[sub2api] {sub2api_path}")
         if cpa_path:
             self.append_log(f"[cpa] {cpa_path}")
-        QMessageBox.information(self, "完成", f"导出完成\n成功：{summary.get('success_count', 0)}\n失败：{summary.get('failure_count', 0)}")
+        QMessageBox.information(self, "完成", f"导出完成\n成功：{success_count}\n失败：{failure_count}")
 
     def on_failed(self, message: str) -> None:
-        self.run_btn.setEnabled(True)
-        self.preflight_btn.setEnabled(True)
+        self._set_running(False)
         self._running = 0
         self.running_stat.set_value(0)
         self._set_status("失败", "failed")
@@ -986,6 +1124,8 @@ class MainWindow(QMainWindow):
 def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
+    if ICON_PATH.exists():
+        app.setWindowIcon(QIcon(str(ICON_PATH)))
     window = MainWindow()
     window.show()
     return app.exec()
