@@ -157,6 +157,7 @@ def run_export(
     lock = threading.Lock()
     results: list[AttemptResult] = []
     successes: list[dict[str, Any]] = []
+
     def run_one(row: Any) -> AttemptResult:
         emit({"type": "row_start", "line_no": row.line_no, "email_masked": mask_email(row.login_email)})
 
@@ -222,6 +223,7 @@ def run_export(
 
     successes.sort(key=lambda item: str(item.get("email") or ""))
     sub_accounts: list[dict[str, Any]] = []
+    cpa_files: list[dict[str, Any]] = []
     cpa_dir = out_dir / "CPA"
     sub_dir = out_dir / "sub_accounts"
     for index, token_payload in enumerate(successes, 1):
@@ -229,7 +231,16 @@ def run_export(
         slug = slug_email(email)
         suffix = f"{int(time.time())}_{index:03d}"
         if export_cpa:
-            write_json(cpa_dir / f"token_{slug}_{suffix}.json", token_payload)
+            cpa_path = cpa_dir / f"token_{slug}_{suffix}.json"
+            write_json(cpa_path, token_payload)
+            cpa_files.append(
+                {
+                    "file": str(cpa_path.relative_to(out_dir)).replace("\\", "/"),
+                    "email_hash": secret_hash(email),
+                    "email_masked": mask_email(email),
+                    "type": str(token_payload.get("type") or ""),
+                }
+            )
         if export_sub2api:
             sub_account = _build_sub_account(token_payload, pool=config.pool, index=index)
             sub_accounts.append(sub_account)
@@ -241,7 +252,9 @@ def run_export(
             {
                 "exported_at": utc_now_iso(),
                 "count": len(successes),
-                "accounts": successes,
+                "format": "cpa-per-account-json",
+                "directory": "CPA",
+                "files": cpa_files,
             },
         )
     if successes and export_sub2api:
@@ -252,6 +265,7 @@ def run_export(
     summary["failure_count"] = len(rows) - len(successes)
     summary["success_emails"] = sorted(str(item.get("email") or "") for item in successes if str(item.get("email") or "").strip())
     summary["sub2api_export"] = str(out_dir / "sub2api_accounts.secret.json") if successes and export_sub2api else ""
+    summary["cpa_dir"] = str(cpa_dir) if successes and export_cpa else ""
     summary["cpa_manifest"] = str(out_dir / "cpa_manifest.json") if successes and export_cpa else ""
     write_json(out_dir / "summary.json", summary)
     write_json(out_dir / "progress.json", summary)

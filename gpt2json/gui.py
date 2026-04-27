@@ -560,7 +560,7 @@ class MainWindow(QMainWindow):
         format_row = QHBoxLayout()
         format_row.setSpacing(8)
         self.sub2api_check = self._chip_button("Sub2API JSON", checked=True)
-        self.cpa_check = self._chip_button("CPA Manifest", checked=True)
+        self.cpa_check = self._chip_button("CPA JSON", checked=True)
         self.sub2api_check.clicked.connect(self._refresh_output_format_state)
         self.cpa_check.clicked.connect(self._refresh_output_format_state)
         format_row.addWidget(self.sub2api_check)
@@ -682,7 +682,7 @@ class MainWindow(QMainWindow):
         self.output_hint_label.setObjectName("HintText")
         output_layout.addWidget(self.output_hint_label)
         self.sub2api_row = FileOutputRow("sub2api_accounts.secret.json", "Sub2API")
-        self.cpa_row = FileOutputRow("cpa_manifest.json", "CPA")
+        self.cpa_row = FileOutputRow("CPA/（每账号一个 JSON）", "CPA")
         output_layout.addWidget(self.sub2api_row)
         output_layout.addWidget(self.cpa_row)
         layout.addWidget(output_card, 0)
@@ -1238,7 +1238,7 @@ class MainWindow(QMainWindow):
         if self.sub2api_check.isChecked():
             labels.append("Sub2API JSON")
         if self.cpa_check.isChecked():
-            labels.append("CPA Manifest")
+            labels.append("CPA JSON")
         return " + ".join(labels)
 
     def _preview_rows(self) -> tuple[bool, int, int]:
@@ -1320,7 +1320,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "输出目录不可用", output_message)
             return
         if not (self.sub2api_check.isChecked() or self.cpa_check.isChecked()):
-            QMessageBox.warning(self, "缺少导出格式", "请至少选择 Sub2API JSON 或 CPA Manifest。")
+            QMessageBox.warning(self, "缺少导出格式", "请至少选择 Sub2API JSON 或 CPA JSON。")
             return
         if not self.preflight(silent=True):
             QMessageBox.warning(self, "没有有效账号", "输入内容中没有识别到有效行。")
@@ -1500,7 +1500,7 @@ class MainWindow(QMainWindow):
         self.running_stat.set_value(0)
         self._update_progress()
         sub2api_path = str(summary.get("sub2api_export") or "")
-        cpa_path = str(summary.get("cpa_manifest") or "")
+        cpa_path = str(summary.get("cpa_dir") or summary.get("cpa_manifest") or "")
         self.sub2api_row.set_path(sub2api_path)
         self.cpa_row.set_path(cpa_path)
         self.append_log("")
@@ -1508,7 +1508,7 @@ class MainWindow(QMainWindow):
         if sub2api_path:
             self.append_log(f"🧰 Sub2API 文件已写好：{sub2api_path}")
         if cpa_path:
-            self.append_log(f"📘 CPA Manifest 已写好：{cpa_path}")
+            self.append_log(f"📘 CPA 单账号 JSON 已写好：{cpa_path}")
         self.append_log("🍻 可以打开输出目录验货了。")
         QMessageBox.information(self, "完成", f"导出完成\n成功：{success_count}\n失败：{failure_count}")
 

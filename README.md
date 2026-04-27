@@ -19,7 +19,7 @@
 
 ## 简介
 
-GPT2JSON 是一个小型独立工具，用于把账号文本批量处理成 **Sub2API JSON** 和 / 或 **CPA Manifest JSON**。
+GPT2JSON 是一个小型独立工具，用于把账号文本批量处理成 **Sub2API JSON** 和 / 或 **CPA 单账号 JSON**。
 
 它只负责生成本地 JSON 文件，不会直接连接或写入 Sub2API 后台，适合先批量生成、检查后再手动导入。
 
@@ -59,7 +59,7 @@ user@example.test----example-gpt-password----https://otp-service.test/latest?mai
 - **协议优先**：默认走 HTTP/OAuth 流程，不依赖浏览器自动化。
 - **自动并发**：并发数默认 `自动`，也可以手动指定。
 - **验证码处理**：支持免登录 URL 取码；可自动识别 JSON / 文本接口，以及前端 HTML 里暴露的取码 API。
-- **导出可选**：可单独导出 `Sub2API JSON` 或 `CPA Manifest`，也可以两个都导出。
+- **导出可选**：可单独导出 `Sub2API JSON` 或 `CPA JSON`，也可以两个都导出。
 - **脱敏日志**：运行过程展示进度和状态，尽量避免在日志中暴露敏感信息。
 
 ## 协议后端规划
@@ -94,7 +94,7 @@ gpt2json-gui
 1. 选择账号格式：默认 `自动识别`；
 2. 粘贴账号文本，或导入账号文件；
 3. 选择输出目录；
-4. 勾选导出格式：`Sub2API JSON`、`CPA Manifest`；
+4. 勾选导出格式：`Sub2API JSON`、`CPA JSON`；
 5. 并发保持 `自动` 即可，必要时再手动调整；
 6. 点击 `开始导出`。
 
@@ -153,8 +153,8 @@ output/
 | 文件 | 说明 |
 | --- | --- |
 | `sub2api_accounts.secret.json` | Sub2API 导入用总包。 |
-| `cpa_manifest.json` | CPA manifest 汇总文件。 |
-| `CPA/token_*.json` | CPA 单账号 token 文件。 |
+| `CPA/token_*.json` | CPA 单账号 token 文件；一个账号一个 JSON。 |
+| `cpa_manifest.json` | CPA 文件索引，仅记录文件列表和脱敏元数据。 |
 | `summary.json` | 本次导出的统计结果。 |
 
 ## 安装开发版

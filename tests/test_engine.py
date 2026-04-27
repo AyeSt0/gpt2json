@@ -47,10 +47,17 @@ def test_run_export_writes_cpa_and_sub2api(tmp_path: Path):
         client_factory=lambda: FakeClient(),
     )
     assert summary["success_count"] == 2
+    assert summary["cpa_dir"]
     assert (out_dir / "cpa_manifest.json").exists()
     assert (out_dir / "sub2api_accounts.secret.json").exists()
+    cpa_files = sorted((out_dir / "CPA").glob("token_*.json"))
+    assert len(cpa_files) == 2
+    assert json.loads(cpa_files[0].read_text(encoding="utf-8"))["access_token"] == "a.b.c"
     manifest = json.loads((out_dir / "cpa_manifest.json").read_text(encoding="utf-8"))
     assert manifest["count"] == 2
+    assert manifest["format"] == "cpa-per-account-json"
+    assert len(manifest["files"]) == 2
+    assert "accounts" not in manifest
 
 
 def test_run_export_accepts_pasted_input_and_auto_concurrency(tmp_path: Path):
@@ -78,7 +85,9 @@ def test_run_export_cpa_only(tmp_path: Path):
         client_factory=lambda: FakeClient(),
     )
     assert summary["sub2api_export"] == ""
+    assert summary["cpa_dir"]
     assert summary["cpa_manifest"]
+    assert len(list((out_dir / "CPA").glob("token_*.json"))) == 2
     assert (out_dir / "cpa_manifest.json").exists()
     assert not (out_dir / "sub2api_accounts.secret.json").exists()
 
@@ -95,8 +104,10 @@ def test_run_export_sub2api_only(tmp_path: Path):
         ),
         client_factory=lambda: FakeClient(),
     )
+    assert summary["cpa_dir"] == ""
     assert summary["cpa_manifest"] == ""
     assert summary["sub2api_export"]
+    assert not (out_dir / "CPA").exists()
     assert (out_dir / "sub2api_accounts.secret.json").exists()
     assert not (out_dir / "cpa_manifest.json").exists()
 
