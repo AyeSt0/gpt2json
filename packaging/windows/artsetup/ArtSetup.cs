@@ -7,6 +7,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using Brushes = System.Windows.Media.Brushes;
@@ -75,6 +76,7 @@ namespace GPT2JSON.ArtSetup
                     Color = Color.FromRgb(0, 0, 0)
                 }
             };
+            Motion.PrepareEntrance(shellArt, 10, 0.985);
             Canvas.SetLeft(shellArt, 40);
             Canvas.SetTop(shellArt, 40);
             root.Children.Add(shellArt);
@@ -86,6 +88,7 @@ namespace GPT2JSON.ArtSetup
                 Clip = ShellSurfaceGeometry(),
                 Background = Brushes.Transparent
             };
+            Motion.PrepareEntrance(shell, 8, 0.992);
             Canvas.SetLeft(shell, 40);
             Canvas.SetTop(shell, 40);
             root.Children.Add(shell);
@@ -116,6 +119,13 @@ namespace GPT2JSON.ArtSetup
                 _closeButton.Click += delegate { Close(); };
             if (_minButton != null)
                 _minButton.Click += delegate { WindowState = WindowState.Minimized; };
+
+            Loaded += delegate
+            {
+                Motion.PlayEntrance(shellArt, 0);
+                Motion.PlayEntrance(shell, 120);
+                Motion.PulseDropShadow(shellArt.Effect as DropShadowEffect, 0.34, 0.52, 3200, 600);
+            };
         }
 
         private Geometry OuterShellGeometry()
@@ -430,6 +440,10 @@ namespace GPT2JSON.ArtSetup
             style.Setters.Add(new Setter(Button.TemplateProperty, template));
             style.Setters.Add(new Setter(Button.CursorProperty, System.Windows.Input.Cursors.Hand));
             style.Setters.Add(new Setter(Button.PaddingProperty, new Thickness(10, 0, 10, 0)));
+            style.Setters.Add(new EventSetter(UIElement.MouseEnterEvent, new MouseEventHandler(Motion.ButtonMouseEnter)));
+            style.Setters.Add(new EventSetter(UIElement.MouseLeaveEvent, new MouseEventHandler(Motion.ButtonMouseLeave)));
+            style.Setters.Add(new EventSetter(UIElement.PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler(Motion.ButtonMouseDown)));
+            style.Setters.Add(new EventSetter(UIElement.PreviewMouseLeftButtonUpEvent, new MouseButtonEventHandler(Motion.ButtonMouseUp)));
             return style;
         }
 
@@ -525,7 +539,7 @@ namespace GPT2JSON.ArtSetup
             if (_installButton != null) _installButton.IsEnabled = !busy;
             if (_dirBox != null) _dirBox.IsEnabled = !busy;
             if (_status != null) _status.Text = text;
-            if (_progress != null) _progress.Value = progress;
+            if (_progress != null) Motion.AnimateProgress(_progress, progress);
         }
 
         private string ExtractInstaller()
@@ -617,6 +631,7 @@ namespace GPT2JSON.ArtSetup
                 Margin = new Thickness(-58, -70, 0, 0),
                 IsHitTestVisible = false
             };
+            glow.Opacity = 0.72;
             root.Children.Add(glow);
 
             var cardBrush = new LinearGradientBrush();
@@ -644,6 +659,7 @@ namespace GPT2JSON.ArtSetup
                     Color = Color.FromRgb(0, 0, 0)
                 }
             };
+            Motion.PrepareEntrance(card, 10, 0.986);
             root.Children.Add(card);
 
             var panel = new Canvas { Width = 560, Height = 446 };
@@ -824,6 +840,8 @@ namespace GPT2JSON.ArtSetup
                 PopulateTree();
                 _folderBox.Focus();
                 _folderBox.CaretIndex = _folderBox.Text.Length;
+                Motion.PlayEntrance(card, 0);
+                Motion.PulseOpacity(glow, 0.58, 0.88, 2800, 260);
             };
         }
 
@@ -1040,6 +1058,140 @@ namespace GPT2JSON.ArtSetup
             {
                 return value;
             }
+        }
+    }
+
+    internal static class Motion
+    {
+        private static IEasingFunction EaseOut()
+        {
+            return new CubicEase { EasingMode = EasingMode.EaseOut };
+        }
+
+        private static DoubleAnimation Tween(double to, int milliseconds, int delayMilliseconds)
+        {
+            var animation = new DoubleAnimation(to, TimeSpan.FromMilliseconds(milliseconds))
+            {
+                EasingFunction = EaseOut()
+            };
+            if (delayMilliseconds > 0)
+                animation.BeginTime = TimeSpan.FromMilliseconds(delayMilliseconds);
+            return animation;
+        }
+
+        internal static void PrepareEntrance(FrameworkElement element, double offsetY, double scale)
+        {
+            if (element == null) return;
+
+            var group = new TransformGroup();
+            group.Children.Add(new ScaleTransform(scale, scale));
+            group.Children.Add(new TranslateTransform(0, offsetY));
+
+            element.Opacity = 0;
+            element.RenderTransformOrigin = new Point(0.5, 0.5);
+            element.RenderTransform = group;
+        }
+
+        internal static void PlayEntrance(FrameworkElement element, int delayMilliseconds)
+        {
+            if (element == null) return;
+
+            element.BeginAnimation(UIElement.OpacityProperty, Tween(1, 420, delayMilliseconds));
+
+            var group = element.RenderTransform as TransformGroup;
+            if (group == null || group.Children.Count < 2) return;
+
+            var scale = group.Children[0] as ScaleTransform;
+            if (scale != null)
+            {
+                scale.BeginAnimation(ScaleTransform.ScaleXProperty, Tween(1, 520, delayMilliseconds));
+                scale.BeginAnimation(ScaleTransform.ScaleYProperty, Tween(1, 520, delayMilliseconds));
+            }
+
+            var translate = group.Children[1] as TranslateTransform;
+            if (translate != null)
+                translate.BeginAnimation(TranslateTransform.YProperty, Tween(0, 520, delayMilliseconds));
+        }
+
+        internal static void PulseDropShadow(DropShadowEffect effect, double from, double to, int milliseconds, int delayMilliseconds)
+        {
+            if (effect == null) return;
+
+            effect.Opacity = from;
+            var animation = new DoubleAnimation(to, TimeSpan.FromMilliseconds(milliseconds))
+            {
+                BeginTime = TimeSpan.FromMilliseconds(delayMilliseconds),
+                AutoReverse = true,
+                RepeatBehavior = RepeatBehavior.Forever,
+                EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+            };
+            effect.BeginAnimation(DropShadowEffect.OpacityProperty, animation);
+        }
+
+        internal static void PulseOpacity(UIElement element, double from, double to, int milliseconds, int delayMilliseconds)
+        {
+            if (element == null) return;
+
+            element.Opacity = from;
+            var animation = new DoubleAnimation(to, TimeSpan.FromMilliseconds(milliseconds))
+            {
+                BeginTime = TimeSpan.FromMilliseconds(delayMilliseconds),
+                AutoReverse = true,
+                RepeatBehavior = RepeatBehavior.Forever,
+                EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+            };
+            element.BeginAnimation(UIElement.OpacityProperty, animation);
+        }
+
+        internal static void AnimateProgress(WpfProgressBar progress, double target)
+        {
+            if (progress == null) return;
+
+            var animation = new DoubleAnimation(target, TimeSpan.FromMilliseconds(280))
+            {
+                EasingFunction = EaseOut()
+            };
+            progress.BeginAnimation(WpfProgressBar.ValueProperty, animation);
+        }
+
+        internal static void ButtonMouseEnter(object sender, MouseEventArgs args)
+        {
+            ScaleButton(sender as Button, 1.026, 120);
+        }
+
+        internal static void ButtonMouseLeave(object sender, MouseEventArgs args)
+        {
+            ScaleButton(sender as Button, 1.0, 130);
+        }
+
+        internal static void ButtonMouseDown(object sender, MouseButtonEventArgs args)
+        {
+            ScaleButton(sender as Button, 0.975, 70);
+        }
+
+        internal static void ButtonMouseUp(object sender, MouseButtonEventArgs args)
+        {
+            ScaleButton(sender as Button, 1.026, 95);
+        }
+
+        private static void ScaleButton(Button button, double target, int milliseconds)
+        {
+            if (button == null || !button.IsEnabled) return;
+
+            var scale = button.RenderTransform as ScaleTransform;
+            if (scale == null)
+            {
+                scale = new ScaleTransform(1, 1);
+                button.RenderTransform = scale;
+                button.RenderTransformOrigin = new Point(0.5, 0.5);
+            }
+
+            var animation = new DoubleAnimation(target, TimeSpan.FromMilliseconds(milliseconds))
+            {
+                EasingFunction = EaseOut()
+            };
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, animation);
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, animation);
         }
     }
 
