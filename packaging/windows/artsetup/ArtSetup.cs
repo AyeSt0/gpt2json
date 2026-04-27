@@ -63,20 +63,18 @@ namespace GPT2JSON.ArtSetup
 
             AddBackdropRings(root);
 
-            var main = new Border
+            var main = new WpfPath
             {
-                Width = 900,
-                Height = 560,
-                CornerRadius = new CornerRadius(34),
-                BorderThickness = new Thickness(1),
-                BorderBrush = new SolidColorBrush(Color.FromArgb(150, 118, 171, 255)),
-                Background = new LinearGradientBrush(
+                Data = OuterShellGeometry(),
+                Fill = new LinearGradientBrush(
                     Color.FromArgb(252, 5, 13, 36),
                     Color.FromArgb(248, 9, 21, 53),
                     36),
+                Stroke = new SolidColorBrush(Color.FromArgb(165, 118, 171, 255)),
+                StrokeThickness = 1.2,
                 Effect = new DropShadowEffect
                 {
-                    BlurRadius = 38,
+                    BlurRadius = 42,
                     ShadowDepth = 0,
                     Opacity = 0.55,
                     Color = Color.FromRgb(0, 0, 0)
@@ -86,8 +84,16 @@ namespace GPT2JSON.ArtSetup
             Canvas.SetTop(main, 40);
             root.Children.Add(main);
 
-            var shell = new Grid { ClipToBounds = true };
-            main.Child = shell;
+            var shell = new Grid
+            {
+                Width = 900,
+                Height = 560,
+                Clip = OuterShellGeometry(),
+                Background = Brushes.Transparent
+            };
+            Canvas.SetLeft(shell, 40);
+            Canvas.SetTop(shell, 40);
+            root.Children.Add(shell);
             shell.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs args)
             {
                 if (args.ChangedButton == MouseButton.Left)
@@ -132,6 +138,30 @@ namespace GPT2JSON.ArtSetup
                 _closeButton.Click += delegate { Close(); };
             if (_minButton != null)
                 _minButton.Click += delegate { WindowState = WindowState.Minimized; };
+        }
+
+        private Geometry OuterShellGeometry()
+        {
+            // Visible window silhouette, in the 900x560 local coordinate system.
+            // It deliberately breaks the rectangular installer frame with a wavy left edge,
+            // a liquid brand/content seam, and a lifted bottom-right contour.
+            return Geometry.Parse(
+                "M58,0 " +
+                "C24,0 4,20 4,50 " +
+                "L4,130 " +
+                "C4,164 24,186 18,228 " +
+                "C12,268 -10,294 8,340 " +
+                "C26,392 4,433 4,494 " +
+                "C4,536 30,560 74,560 " +
+                "L520,560 " +
+                "C596,538 642,548 707,560 " +
+                "L846,560 " +
+                "C878,560 900,538 900,506 " +
+                "L900,42 " +
+                "C900,16 884,0 858,0 " +
+                "L470,0 " +
+                "C422,28 372,26 328,0 " +
+                "L58,0 Z");
         }
 
         private void AddBackdropRings(Canvas root)
