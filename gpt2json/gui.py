@@ -404,6 +404,7 @@ class MainWindow(QMainWindow):
         self._theme = "light"
         self._update_check_running = False
         self._input_mode = "paste"
+        self._clearing_input = False
         self._is_running = False
         self._status_text = "就绪"
         self._status_mode = "ready"
@@ -1082,10 +1083,19 @@ class MainWindow(QMainWindow):
         self._refresh_input_mode()
         if self._input_mode == "paste":
             self.paste_edit.setFocus()
-        elif self._input_path():
+        if self._has_active_input():
             self._schedule_preflight()
+        else:
+            self._last_preflight_count = 0
+            self._last_preflight_raw_count = 0
+            self._last_preflight_error = ""
+            self._reset_counts(0)
+            self._set_status("就绪", "ready")
+            self._refresh_controls_state()
 
     def _on_file_changed(self, _path: str = "") -> None:
+        if self._clearing_input:
+            return
         self._input_mode = "file"
         self._refresh_input_mode()
         self._schedule_preflight()
@@ -1113,8 +1123,14 @@ class MainWindow(QMainWindow):
     def clear_input(self) -> None:
         if self._is_running:
             return
-        self.paste_edit.clear()
-        self.file_drop.clear()
+        current_mode = self._input_mode
+        self._clearing_input = True
+        try:
+            self.paste_edit.clear()
+            self.file_drop.clear()
+        finally:
+            self._clearing_input = False
+        self._input_mode = current_mode
         self._last_preflight_count = 0
         self._last_preflight_raw_count = 0
         self._last_preflight_error = ""
@@ -1192,6 +1208,8 @@ class MainWindow(QMainWindow):
         return True, ""
 
     def _on_paste_changed(self) -> None:
+        if self._clearing_input:
+            return
         if self._paste_text():
             self._input_mode = "paste"
         self._refresh_input_mode()

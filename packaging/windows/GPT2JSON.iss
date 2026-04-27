@@ -1,5 +1,7 @@
 ﻿#define MyAppName "GPT2JSON"
+#ifndef MyAppVersion
 #define MyAppVersion "0.1.0"
+#endif
 #define MyAppPublisher "GPT2JSON Contributors"
 #define MyAppURL "https://github.com/AyeSt0/gpt2json"
 #define MyAppExeName "GPT2JSON.exe"

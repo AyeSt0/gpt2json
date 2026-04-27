@@ -91,9 +91,80 @@ def test_gui_input_mode_switch_and_clear(tmp_path):
     window.clear_input()
     app.processEvents()
 
+    assert window._input_mode == "file"
     assert window._last_preflight_count == 0
     assert not window.run_btn.isEnabled()
 
     window.output_edit.setText("output")
+    window.close()
+    _clear_settings()
+
+
+def test_gui_switching_input_mode_does_not_reuse_stale_preflight(tmp_path):
+    _clear_settings()
+    app = _app()
+    input_file = tmp_path / "accounts.txt"
+    input_file.write_text("ok@example.com----pass----https://otp.test/{email}\n", encoding="utf-8")
+    window = MainWindow()
+    window.output_edit.setText(str(tmp_path / "out"))
+    window.show()
+    app.processEvents()
+
+    window.paste_edit.setPlainText("这不是有效账号")
+    QtTest.QTest.qWait(350)
+    app.processEvents()
+    assert window._input_mode == "paste"
+    assert window._last_preflight_count == 0
+    assert not window.run_btn.isEnabled()
+
+    window.file_drop.set_path(str(input_file))
+    QtTest.QTest.qWait(350)
+    app.processEvents()
+    assert window._input_mode == "file"
+    assert window._last_preflight_count == 1
+    assert window.run_btn.isEnabled()
+
+    window.paste_tab.click()
+    QtTest.QTest.qWait(350)
+    app.processEvents()
+    assert window._input_mode == "paste"
+    assert window._last_preflight_count == 0
+    assert not window.run_btn.isEnabled()
+    assert "粘贴文本" in window.input_source_label.text()
+
+    window.close()
+    _clear_settings()
+
+
+def test_gui_clear_input_preserves_current_tab_and_theme_toggle(tmp_path):
+    _clear_settings()
+    app = _app()
+    window = MainWindow()
+    window.output_edit.setText(str(tmp_path / "out"))
+    window.show()
+    app.processEvents()
+
+    assert window._theme == "light"
+    assert "深色" in window.theme_btn.toolTip()
+    light_stylesheet = window.styleSheet()
+    window.toggle_theme()
+    app.processEvents()
+    assert window._theme == "dark"
+    assert "浅色" in window.theme_btn.toolTip()
+    assert window.styleSheet() != light_stylesheet
+
+    window.paste_edit.setPlainText("ok@example.com----pass----https://otp.test/{email}")
+    QtTest.QTest.qWait(350)
+    app.processEvents()
+    assert window._input_mode == "paste"
+    assert window.run_btn.isEnabled()
+
+    window.clear_input()
+    app.processEvents()
+    assert window._input_mode == "paste"
+    assert window.input_stack.currentIndex() == 0
+    assert window._last_preflight_count == 0
+    assert not window.run_btn.isEnabled()
+
     window.close()
     _clear_settings()

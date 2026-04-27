@@ -32,7 +32,8 @@ namespace GPT2JSON.ArtSetup
     public sealed class InstallerWindow : Window
     {
         private const string AppName = "GPT2JSON";
-        private const string Version = "v0.1.0";
+        private const string AppVersion = "0.0.0";
+        private const string Version = "v" + AppVersion;
         private readonly TextBox _dirBox;
         private readonly Button _installButton;
         private readonly WpfProgressBar _progress;
@@ -507,7 +508,7 @@ namespace GPT2JSON.ArtSetup
         {
             string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "GPT2JSON-ArtSetup", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(dir);
-            string path = System.IO.Path.Combine(dir, "GPT2JSON-Setup-v0.1.0.exe");
+            string path = System.IO.Path.Combine(dir, "GPT2JSON-Setup-" + Version + ".exe");
             using (var input = Assembly.GetExecutingAssembly().GetManifestResourceStream("GPT2JSON.Setup.exe"))
             {
                 if (input == null) throw new FileNotFoundException("未找到内嵌安装核心。", "GPT2JSON.Setup.exe");
