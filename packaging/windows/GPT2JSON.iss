@@ -103,5 +103,32 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDi
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:RunAfterInstall}"; Flags: nowait postinstall skipifsilent
 
+[Code]
+function EnsureAppInstallDir(Value: String): String;
+var
+  Clean: String;
+  Leaf: String;
+begin
+  Clean := RemoveBackslash(ExpandConstant(Value));
+  Leaf := ExtractFileName(Clean);
+  if CompareText(Leaf, '{#MyAppName}') = 0 then
+    Result := Clean
+  else
+    Result := AddBackslash(Clean) + '{#MyAppName}';
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+  if CurPageID = wpSelectDir then
+    WizardForm.DirEdit.Text := EnsureAppInstallDir(WizardForm.DirEdit.Text);
+  Result := True;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  WizardForm.DirEdit.Text := EnsureAppInstallDir(WizardDirValue);
+  Result := '';
+end;
+
 
 

@@ -109,7 +109,7 @@ namespace GPT2JSON.ArtSetup
             _minButton = FindName("MinButton") as Button;
 
             if (_dirBox != null)
-                _dirBox.Text = DefaultInstallPath();
+                _dirBox.Text = EnsureAppInstallPath(DefaultInstallPath());
             if (_installButton != null)
                 _installButton.Click += async delegate { await InstallAsync(); };
             if (_closeButton != null)
@@ -442,12 +442,38 @@ namespace GPT2JSON.ArtSetup
                 Owner = this
             };
             if (dlg.ShowDialog() == true && _dirBox != null)
-                _dirBox.Text = dlg.SelectedPath;
+                _dirBox.Text = EnsureAppInstallPath(dlg.SelectedPath);
         }
 
         private static string DefaultInstallPath()
         {
             return System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "GPT2JSON");
+        }
+
+        private static string EnsureAppInstallPath(string selectedPath)
+        {
+            if (string.IsNullOrWhiteSpace(selectedPath)) return DefaultInstallPath();
+
+            string normalized;
+            try
+            {
+                normalized = System.IO.Path.GetFullPath(Environment.ExpandEnvironmentVariables(selectedPath.Trim().Trim('"')));
+            }
+            catch
+            {
+                normalized = selectedPath.Trim().Trim('"');
+            }
+
+            string root = System.IO.Path.GetPathRoot(normalized);
+            if (!string.IsNullOrEmpty(root) && string.Equals(normalized, root, StringComparison.OrdinalIgnoreCase))
+                return System.IO.Path.Combine(root, AppName);
+
+            normalized = normalized.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
+            string leaf = System.IO.Path.GetFileName(normalized);
+            if (string.Equals(leaf, AppName, StringComparison.OrdinalIgnoreCase))
+                return normalized;
+
+            return System.IO.Path.Combine(normalized, AppName);
         }
 
         private async Task InstallAsync()
@@ -458,18 +484,21 @@ namespace GPT2JSON.ArtSetup
                 return;
             }
 
+            string installDir = EnsureAppInstallPath(_dirBox.Text);
+            _dirBox.Text = installDir;
+
             SetBusy(true, "正在释放安装核心…", 18);
             try
             {
                 string installerPath = ExtractInstaller();
-                Directory.CreateDirectory(_dirBox.Text);
+                Directory.CreateDirectory(installDir);
                 SetBusy(true, "安装核心已就绪，正在写入文件…", 42);
                 int code = await Task.Run(delegate
                 {
                     var psi = new ProcessStartInfo
                     {
                         FileName = installerPath,
-                        Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR=\"" + _dirBox.Text + "\"",
+                        Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR=\"" + installDir + "\"",
                         UseShellExecute = false,
                         CreateNoWindow = true
                     };
