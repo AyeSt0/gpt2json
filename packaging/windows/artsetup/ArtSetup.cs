@@ -44,7 +44,7 @@ namespace GPT2JSON.ArtSetup
         public InstallerWindow()
         {
             Title = AppName + " " + Version + " 安装";
-            Width = 980;
+            Width = 1120;
             Height = 640;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             WindowStyle = WindowStyle.None;
@@ -57,7 +57,7 @@ namespace GPT2JSON.ArtSetup
             NameScope.SetNameScope(this, new NameScope());
 
             var root = new Canvas();
-            root.Width = 980;
+            root.Width = 1120;
             root.Height = 640;
             Content = root;
 
@@ -101,7 +101,7 @@ namespace GPT2JSON.ArtSetup
 
             var shell = new Grid
             {
-                Width = 900,
+                Width = 1040,
                 Height = 560,
                 Clip = ShellSurfaceGeometry(),
                 Background = Brushes.Transparent
@@ -124,7 +124,7 @@ namespace GPT2JSON.ArtSetup
             // Interior layout is arranged only after the silhouette is fixed.
             // This margin is the safe content zone that avoids the top valley,
             // bottom wave and left organic brand island.
-            var content = new Grid { Margin = new Thickness(402, 70, 42, 26) };
+            var content = new Grid { Margin = new Thickness(455, 70, 62, 26) };
             shell.Children.Add(content);
             content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(52) });
             content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -161,39 +161,39 @@ namespace GPT2JSON.ArtSetup
 
         private Geometry OuterShellGeometry()
         {
-            // Visible window silhouette, in the 900x560 local coordinate system.
+            // Visible window silhouette, in the 1040x560 local coordinate system.
             // The shape is planned first, then the panels are placed inside its safe zone:
             // - a swollen left brand island;
             // - a closed transparent "void lagoon" near the top right;
             // - a floating lower wave instead of a rectangular installer base.
             return Geometry.Parse(
-                "M102,7 " +
-                "C56,0 22,28 17,78 " +
-                "C11,132 45,164 30,224 " +
-                "C14,286 -5,334 33,394 " +
-                "C72,454 34,502 82,535 " +
-                "C131,568 200,548 268,550 " +
-                "C346,552 407,534 470,518 " +
-                "C558,496 637,522 722,544 " +
-                "L832,544 " +
-                "C878,544 900,515 900,466 " +
-                "L900,84 " +
-                "C900,34 868,8 818,8 " +
-                "L766,8 " +
-                "C698,10 634,42 560,30 " +
-                "C503,20 454,20 382,44 " +
-                "C326,68 278,46 224,25 " +
-                "C181,9 144,15 102,7 Z");
+                "M96,7 " +
+                "C53,0 23,28 17,78 " +
+                "C10,132 48,164 29,225 " +
+                "C12,292 -4,338 34,397 " +
+                "C72,456 34,504 82,535 " +
+                "C130,568 202,548 274,550 " +
+                "C370,554 446,528 514,510 " +
+                "C612,485 704,517 802,544 " +
+                "L970,544 " +
+                "C1018,544 1040,514 1040,466 " +
+                "L1040,84 " +
+                "C1040,34 1008,8 958,8 " +
+                "L790,8 " +
+                "C712,8 662,48 560,30 " +
+                "C500,19 453,18 382,44 " +
+                "C328,66 280,48 224,24 " +
+                "C178,8 143,15 96,7 Z");
         }
 
         private Geometry VoidHoleGeometry()
         {
             return Geometry.Parse(
-                "M596,82 " +
-                "C600,47 636,25 688,29 " +
-                "C736,33 766,60 762,94 " +
-                "C758,129 713,148 660,143 " +
-                "C619,139 592,114 596,82 Z");
+                "M665,82 " +
+                "C670,48 710,25 763,30 " +
+                "C812,35 842,62 838,96 " +
+                "C834,132 788,151 735,146 " +
+                "C690,142 662,116 665,82 Z");
         }
 
         private Geometry ShellSurfaceGeometry()
@@ -303,7 +303,7 @@ namespace GPT2JSON.ArtSetup
         {
             var brandPath = new WpfPath
             {
-                Data = Geometry.Parse("M0,0 L306,0 C342,34 322,92 338,154 C356,222 320,274 342,338 C362,402 322,456 340,510 C350,540 326,558 288,560 L0,560 Z"),
+                Data = Geometry.Parse("M0,0 L350,0 C388,39 355,107 376,164 C402,234 354,285 380,352 C402,414 363,463 382,514 C392,540 368,558 326,560 L0,560 Z"),
                 Fill = new ImageBrush(LoadImage("GPT2JSON.Side.png"))
                 {
                     Stretch = Stretch.UniformToFill,
@@ -315,7 +315,7 @@ namespace GPT2JSON.ArtSetup
 
             var wave = new WpfPath
             {
-                Data = Geometry.Parse("M306,0 C342,34 322,92 338,154 C356,222 320,274 342,338 C362,402 322,456 340,510 C350,540 326,558 288,560"),
+                Data = Geometry.Parse("M350,0 C388,39 355,107 376,164 C402,234 354,285 380,352 C402,414 363,463 382,514 C392,540 368,558 326,560"),
                 StrokeThickness = 2.0,
                 Stroke = new LinearGradientBrush(Color.FromArgb(210, 255, 255, 255), Color.FromArgb(20, 255, 255, 255), 90),
                 Fill = Brushes.Transparent,
@@ -325,13 +325,13 @@ namespace GPT2JSON.ArtSetup
 
             var logo = new Border
             {
-                Width = 96,
-                Height = 96,
-                CornerRadius = new CornerRadius(32),
+                Width = 104,
+                Height = 104,
+                CornerRadius = new CornerRadius(34),
                 BorderThickness = new Thickness(1),
                 BorderBrush = new SolidColorBrush(Color.FromArgb(115, 128, 213, 255)),
                 Background = new ImageBrush(LoadImage("GPT2JSON.Icon.png")) { Stretch = Stretch.UniformToFill },
-                Margin = new Thickness(108, 126, 0, 0),
+                Margin = new Thickness(132, 136, 0, 0),
                 HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
                 VerticalAlignment = System.Windows.VerticalAlignment.Top,
                 Effect = new DropShadowEffect { BlurRadius = 18, ShadowDepth = 0, Color = Color.FromRgb(31, 180, 255), Opacity = 0.34 }
@@ -384,18 +384,17 @@ namespace GPT2JSON.ArtSetup
             var plate = new WpfPath
             {
                 Data = Geometry.Parse(
-                    "M408,124 " +
-                    "C460,86 534,96 598,116 " +
-                    "C646,132 694,126 724,104 " +
-                    "C760,78 824,70 860,105 " +
-                    "C884,128 888,160 880,196 " +
-                    "L880,438 " +
-                    "C880,492 842,522 790,518 " +
-                    "C708,512 646,508 578,528 " +
-                    "L408,528 " +
-                    "C360,528 334,494 350,450 " +
-                    "C370,394 368,318 354,252 " +
-                    "C340,184 360,138 408,124 Z"),
+                    "M430,122 " +
+                    "C485,82 575,94 650,120 " +
+                    "C704,139 758,120 790,92 " +
+                    "C830,58 1000,72 1018,124 " +
+                    "C1035,178 1022,410 1000,478 " +
+                    "C980,535 900,528 790,518 " +
+                    "C700,511 650,505 575,528 " +
+                    "L430,528 " +
+                    "C374,528 342,492 360,445 " +
+                    "C385,380 376,310 358,244 " +
+                    "C340,178 372,136 430,122 Z"),
                 Fill = new LinearGradientBrush(Color.FromArgb(62, 255, 255, 255), Color.FromArgb(12, 255, 255, 255), 48),
                 Stroke = new LinearGradientBrush(Color.FromArgb(80, 174, 224, 255), Color.FromArgb(36, 180, 92, 255), 8),
                 StrokeThickness = 1.1,
