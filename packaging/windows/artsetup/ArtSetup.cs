@@ -219,7 +219,7 @@ namespace GPT2JSON.ArtSetup
 
             var title = new TextBlock
             {
-                Text = "安装设置",
+                Text = "安装",
                 Foreground = Brushes.White,
                 FontSize = 43,
                 FontWeight = FontWeights.Bold,
@@ -229,22 +229,12 @@ namespace GPT2JSON.ArtSetup
             Canvas.SetTop(title, 154);
             overlay.Children.Add(title);
 
-            var desc = new TextBlock
-            {
-                Text = "轻量独立的 Sub2API / CPA JSON 导出工具",
-                Foreground = new SolidColorBrush(Color.FromRgb(161, 179, 214)),
-                FontSize = 16
-            };
-            Canvas.SetLeft(desc, 412);
-            Canvas.SetTop(desc, 214);
-            overlay.Children.Add(desc);
-
             var features = new WrapPanel();
             features.Children.Add(FeaturePill("◇", "协议优先"));
             features.Children.Add(FeaturePill("▱", "批量导出"));
             features.Children.Add(FeaturePill("↯", "本地处理"));
             Canvas.SetLeft(features, 410);
-            Canvas.SetTop(features, 256);
+            Canvas.SetTop(features, 224);
             overlay.Children.Add(features);
 
             var label = new TextBlock
@@ -255,7 +245,7 @@ namespace GPT2JSON.ArtSetup
                 FontWeight = FontWeights.SemiBold
             };
             Canvas.SetLeft(label, 410);
-            Canvas.SetTop(label, 326);
+            Canvas.SetTop(label, 292);
             overlay.Children.Add(label);
 
             var pathBorder = new Border
@@ -310,7 +300,7 @@ namespace GPT2JSON.ArtSetup
             pathGrid.Children.Add(browse);
             pathBorder.Child = pathGrid;
             Canvas.SetLeft(pathBorder, 410);
-            Canvas.SetTop(pathBorder, 362);
+            Canvas.SetTop(pathBorder, 326);
             overlay.Children.Add(pathBorder);
 
             var progress = new WpfProgressBar
@@ -327,7 +317,7 @@ namespace GPT2JSON.ArtSetup
             };
             RegisterName(progress.Name, progress);
             Canvas.SetLeft(progress, 410);
-            Canvas.SetTop(progress, 433);
+            Canvas.SetTop(progress, 397);
             overlay.Children.Add(progress);
 
             var status = new TextBlock
@@ -339,7 +329,7 @@ namespace GPT2JSON.ArtSetup
             };
             RegisterName(status.Name, status);
             Canvas.SetLeft(status, 412);
-            Canvas.SetTop(status, 448);
+            Canvas.SetTop(status, 412);
             overlay.Children.Add(status);
 
             var install = new Button
@@ -357,7 +347,7 @@ namespace GPT2JSON.ArtSetup
             };
             RegisterName(install.Name, install);
             Canvas.SetLeft(install, 655);
-            Canvas.SetTop(install, 464);
+            Canvas.SetTop(install, 434);
             overlay.Children.Add(install);
 
             var cancel = new Button
@@ -373,7 +363,7 @@ namespace GPT2JSON.ArtSetup
             };
             cancel.Click += delegate { Close(); };
             Canvas.SetLeft(cancel, 850);
-            Canvas.SetTop(cancel, 464);
+            Canvas.SetTop(cancel, 434);
             overlay.Children.Add(cancel);
         }
         private Border FeaturePill(string icon, string text)
@@ -558,9 +548,9 @@ namespace GPT2JSON.ArtSetup
     internal sealed class InstallDirectoryDialog : Window
     {
         private readonly string _defaultPath;
-        private readonly TextBox _pathBox;
-        private readonly ListBox _folderList;
-        private readonly TextBlock _hint;
+        private readonly TreeView _folderTree;
+        private readonly TextBox _folderBox;
+        private readonly TextBlock _message;
 
         public string SelectedPath { get; private set; }
 
@@ -569,9 +559,9 @@ namespace GPT2JSON.ArtSetup
             _defaultPath = NormalizePath(defaultPath);
             SelectedPath = NormalizePath(string.IsNullOrWhiteSpace(initialPath) ? _defaultPath : initialPath);
 
-            Title = "选择 GPT2JSON 安装目录";
-            Width = 650;
-            Height = 490;
+            Title = "浏览文件夹";
+            Width = 612;
+            Height = 510;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             WindowStyle = WindowStyle.None;
             AllowsTransparency = true;
@@ -585,17 +575,17 @@ namespace GPT2JSON.ArtSetup
             Content = root;
 
             var glowBrush = new RadialGradientBrush();
-            glowBrush.GradientStops.Add(new GradientStop(Color.FromArgb(125, 70, 202, 255), 0));
-            glowBrush.GradientStops.Add(new GradientStop(Color.FromArgb(18, 146, 74, 255), 0.68));
+            glowBrush.GradientStops.Add(new GradientStop(Color.FromArgb(95, 58, 194, 255), 0));
+            glowBrush.GradientStops.Add(new GradientStop(Color.FromArgb(18, 146, 74, 255), 0.65));
             glowBrush.GradientStops.Add(new GradientStop(Color.FromArgb(0, 0, 0, 0), 1));
             var glow = new System.Windows.Shapes.Ellipse
             {
-                Width = 430,
-                Height = 270,
+                Width = 360,
+                Height = 230,
                 Fill = glowBrush,
                 HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
                 VerticalAlignment = System.Windows.VerticalAlignment.Top,
-                Margin = new Thickness(-72, -76, 0, 0),
+                Margin = new Thickness(-58, -70, 0, 0),
                 IsHitTestVisible = false
             };
             root.Children.Add(glow);
@@ -603,37 +593,37 @@ namespace GPT2JSON.ArtSetup
             var cardBrush = new LinearGradientBrush();
             cardBrush.StartPoint = new Point(0, 0);
             cardBrush.EndPoint = new Point(1, 1);
-            cardBrush.GradientStops.Add(new GradientStop(Color.FromRgb(12, 24, 56), 0));
-            cardBrush.GradientStops.Add(new GradientStop(Color.FromRgb(23, 34, 78), 0.52));
-            cardBrush.GradientStops.Add(new GradientStop(Color.FromRgb(48, 30, 88), 1));
+            cardBrush.GradientStops.Add(new GradientStop(Color.FromRgb(17, 28, 62), 0));
+            cardBrush.GradientStops.Add(new GradientStop(Color.FromRgb(24, 34, 78), 0.55));
+            cardBrush.GradientStops.Add(new GradientStop(Color.FromRgb(41, 31, 82), 1));
 
             var card = new Border
             {
-                Width = 604,
-                Height = 430,
-                CornerRadius = new CornerRadius(34),
+                Width = 560,
+                Height = 446,
+                CornerRadius = new CornerRadius(24),
                 Background = cardBrush,
-                BorderBrush = new LinearGradientBrush(Color.FromArgb(155, 75, 213, 255), Color.FromArgb(140, 188, 86, 255), 0),
+                BorderBrush = new LinearGradientBrush(Color.FromArgb(130, 92, 211, 255), Color.FromArgb(105, 185, 97, 255), 0),
                 BorderThickness = new Thickness(1),
                 HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
                 VerticalAlignment = System.Windows.VerticalAlignment.Center,
                 Effect = new DropShadowEffect
                 {
-                    BlurRadius = 34,
+                    BlurRadius = 30,
                     ShadowDepth = 0,
-                    Opacity = 0.45,
+                    Opacity = 0.42,
                     Color = Color.FromRgb(0, 0, 0)
                 }
             };
             root.Children.Add(card);
 
-            var panel = new Canvas { Width = 604, Height = 430 };
+            var panel = new Canvas { Width = 560, Height = 446 };
             card.Child = panel;
 
             var dragZone = new Border
             {
-                Width = 604,
-                Height = 78,
+                Width = 560,
+                Height = 50,
                 Background = Brushes.Transparent
             };
             dragZone.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs args)
@@ -645,280 +635,298 @@ namespace GPT2JSON.ArtSetup
             };
             panel.Children.Add(dragZone);
 
-            var title = new TextBlock
+            var header = new TextBlock
             {
-                Text = "选择安装目录",
+                Text = "浏览文件夹",
                 Foreground = Brushes.White,
-                FontSize = 24,
-                FontWeight = FontWeights.Bold,
-                Effect = new DropShadowEffect { BlurRadius = 16, ShadowDepth = 0, Color = Color.FromRgb(39, 183, 255), Opacity = 0.22 }
+                FontSize = 18,
+                FontWeight = FontWeights.SemiBold
             };
-            Canvas.SetLeft(title, 36);
-            Canvas.SetTop(title, 28);
-            panel.Children.Add(title);
-
-            var subtitle = new TextBlock
-            {
-                Text = "可直接输入路径，也可以从常用位置快速跳转",
-                Foreground = new SolidColorBrush(Color.FromRgb(151, 176, 219)),
-                FontSize = 12
-            };
-            Canvas.SetLeft(subtitle, 38);
-            Canvas.SetTop(subtitle, 61);
-            panel.Children.Add(subtitle);
+            Canvas.SetLeft(header, 24);
+            Canvas.SetTop(header, 18);
+            panel.Children.Add(header);
 
             var close = new Button
             {
                 Content = "×",
-                Width = 38,
-                Height = 32,
-                FontSize = 18,
-                Foreground = new SolidColorBrush(Color.FromRgb(220, 230, 255)),
-                Background = new SolidColorBrush(Color.FromArgb(34, 255, 255, 255)),
-                BorderBrush = new SolidColorBrush(Color.FromArgb(56, 255, 255, 255)),
-                Style = InstallerWindow.RoundedButtonStyle(16)
+                Width = 34,
+                Height = 28,
+                FontSize = 17,
+                Foreground = new SolidColorBrush(Color.FromRgb(222, 232, 255)),
+                Background = new SolidColorBrush(Color.FromArgb(30, 255, 255, 255)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(48, 255, 255, 255)),
+                Style = InstallerWindow.RoundedButtonStyle(14)
             };
             close.Click += delegate { DialogResult = false; Close(); };
-            Canvas.SetLeft(close, 536);
-            Canvas.SetTop(close, 26);
+            Canvas.SetLeft(close, 506);
+            Canvas.SetTop(close, 16);
             panel.Children.Add(close);
 
-            var pathLabel = new TextBlock
+            var desc = new TextBlock
             {
-                Text = "当前路径",
-                Foreground = new SolidColorBrush(Color.FromRgb(224, 237, 255)),
-                FontSize = 13,
-                FontWeight = FontWeights.SemiBold
+                Text = "选择 GPT2JSON 安装目录",
+                Foreground = new SolidColorBrush(Color.FromRgb(222, 234, 255)),
+                FontSize = 13
             };
-            Canvas.SetLeft(pathLabel, 38);
-            Canvas.SetTop(pathLabel, 98);
-            panel.Children.Add(pathLabel);
+            Canvas.SetLeft(desc, 26);
+            Canvas.SetTop(desc, 62);
+            panel.Children.Add(desc);
 
-            var pathBorder = new Border
+            var treeBorder = new Border
             {
-                Width = 528,
-                Height = 50,
-                CornerRadius = new CornerRadius(17),
-                Background = new SolidColorBrush(Color.FromArgb(50, 255, 255, 255)),
-                BorderBrush = new SolidColorBrush(Color.FromArgb(105, 124, 202, 255)),
+                Width = 508,
+                Height = 248,
+                CornerRadius = new CornerRadius(10),
+                Background = new SolidColorBrush(Color.FromArgb(230, 11, 18, 42)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(92, 118, 164, 225)),
                 BorderThickness = new Thickness(1),
-                Padding = new Thickness(16, 0, 14, 0)
+                Padding = new Thickness(6)
             };
-            var pathGrid = new Grid();
-            pathGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) });
-            pathGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            var pathIcon = new TextBlock
+            _folderTree = new TreeView
             {
-                Text = "\uE8B7",
-                FontFamily = new FontFamily("Segoe MDL2 Assets"),
-                Foreground = new SolidColorBrush(Color.FromRgb(112, 205, 255)),
-                FontSize = 17,
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Foreground = new SolidColorBrush(Color.FromRgb(226, 238, 255)),
+                FontSize = 13
+            };
+            _folderTree.SelectedItemChanged += delegate { SyncSelectedTreePath(); };
+            treeBorder.Child = _folderTree;
+            Canvas.SetLeft(treeBorder, 26);
+            Canvas.SetTop(treeBorder, 86);
+            panel.Children.Add(treeBorder);
+
+            var folderLabel = new TextBlock
+            {
+                Text = "文件夹(&F):",
+                Foreground = new SolidColorBrush(Color.FromRgb(222, 234, 255)),
+                FontSize = 12,
                 VerticalAlignment = System.Windows.VerticalAlignment.Center
             };
-            pathGrid.Children.Add(pathIcon);
-            _pathBox = new TextBox
+            Canvas.SetLeft(folderLabel, 26);
+            Canvas.SetTop(folderLabel, 352);
+            panel.Children.Add(folderLabel);
+
+            var inputBorder = new Border
+            {
+                Width = 408,
+                Height = 34,
+                CornerRadius = new CornerRadius(8),
+                Background = new SolidColorBrush(Color.FromArgb(48, 255, 255, 255)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(85, 130, 194, 255)),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(10, 0, 10, 0)
+            };
+            _folderBox = new TextBox
             {
                 Text = SelectedPath,
                 Foreground = new SolidColorBrush(Color.FromRgb(232, 243, 255)),
                 Background = Brushes.Transparent,
                 BorderThickness = new Thickness(0),
-                FontSize = 14,
+                FontSize = 13,
                 VerticalContentAlignment = System.Windows.VerticalAlignment.Center,
                 CaretBrush = Brushes.White
             };
-            Grid.SetColumn(_pathBox, 1);
-            pathGrid.Children.Add(_pathBox);
-            pathBorder.Child = pathGrid;
-            Canvas.SetLeft(pathBorder, 38);
-            Canvas.SetTop(pathBorder, 121);
-            panel.Children.Add(pathBorder);
+            inputBorder.Child = _folderBox;
+            Canvas.SetLeft(inputBorder, 126);
+            Canvas.SetTop(inputBorder, 345);
+            panel.Children.Add(inputBorder);
 
-            var quick = new WrapPanel();
-            quick.Children.Add(QuickButton("默认安装", _defaultPath));
-            quick.Children.Add(QuickButton("用户目录", Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)));
-            quick.Children.Add(QuickButton("桌面", Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)));
-            quick.Children.Add(QuickButton("下载", System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads")));
-            quick.Children.Add(QuickButton("Program Files", Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)));
-            Canvas.SetLeft(quick, 38);
-            Canvas.SetTop(quick, 184);
-            panel.Children.Add(quick);
+            _message = new TextBlock
+            {
+                Text = string.Empty,
+                Foreground = new SolidColorBrush(Color.FromRgb(151, 178, 222)),
+                FontSize = 11
+            };
+            Canvas.SetLeft(_message, 126);
+            Canvas.SetTop(_message, 383);
+            panel.Children.Add(_message);
 
-            var listBorder = new Border
+            var newFolder = new Button
             {
-                Width = 528,
-                Height = 132,
-                CornerRadius = new CornerRadius(20),
-                Background = new SolidColorBrush(Color.FromArgb(28, 7, 12, 34)),
-                BorderBrush = new SolidColorBrush(Color.FromArgb(70, 111, 174, 255)),
-                BorderThickness = new Thickness(1),
-                Padding = new Thickness(10)
-            };
-            _folderList = new ListBox
-            {
-                Background = Brushes.Transparent,
-                BorderThickness = new Thickness(0),
-                Foreground = new SolidColorBrush(Color.FromRgb(220, 234, 255)),
-                FontSize = 13
-            };
-            _folderList.ItemContainerStyle = FolderListItemStyle();
-            _folderList.MouseDoubleClick += delegate { EnterSelectedFolder(); };
-            _folderList.KeyDown += delegate(object sender, System.Windows.Input.KeyEventArgs args)
-            {
-                if (args.Key == Key.Enter) EnterSelectedFolder();
-            };
-            listBorder.Child = _folderList;
-            Canvas.SetLeft(listBorder, 38);
-            Canvas.SetTop(listBorder, 230);
-            panel.Children.Add(listBorder);
-
-            _hint = new TextBlock
-            {
-                Text = "提示：双击文件夹进入；路径不存在时，安装阶段会自动创建。",
-                Foreground = new SolidColorBrush(Color.FromRgb(139, 164, 205)),
-                FontSize = 12
-            };
-            Canvas.SetLeft(_hint, 42);
-            Canvas.SetTop(_hint, 374);
-            panel.Children.Add(_hint);
-
-            var mkdir = new Button
-            {
-                Content = "+ 新建 GPT2JSON 文件夹",
-                Width = 176,
-                Height = 38,
-                FontSize = 13,
-                Foreground = new SolidColorBrush(Color.FromRgb(223, 236, 255)),
-                Background = new SolidColorBrush(Color.FromArgb(28, 255, 255, 255)),
+                Content = "新建文件夹(&M)",
+                Width = 124,
+                Height = 34,
+                FontSize = 12,
+                Foreground = new SolidColorBrush(Color.FromRgb(222, 234, 255)),
+                Background = new SolidColorBrush(Color.FromArgb(32, 255, 255, 255)),
                 BorderBrush = new SolidColorBrush(Color.FromArgb(70, 133, 198, 255)),
-                Style = InstallerWindow.RoundedButtonStyle(14)
+                Style = InstallerWindow.RoundedButtonStyle(8)
             };
-            mkdir.Click += delegate { CreateFolderUnderCurrent(); };
-            Canvas.SetLeft(mkdir, 38);
-            Canvas.SetTop(mkdir, 398);
-            panel.Children.Add(mkdir);
+            newFolder.Click += delegate { CreateFolderUnderCurrent(); };
+            Canvas.SetLeft(newFolder, 26);
+            Canvas.SetTop(newFolder, 398);
+            panel.Children.Add(newFolder);
+
+            var ok = new Button
+            {
+                Content = "确定",
+                Width = 86,
+                Height = 34,
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Brushes.White,
+                Background = new LinearGradientBrush(Color.FromRgb(31, 178, 255), Color.FromRgb(166, 74, 255), 0),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(120, 210, 235, 255)),
+                Style = InstallerWindow.RoundedButtonStyle(8)
+            };
+            ok.Click += delegate { UseCurrentPath(); };
+            Canvas.SetLeft(ok, 352);
+            Canvas.SetTop(ok, 398);
+            panel.Children.Add(ok);
 
             var cancel = new Button
             {
                 Content = "取消",
-                Width = 112,
-                Height = 42,
-                FontSize = 14,
+                Width = 86,
+                Height = 34,
+                FontSize = 13,
                 Foreground = new SolidColorBrush(Color.FromRgb(218, 230, 255)),
                 Background = new SolidColorBrush(Color.FromArgb(28, 255, 255, 255)),
                 BorderBrush = new SolidColorBrush(Color.FromArgb(76, 163, 190, 255)),
-                Style = InstallerWindow.RoundedButtonStyle(16)
+                Style = InstallerWindow.RoundedButtonStyle(8)
             };
             cancel.Click += delegate { DialogResult = false; Close(); };
-            Canvas.SetLeft(cancel, 318);
-            Canvas.SetTop(cancel, 394);
+            Canvas.SetLeft(cancel, 448);
+            Canvas.SetTop(cancel, 398);
             panel.Children.Add(cancel);
 
-            var use = new Button
+            Loaded += delegate
             {
-                Content = "使用此目录",
-                Width = 136,
-                Height = 42,
-                FontSize = 15,
-                FontWeight = FontWeights.Bold,
-                Foreground = Brushes.White,
-                Background = new LinearGradientBrush(Color.FromRgb(28, 186, 255), Color.FromRgb(174, 70, 255), 0),
-                BorderBrush = new SolidColorBrush(Color.FromArgb(132, 210, 235, 255)),
-                Style = InstallerWindow.RoundedButtonStyle(16)
+                PopulateTree();
+                _folderBox.Focus();
+                _folderBox.CaretIndex = _folderBox.Text.Length;
             };
-            use.Click += delegate { UseCurrentPath(); };
-            Canvas.SetLeft(use, 438);
-            Canvas.SetTop(use, 394);
-            panel.Children.Add(use);
-
-            Loaded += delegate { RefreshFolderList(false); };
         }
 
-        private Button QuickButton(string label, string path)
+        private void PopulateTree()
         {
-            var button = new Button
+            _folderTree.Items.Clear();
+
+            AddRootFolder("桌面", Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
+            AddRootFolder("文档", Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments));
+            AddRootFolder(Environment.UserName, Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+
+            var thisPc = new TreeViewItem
             {
-                Content = label,
-                Height = 30,
-                Margin = new Thickness(0, 0, 8, 8),
-                FontSize = 12,
-                Foreground = new SolidColorBrush(Color.FromRgb(219, 234, 255)),
-                Background = new LinearGradientBrush(Color.FromArgb(40, 255, 255, 255), Color.FromArgb(22, 92, 172, 255), 0),
-                BorderBrush = new SolidColorBrush(Color.FromArgb(68, 126, 206, 255)),
-                Style = InstallerWindow.RoundedButtonStyle(13)
+                Header = BuildHeader("\uE80F", "此电脑"),
+                Foreground = new SolidColorBrush(Color.FromRgb(226, 238, 255)),
+                IsExpanded = true
             };
-            button.Click += delegate
+            _folderTree.Items.Add(thisPc);
+
+            foreach (var drive in DriveInfo.GetDrives())
             {
-                _pathBox.Text = NormalizePath(path);
-                RefreshFolderList(true);
-            };
-            return button;
-        }
-
-        private static Style FolderListItemStyle()
-        {
-            var style = new Style(typeof(ListBoxItem));
-            style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(10, 7, 10, 7)));
-            style.Setters.Add(new Setter(Control.MarginProperty, new Thickness(0, 0, 0, 3)));
-            style.Setters.Add(new Setter(Control.ForegroundProperty, new SolidColorBrush(Color.FromRgb(220, 234, 255))));
-            style.Setters.Add(new Setter(Control.BackgroundProperty, Brushes.Transparent));
-            style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(0)));
-            style.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, System.Windows.HorizontalAlignment.Stretch));
-            return style;
-        }
-
-        private void EnterSelectedFolder()
-        {
-            var choice = _folderList.SelectedItem as DirectoryChoice;
-            if (choice == null) return;
-            _pathBox.Text = choice.Path;
-            RefreshFolderList(true);
-        }
-
-        private void RefreshFolderList(bool pathWasChosen)
-        {
-            _folderList.Items.Clear();
-            string typedPath = NormalizePath(_pathBox.Text);
-            string existing = FindExistingDirectory(typedPath);
-            if (string.IsNullOrEmpty(existing))
-            {
-                _hint.Text = "这个路径暂时无法浏览，但只要磁盘有效，安装时仍可尝试创建。";
-                return;
-            }
-
-            if (pathWasChosen)
-                _pathBox.Text = existing;
-
-            var parent = Directory.GetParent(existing);
-            if (parent != null)
-            {
-                _folderList.Items.Add(new DirectoryChoice
+                string driveName = drive.Name.TrimEnd('\\');
+                string label = "本地磁盘 (" + driveName + ")";
+                try
                 {
-                    Text = "返回上一级  ·  " + parent.FullName,
-                    Path = parent.FullName,
-                    IsParent = true
-                });
+                    if (!string.IsNullOrWhiteSpace(drive.VolumeLabel))
+                        label = drive.VolumeLabel + " (" + driveName + ")";
+                }
+                catch { }
+                var item = CreateFolderItem(label, drive.RootDirectory.FullName, true);
+                thisPc.Items.Add(item);
             }
+        }
+
+        private void AddRootFolder(string label, string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path)) return;
+            _folderTree.Items.Add(CreateFolderItem(label, path, true));
+        }
+
+        private TreeViewItem CreateFolderItem(string label, string path, bool lazy)
+        {
+            var item = new TreeViewItem
+            {
+                Header = BuildHeader("\uE8B7", label),
+                Tag = path,
+                Foreground = new SolidColorBrush(Color.FromRgb(226, 238, 255)),
+                Padding = new Thickness(2)
+            };
+            if (lazy) item.Items.Add(new TreeViewItem { Header = "正在加载..." });
+            item.Expanded += delegate { LoadChildren(item); };
+            return item;
+        }
+
+        private StackPanel BuildHeader(string icon, string label)
+        {
+            var stack = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+            stack.Children.Add(new TextBlock
+            {
+                Text = icon,
+                FontFamily = new FontFamily("Segoe MDL2 Assets"),
+                Foreground = new SolidColorBrush(Color.FromRgb(118, 203, 255)),
+                FontSize = 14,
+                Margin = new Thickness(0, 0, 8, 0),
+                VerticalAlignment = System.Windows.VerticalAlignment.Center
+            });
+            stack.Children.Add(new TextBlock
+            {
+                Text = label,
+                Foreground = new SolidColorBrush(Color.FromRgb(226, 238, 255)),
+                FontSize = 13,
+                VerticalAlignment = System.Windows.VerticalAlignment.Center
+            });
+            return stack;
+        }
+
+        private void LoadChildren(TreeViewItem item)
+        {
+            if (item.Tag == null) return;
+            if (item.Items.Count != 1 || !IsPlaceholder(item.Items[0])) return;
+
+            item.Items.Clear();
+            string path = item.Tag as string;
+            if (string.IsNullOrWhiteSpace(path)) return;
 
             try
             {
-                string[] directories = Directory.GetDirectories(existing);
+                string[] directories = Directory.GetDirectories(path);
                 Array.Sort(directories, StringComparer.CurrentCultureIgnoreCase);
-                int shown = 0;
-                for (int i = 0; i < directories.Length && shown < 80; i++)
+                foreach (string dir in directories)
                 {
-                    string dir = directories[i];
                     string name = System.IO.Path.GetFileName(dir);
                     if (string.IsNullOrEmpty(name)) name = dir;
-                    _folderList.Items.Add(new DirectoryChoice { Text = name, Path = dir, IsParent = false });
-                    shown++;
+                    item.Items.Add(CreateFolderItem(name, dir, HasSubDirectory(dir)));
                 }
-                _hint.Text = directories.Length == 0
-                    ? "当前目录下面没有子文件夹，可以直接使用此目录。"
-                    : "双击进入子目录；如果只是想安装到当前路径，点「使用此目录」。";
             }
             catch (Exception ex)
             {
-                _hint.Text = "目录可用，但读取子目录失败：" + ex.Message;
+                _message.Text = "无法读取该文件夹：" + ex.Message;
+            }
+        }
+
+        private static bool IsPlaceholder(object item)
+        {
+            var treeItem = item as TreeViewItem;
+            return treeItem != null && treeItem.Tag == null;
+        }
+
+        private static bool HasSubDirectory(string path)
+        {
+            try
+            {
+                using (var enumerator = Directory.EnumerateDirectories(path).GetEnumerator())
+                {
+                    return enumerator.MoveNext();
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void SyncSelectedTreePath()
+        {
+            var item = _folderTree.SelectedItem as TreeViewItem;
+            if (item == null || item.Tag == null) return;
+            string path = item.Tag as string;
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                _folderBox.Text = path;
+                _message.Text = string.Empty;
             }
         }
 
@@ -926,34 +934,34 @@ namespace GPT2JSON.ArtSetup
         {
             try
             {
-                string baseDir = FindExistingDirectory(_pathBox.Text);
+                string baseDir = FindExistingDirectory(_folderBox.Text);
                 if (string.IsNullOrEmpty(baseDir)) baseDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-                string candidate = System.IO.Path.Combine(baseDir, "GPT2JSON");
+                string candidate = System.IO.Path.Combine(baseDir, "新建文件夹");
                 int index = 2;
                 while (Directory.Exists(candidate))
                 {
-                    candidate = System.IO.Path.Combine(baseDir, "GPT2JSON-" + index.ToString());
+                    candidate = System.IO.Path.Combine(baseDir, "新建文件夹 (" + index.ToString() + ")");
                     index++;
                 }
 
                 Directory.CreateDirectory(candidate);
-                _pathBox.Text = candidate;
-                RefreshFolderList(true);
-                _hint.Text = "已经创建好新文件夹，直接使用即可。";
+                _folderBox.Text = candidate;
+                _message.Text = "已创建文件夹。";
+                PopulateTree();
             }
             catch (Exception ex)
             {
-                _hint.Text = "新建文件夹失败：" + ex.Message;
+                _message.Text = "新建文件夹失败：" + ex.Message;
             }
         }
 
         private void UseCurrentPath()
         {
-            string value = NormalizePath(_pathBox.Text);
+            string value = NormalizePath(_folderBox.Text);
             if (string.IsNullOrWhiteSpace(value))
             {
-                _hint.Text = "先填一个安装目录再继续。";
+                _message.Text = "请先选择或输入一个文件夹。";
                 return;
             }
 
@@ -965,7 +973,7 @@ namespace GPT2JSON.ArtSetup
             }
             catch (Exception ex)
             {
-                _hint.Text = "路径格式不正确：" + ex.Message;
+                _message.Text = "路径格式不正确：" + ex.Message;
             }
         }
 
@@ -1006,17 +1014,6 @@ namespace GPT2JSON.ArtSetup
         }
     }
 
-    internal sealed class DirectoryChoice
-    {
-        public string Text { get; set; }
-        public string Path { get; set; }
-        public bool IsParent { get; set; }
-
-        public override string ToString()
-        {
-            return (IsParent ? "↖  " : "▸  ") + Text;
-        }
-    }
 }
 
 
