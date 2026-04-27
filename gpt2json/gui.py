@@ -38,7 +38,7 @@ from .engine import ExportConfig, run_export
 from .parsing import decode_text_file, list_future_input_format_presets, list_input_formats, parse_by_format
 
 APP_NAME = "GPT2JSON"
-APP_SUBTITLE = "协议优先 · JSON 导出器"
+APP_SUBTITLE = "Sub2API / CPA JSON 导出工具"
 ORG_NAME = "GPT2JSON"
 ICON_PATH = Path(__file__).resolve().parent / "assets" / "gpt2json_icon.png"
 ASSET_DIR = Path(__file__).resolve().parent / "assets"
