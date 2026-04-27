@@ -165,6 +165,17 @@ cd gpt2json
 python -m pip install -e .[gui]
 ```
 
+## 发版前自检
+
+```bash
+python -m pip install -e .[dev,gui]
+python -m pytest -q
+python -m build
+python -m twine check dist/*
+```
+
+如果只是发布 GitHub Release，建议使用 Git tag / GitHub 自动生成的 Source archive，不要手动打包本地工作区，避免把 `output/` 下的本地导出文件带进去。
+
 ## 许可证
 
 MIT，详见 [LICENSE](LICENSE)。

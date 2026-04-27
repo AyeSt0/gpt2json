@@ -2,6 +2,17 @@
 
 本项目使用类似 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 的格式记录重要变化。
 
+## [Unreleased]
+
+### Added
+
+- GUI smoke tests for headless initialization and input-state behavior.
+- GUI settings persistence, output-directory validation, log copy/clear actions, and running-close protection.
+
+### Changed
+
+- GUI preflight now reports skipped rows and separates selected output formats from already generated files.
+
 ## [0.1.0] - 2026-04-27
 
 ### Added

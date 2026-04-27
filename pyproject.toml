@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "协议优先的 Sub2API / CPA JSON 导出工具。"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { file = "LICENSE" }
+license = "MIT"
 authors = [{ name = "GPT2JSON Contributors" }]
 keywords = ["sub2api", "cpa", "json", "oauth", "desktop", "exporter"]
 classifiers = [
@@ -16,7 +16,6 @@ classifiers = [
     "Environment :: Console",
     "Environment :: Win32 (MS Windows)",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -31,7 +30,7 @@ dependencies = [
 
 [project.optional-dependencies]
 gui = ["PySide6>=6.7"]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff>=0.6", "build>=1.2", "twine>=5"]
 
 [project.urls]
 Homepage = "https://github.com/AyeSt0/gpt2json"
