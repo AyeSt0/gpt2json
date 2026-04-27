@@ -63,6 +63,19 @@ namespace GPT2JSON.ArtSetup
 
             AddBackdropRings(root);
 
+            var outerGlow = new WpfPath
+            {
+                Data = OuterShellGeometry(),
+                Stroke = new LinearGradientBrush(Color.FromArgb(190, 33, 210, 255), Color.FromArgb(150, 182, 75, 255), 8),
+                StrokeThickness = 6,
+                Fill = Brushes.Transparent,
+                Opacity = 0.52,
+                Effect = new BlurEffect { Radius = 7 }
+            };
+            Canvas.SetLeft(outerGlow, 40);
+            Canvas.SetTop(outerGlow, 40);
+            root.Children.Add(outerGlow);
+
             var main = new WpfPath
             {
                 Data = OuterShellGeometry(),
@@ -143,52 +156,81 @@ namespace GPT2JSON.ArtSetup
         private Geometry OuterShellGeometry()
         {
             // Visible window silhouette, in the 900x560 local coordinate system.
-            // It deliberately breaks the rectangular installer frame with a wavy left edge,
-            // a liquid brand/content seam, and a lifted bottom-right contour.
+            // It deliberately avoids a rectangular installer frame: the left brand island
+            // swells outward, the top edge forms a shallow valley, and the bottom edge
+            // floats like a liquid glass plate.
             return Geometry.Parse(
-                "M58,0 " +
-                "C24,0 4,20 4,50 " +
-                "L4,130 " +
-                "C4,164 24,186 18,228 " +
-                "C12,268 -10,294 8,340 " +
-                "C26,392 4,433 4,494 " +
-                "C4,536 30,560 74,560 " +
-                "L520,560 " +
-                "C596,538 642,548 707,560 " +
-                "L846,560 " +
-                "C878,560 900,538 900,506 " +
-                "L900,42 " +
-                "C900,16 884,0 858,0 " +
-                "L470,0 " +
-                "C422,28 372,26 328,0 " +
-                "L58,0 Z");
+                "M124,0 " +
+                "C70,-14 28,18 18,68 " +
+                "C7,122 42,145 30,196 " +
+                "C17,254 -20,291 18,348 " +
+                "C55,404 8,454 36,512 " +
+                "C58,558 113,566 169,548 " +
+                "C224,531 270,552 326,560 " +
+                "L514,560 " +
+                "C590,534 648,544 720,560 " +
+                "L840,560 " +
+                "C879,560 900,538 900,498 " +
+                "L900,64 " +
+                "C900,22 876,0 834,0 " +
+                "L644,0 " +
+                "C584,18 527,32 472,8 " +
+                "C434,-10 399,0 365,25 " +
+                "C329,52 290,39 257,14 " +
+                "C220,-13 168,10 124,0 Z");
         }
 
         private void AddBackdropRings(Canvas root)
         {
             var ring1 = new WpfPath
             {
-                Data = Geometry.Parse("M130,425 C250,130 585,105 805,205 C925,260 930,440 800,505 C560,625 270,580 130,425 Z"),
-                StrokeThickness = 11,
+                Data = Geometry.Parse("M58,470 C185,150 520,24 780,168 C966,270 948,500 710,586 C485,668 198,596 58,470 Z"),
+                StrokeThickness = 18,
                 Stroke = new LinearGradientBrush(Color.FromRgb(28, 211, 255), Color.FromRgb(160, 73, 255), 30),
                 Fill = Brushes.Transparent,
-                Opacity = 0.42,
-                Effect = new BlurEffect { Radius = 4 }
+                Opacity = 0.62,
+                Effect = new BlurEffect { Radius = 5 }
             };
             root.Children.Add(ring1);
 
             var ring2 = new WpfPath
             {
-                Data = Geometry.Parse("M705,70 C930,142 960,375 785,470 C620,560 305,520 185,390"),
-                StrokeThickness = 26,
+                Data = Geometry.Parse("M675,44 C910,86 1012,246 930,394 C842,556 560,614 310,552 C190,520 110,466 76,410"),
+                StrokeThickness = 24,
                 StrokeStartLineCap = PenLineCap.Round,
                 StrokeEndLineCap = PenLineCap.Round,
                 Stroke = new LinearGradientBrush(Color.FromArgb(210, 43, 204, 255), Color.FromArgb(170, 180, 77, 255), 0),
                 Fill = Brushes.Transparent,
-                Opacity = 0.42,
-                Effect = new BlurEffect { Radius = 7 }
+                Opacity = 0.54,
+                Effect = new BlurEffect { Radius = 8 }
             };
             root.Children.Add(ring2);
+
+            var comet = new WpfPath
+            {
+                Data = Geometry.Parse("M792,42 C934,94 996,194 945,310"),
+                StrokeThickness = 34,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                Stroke = new LinearGradientBrush(Color.FromArgb(160, 30, 213, 255), Color.FromArgb(0, 174, 82, 255), 0),
+                Fill = Brushes.Transparent,
+                Opacity = 0.62,
+                Effect = new BlurEffect { Radius = 11 }
+            };
+            root.Children.Add(comet);
+
+            var lowerComet = new WpfPath
+            {
+                Data = Geometry.Parse("M122,580 C330,642 610,640 800,548"),
+                StrokeThickness = 16,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                Stroke = new LinearGradientBrush(Color.FromArgb(160, 166, 70, 255), Color.FromArgb(80, 25, 209, 255), 0),
+                Fill = Brushes.Transparent,
+                Opacity = 0.58,
+                Effect = new BlurEffect { Radius = 6 }
+            };
+            root.Children.Add(lowerComet);
 
             var aura = new Ellipse
             {
@@ -297,7 +339,7 @@ namespace GPT2JSON.ArtSetup
 
         private UIElement BuildTopBar()
         {
-            var grid = new Grid { Margin = new Thickness(0, 18, 0, 0) };
+            var grid = new Grid { Margin = new Thickness(0, 30, 0, 0) };
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(94) });
 
