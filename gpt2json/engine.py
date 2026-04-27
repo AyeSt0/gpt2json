@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .formats import build_export, convert_current_token_to_sub, write_json
+from .formats import build_cpa_token_json, build_export, convert_current_token_to_sub, write_json
 from .models import AttemptResult, utc_now_iso
 from .otp import OtpFetcher
 from .parsing import mask_email, mask_source, parse_by_format, read_account_file, secret_hash, slug_email
@@ -73,7 +73,7 @@ def _prepare_token_data(token_json: str, *, pool: str, token_type: str) -> dict[
     if pool:
         data.setdefault("pool", pool)
     if token_type:
-        data["type"] = token_type
+        data.setdefault("type", token_type)
     return data
 
 
@@ -82,11 +82,6 @@ def _build_sub_account(token_payload: dict[str, Any], *, pool: str, index: int) 
     email = str((account.get("extra") or {}).get("email") or token_payload.get("email") or "").strip()
     if pool and email:
         account["name"] = f"{pool}-{email}"
-    extra = account.setdefault("extra", {})
-    if isinstance(extra, dict):
-        extra["source"] = "gpt2json"
-        if pool:
-            extra["pool"] = pool
     return account
 
 
@@ -231,14 +226,16 @@ def run_export(
         slug = slug_email(email)
         suffix = f"{int(time.time())}_{index:03d}"
         if export_cpa:
-            cpa_path = cpa_dir / f"token_{slug}_{suffix}.json"
-            write_json(cpa_path, token_payload)
+            cpa_payload = build_cpa_token_json(token_payload)
+            cpa_filename = f"{email}.json" if email else f"token_{suffix}.json"
+            cpa_path = cpa_dir / cpa_filename
+            write_json(cpa_path, cpa_payload)
             cpa_files.append(
                 {
                     "file": str(cpa_path.relative_to(out_dir)).replace("\\", "/"),
                     "email_hash": secret_hash(email),
                     "email_masked": mask_email(email),
-                    "type": str(token_payload.get("type") or ""),
+                    "type": str(cpa_payload.get("type") or ""),
                 }
             )
         if export_sub2api:

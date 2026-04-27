@@ -3,14 +3,26 @@ from __future__ import annotations
 import base64
 import copy
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .oauth import CLIENT_ID
 
 AUTH_CLAIM = "https://api.openai.com/auth"
 PROFILE_CLAIM = "https://api.openai.com/profile"
-DEFAULT_EXPIRES_IN = 864000
+SUB2API_EXPIRES_IN = 863999
+MODEL_MAPPING = {
+    "gpt-5.1": "gpt-5.1",
+    "gpt-5.1-codex": "gpt-5.1-codex",
+    "gpt-5.1-codex-max": "gpt-5.1-codex-max",
+    "gpt-5.1-codex-mini": "gpt-5.1-codex-mini",
+    "gpt-5.2": "gpt-5.2",
+    "gpt-5.2-codex": "gpt-5.2-codex",
+    "gpt-5.3": "gpt-5.3",
+    "gpt-5.3-codex": "gpt-5.3-codex",
+    "gpt-5.4": "gpt-5.4",
+}
 
 
 def decode_jwt_payload(token: str) -> dict[str, Any]:
@@ -39,6 +51,15 @@ def parse_expired_time(value: Any) -> int:
         return int(datetime.fromisoformat(text).timestamp())
     except Exception:
         return 0
+
+
+def format_cpa_time(value: Any) -> str:
+    timestamp = parse_expired_time(value)
+    if not timestamp:
+        return ""
+    # CPA / codex-console auth-file exports use an explicit +08:00 timestamp.
+    tz = timezone(timedelta(hours=8))
+    return datetime.fromtimestamp(timestamp, tz=tz).strftime("%Y-%m-%dT%H:%M:%S+08:00")
 
 
 def _auth_claims(payload: dict[str, Any]) -> dict[str, Any]:
@@ -115,8 +136,6 @@ def convert_current_token_to_sub(source_data: dict[str, Any], index: int = 1) ->
     organizations = _first_non_empty(id_auth.get("organizations"), access_auth.get("organizations"), [])
     organization_id = str(_first_non_empty(source_data.get("organization_id"), _choose_organization_id(organizations)) or "")
     expires_at = parse_expired_time(source_data.get("expired")) or int(access_payload.get("exp") or 0)
-    issued_at = int(access_payload.get("iat") or 0)
-    expires_in = max(expires_at - issued_at, 0) if expires_at and issued_at else DEFAULT_EXPIRES_IN
     token_type = str(_first_non_empty(source_data.get("type"), access_auth.get("chatgpt_plan_type"), "unknown"))
     account_email = str(_first_non_empty(source_data.get("email"), access_profile.get("email"), id_payload.get("email")))
 
@@ -135,15 +154,14 @@ def convert_current_token_to_sub(source_data: dict[str, Any], index: int = 1) ->
                     id_payload.get("sub"),
                 )
             ),
+            "client_id": str(source_data.get("client_id") or CLIENT_ID),
             "expires_at": expires_at,
-            "expires_in": expires_in,
+            "expires_in": SUB2API_EXPIRES_IN,
+            "model_mapping": dict(MODEL_MAPPING),
             "organization_id": organization_id,
             "refresh_token": str(source_data.get("refresh_token") or ""),
         },
-        "extra": {
-            "email": account_email,
-            "sub": str(_first_non_empty(access_payload.get("sub"), id_payload.get("sub"))),
-        },
+        "extra": {},
         "concurrency": 10,
         "priority": 1,
         "rate_multiplier": 1,
@@ -163,28 +181,37 @@ def normalize_sub_account(account: dict[str, Any], index: int | None = None) -> 
     extra = normalized.setdefault("extra", {})
     access_payload = decode_jwt_payload(str(credentials.get("access_token") or ""))
     auth_info = _auth_claims(access_payload)
-    profile_info = _profile_claims(access_payload)
     expires_at = parse_expired_time(credentials.get("expires_at")) or int(access_payload.get("exp") or 0)
     credentials.setdefault("access_token", "")
     credentials.setdefault("refresh_token", "")
     credentials.setdefault("chatgpt_account_id", _first_non_empty(auth_info.get("chatgpt_account_id")))
     credentials.setdefault("chatgpt_user_id", _first_non_empty(auth_info.get("chatgpt_user_id"), auth_info.get("user_id"), access_payload.get("sub")))
+    credentials.setdefault("client_id", CLIENT_ID)
     credentials.setdefault("organization_id", "")
     credentials.setdefault("expires_at", expires_at)
-    credentials.setdefault("expires_in", DEFAULT_EXPIRES_IN if expires_at else 0)
-    extra.setdefault("email", _first_non_empty(profile_info.get("email"), access_payload.get("email")))
-    extra.setdefault("sub", _first_non_empty(access_payload.get("sub")))
+    credentials.setdefault("expires_in", SUB2API_EXPIRES_IN if expires_at else 0)
+    credentials.setdefault("model_mapping", dict(MODEL_MAPPING))
     normalized.setdefault("name", str(extra.get("email") or _default_name(index or 1, "openai")))
     return normalized
 
 
 def build_export(accounts: list[dict[str, Any]]) -> dict[str, Any]:
     return {
-        "type": "sub2api-data",
-        "version": 1,
-        "exported_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "proxies": [],
         "accounts": accounts,
+    }
+
+
+def build_cpa_token_json(source_data: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": "codex",
+        "email": str(source_data.get("email") or ""),
+        "expired": format_cpa_time(source_data.get("expired")),
+        "id_token": str(source_data.get("id_token") or ""),
+        "account_id": str(source_data.get("account_id") or ""),
+        "access_token": str(source_data.get("access_token") or ""),
+        "last_refresh": format_cpa_time(source_data.get("last_refresh")),
+        "refresh_token": str(source_data.get("refresh_token") or ""),
     }
 
 
@@ -192,4 +219,3 @@ def write_json(path: str | Path, payload: Any, *, indent: int = 2) -> None:
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(payload, ensure_ascii=False, indent=indent), encoding="utf-8")
-

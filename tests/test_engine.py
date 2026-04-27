@@ -50,9 +50,15 @@ def test_run_export_writes_cpa_and_sub2api(tmp_path: Path):
     assert summary["cpa_dir"]
     assert (out_dir / "cpa_manifest.json").exists()
     assert (out_dir / "sub2api_accounts.secret.json").exists()
-    cpa_files = sorted((out_dir / "CPA").glob("token_*.json"))
+    cpa_files = sorted((out_dir / "CPA").glob("*.json"))
     assert len(cpa_files) == 2
+    assert {item.name for item in cpa_files} == {"ok1@example.com.json", "ok2@example.com.json"}
     assert json.loads(cpa_files[0].read_text(encoding="utf-8"))["access_token"] == "a.b.c"
+    assert json.loads(cpa_files[0].read_text(encoding="utf-8"))["type"] == "codex"
+    sub_payload = json.loads((out_dir / "sub2api_accounts.secret.json").read_text(encoding="utf-8"))
+    assert set(sub_payload) == {"proxies", "accounts"}
+    assert sub_payload["accounts"][0]["credentials"]["client_id"]
+    assert sub_payload["accounts"][0]["credentials"]["expires_in"] == 863999
     manifest = json.loads((out_dir / "cpa_manifest.json").read_text(encoding="utf-8"))
     assert manifest["count"] == 2
     assert manifest["format"] == "cpa-per-account-json"
@@ -87,7 +93,7 @@ def test_run_export_cpa_only(tmp_path: Path):
     assert summary["sub2api_export"] == ""
     assert summary["cpa_dir"]
     assert summary["cpa_manifest"]
-    assert len(list((out_dir / "CPA").glob("token_*.json"))) == 2
+    assert len(list((out_dir / "CPA").glob("*.json"))) == 2
     assert (out_dir / "cpa_manifest.json").exists()
     assert not (out_dir / "sub2api_accounts.secret.json").exists()
 

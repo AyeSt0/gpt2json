@@ -138,7 +138,7 @@ gpt2json --version
 ```text
 output/
 ├─ CPA/
-│  └─ token_<account>_<timestamp>.json
+│  └─ <account-email>.json
 ├─ sub_accounts/
 │  └─ sub_<account>_<timestamp>.json
 ├─ cpa_manifest.json
@@ -152,8 +152,8 @@ output/
 
 | 文件 | 说明 |
 | --- | --- |
-| `sub2api_accounts.secret.json` | Sub2API 导入用总包。 |
-| `CPA/token_*.json` | CPA 单账号 token 文件；一个账号一个 JSON。 |
+| `sub2api_accounts.secret.json` | Sub2API 导入用总包，结构对齐 codex-console 的“导出 Sub2API 格式”。 |
+| `CPA/<account-email>.json` | CPA 单账号 token 文件；一个账号一个 JSON，结构对齐 codex-console 的“导出 CPA 格式”。 |
 | `cpa_manifest.json` | CPA 文件索引，仅记录文件列表和脱敏元数据。 |
 | `summary.json` | 本次导出的统计结果。 |
 
