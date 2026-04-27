@@ -8,6 +8,7 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $distExe = Join-Path $root "dist\GPT2JSON\GPT2JSON.exe"
 $script = Join-Path $root "packaging\windows\GPT2JSON.iss"
 $releaseDir = Join-Path $root "release"
+$artUninstallerScript = Join-Path $root "packaging\windows\build-art-uninstaller.ps1"
 
 function Get-ProjectVersion {
     Push-Location $root
@@ -50,6 +51,12 @@ $requiredAssets = @(
 foreach ($asset in $requiredAssets) {
     if (-not (Test-Path -LiteralPath $asset)) { throw "缺少安装器资源文件：$asset" }
 }
+
+if (-not (Test-Path -LiteralPath $artUninstallerScript)) {
+    throw "未找到艺术卸载器构建脚本：$artUninstallerScript"
+}
+& $artUninstallerScript
+if ($LASTEXITCODE -ne 0) { throw "艺术卸载器构建失败。" }
 
 New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
 

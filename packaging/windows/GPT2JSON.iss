@@ -95,6 +95,7 @@ Name: "desktopicon"; Description: "{cm:TaskDesktopIcon}"; GroupDescription: "附
 
 [Files]
 Source: "dist\GPT2JSON\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "packaging\windows\build\GPT2JSON-ArtUninstall.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
@@ -128,6 +129,25 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   WizardForm.DirEdit.Text := EnsureAppInstallDir(WizardDirValue);
   Result := '';
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  UninstallKey: String;
+  ArtUninstaller: String;
+  QuotedArtUninstaller: String;
+begin
+  if CurStep = ssPostInstall then
+  begin
+    UninstallKey := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{F3E03F2D-1CB1-4A63-98D1-0E19E1E20321}_is1';
+    ArtUninstaller := ExpandConstant('{app}\GPT2JSON-ArtUninstall.exe');
+    QuotedArtUninstaller := '"' + ArtUninstaller + '"';
+    if FileExists(ArtUninstaller) then
+    begin
+      RegWriteStringValue(HKCU, UninstallKey, 'UninstallString', QuotedArtUninstaller);
+      RegWriteStringValue(HKCU, UninstallKey, 'QuietUninstallString', QuotedArtUninstaller + ' /silent');
+    end;
+  end;
 end;
 
 

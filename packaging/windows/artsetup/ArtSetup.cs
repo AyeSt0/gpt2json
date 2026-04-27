@@ -10,12 +10,12 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using Brushes = System.Windows.Media.Brushes;
 using Button = System.Windows.Controls.Button;
 using MessageBox = System.Windows.MessageBox;
 using TextBox = System.Windows.Controls.TextBox;
 using WpfApplication = System.Windows.Application;
-using WpfProgressBar = System.Windows.Controls.ProgressBar;
 
 namespace GPT2JSON.ArtSetup
 {
@@ -37,7 +37,7 @@ namespace GPT2JSON.ArtSetup
         private readonly TextBox _dirBox;
         private readonly Button _installButton;
         private readonly Button _secondaryButton;
-        private readonly WpfProgressBar _progress;
+        private readonly ElegantProgressBar _progress;
         private readonly TextBlock _status;
         private readonly Button _closeButton;
         private readonly Button _minButton;
@@ -102,6 +102,7 @@ namespace GPT2JSON.ArtSetup
                 }
             };
 
+            AddAmbientFlow(shell);
             AddBrandLabels(shell);
 
             AddInstallerControls(shell);
@@ -109,7 +110,7 @@ namespace GPT2JSON.ArtSetup
             _dirBox = FindName("InstallPathBox") as TextBox;
             _installButton = FindName("InstallButton") as Button;
             _secondaryButton = FindName("SecondaryButton") as Button;
-            _progress = FindName("InstallProgress") as WpfProgressBar;
+            _progress = FindName("InstallProgress") as ElegantProgressBar;
             _status = FindName("StatusText") as TextBlock;
             _closeButton = FindName("CloseButton") as Button;
             _minButton = FindName("MinButton") as Button;
@@ -224,6 +225,56 @@ namespace GPT2JSON.ArtSetup
             shell.Children.Add(version);
         }
 
+        private void AddAmbientFlow(Grid shell)
+        {
+            var flow = new Canvas
+            {
+                Width = 1040,
+                Height = 560,
+                IsHitTestVisible = false,
+                Opacity = 0.95
+            };
+            shell.Children.Add(flow);
+
+            var low = FlowRibbon(340, 6, Color.FromArgb(0, 40, 220, 255), Color.FromArgb(190, 41, 214, 255), Color.FromArgb(0, 180, 80, 255));
+            Canvas.SetLeft(low, -380);
+            Canvas.SetTop(low, 492);
+            flow.Children.Add(low);
+            Motion.StartHorizontalFlow(low, -380, 1080, 5200, 350);
+
+            var mid = FlowRibbon(250, 4, Color.FromArgb(0, 170, 70, 255), Color.FromArgb(135, 188, 96, 255), Color.FromArgb(0, 58, 202, 255));
+            Canvas.SetLeft(mid, -310);
+            Canvas.SetTop(mid, 104);
+            flow.Children.Add(mid);
+            Motion.StartHorizontalFlow(mid, -310, 1010, 6800, 1250);
+
+            var panelLine = FlowRibbon(180, 3, Color.FromArgb(0, 250, 250, 255), Color.FromArgb(125, 255, 255, 255), Color.FromArgb(0, 180, 82, 255));
+            Canvas.SetLeft(panelLine, 420);
+            Canvas.SetTop(panelLine, 414);
+            flow.Children.Add(panelLine);
+            Motion.StartHorizontalFlow(panelLine, 420, 810, 3600, 900);
+        }
+
+        private Border FlowRibbon(double width, double height, Color left, Color middle, Color right)
+        {
+            var brush = new LinearGradientBrush();
+            brush.StartPoint = new Point(0, 0.5);
+            brush.EndPoint = new Point(1, 0.5);
+            brush.GradientStops.Add(new GradientStop(left, 0));
+            brush.GradientStops.Add(new GradientStop(middle, 0.5));
+            brush.GradientStops.Add(new GradientStop(right, 1));
+
+            return new Border
+            {
+                Width = width,
+                Height = height,
+                CornerRadius = new CornerRadius(height / 2),
+                Background = brush,
+                Effect = new BlurEffect { Radius = 3.5 },
+                RenderTransform = new RotateTransform(-4)
+            };
+        }
+
         private void AddInstallerControls(Grid shell)
         {
             var overlay = new Canvas { Width = 1040, Height = 560 };
@@ -324,21 +375,16 @@ namespace GPT2JSON.ArtSetup
             Canvas.SetTop(pathBorder, 326);
             overlay.Children.Add(pathBorder);
 
-            var progress = new WpfProgressBar
+            var progress = new ElegantProgressBar
             {
                 Name = "InstallProgress",
                 Width = 568,
-                Height = 5,
-                Minimum = 0,
-                Maximum = 100,
-                Value = 0,
-                Foreground = new SolidColorBrush(Color.FromRgb(54, 210, 255)),
-                Background = new SolidColorBrush(Color.FromArgb(28, 255, 255, 255)),
-                BorderThickness = new Thickness(0)
+                Height = 9,
+                Value = 0
             };
             RegisterName(progress.Name, progress);
             Canvas.SetLeft(progress, 410);
-            Canvas.SetTop(progress, 397);
+            Canvas.SetTop(progress, 395);
             overlay.Children.Add(progress);
 
             var status = new TextBlock
@@ -356,7 +402,7 @@ namespace GPT2JSON.ArtSetup
             var install = new Button
             {
                 Name = "InstallButton",
-                Content = "↓  开始安装",
+                Content = "开始",
                 Width = 172,
                 Height = 54,
                 FontSize = 17,
@@ -1086,6 +1132,76 @@ namespace GPT2JSON.ArtSetup
         }
     }
 
+    internal sealed class ElegantProgressBar : FrameworkElement
+    {
+        public static readonly DependencyProperty ValueProperty =
+            DependencyProperty.Register(
+                "Value",
+                typeof(double),
+                typeof(ElegantProgressBar),
+                new FrameworkPropertyMetadata(0.0, FrameworkPropertyMetadataOptions.AffectsRender));
+
+        private readonly DispatcherTimer _timer;
+        private double _phase;
+
+        public double Value
+        {
+            get { return (double)GetValue(ValueProperty); }
+            set { SetValue(ValueProperty, Math.Max(0, Math.Min(100, value))); }
+        }
+
+        public ElegantProgressBar()
+        {
+            SnapsToDevicePixels = true;
+            UseLayoutRounding = true;
+            _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(24) };
+            _timer.Tick += delegate
+            {
+                _phase += 7.5;
+                double limit = Math.Max(ActualWidth, 1) + 160;
+                if (_phase > limit) _phase = 0;
+                InvalidateVisual();
+            };
+            Loaded += delegate { _timer.Start(); };
+            Unloaded += delegate { _timer.Stop(); };
+        }
+
+        protected override void OnRender(DrawingContext dc)
+        {
+            base.OnRender(dc);
+
+            double width = ActualWidth;
+            double height = ActualHeight;
+            if (width <= 0 || height <= 0) return;
+
+            double radius = height / 2;
+            var track = new Rect(0, 0, width, height);
+            dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromArgb(34, 255, 255, 255)), null, track, radius, radius);
+
+            double fillWidth = Math.Max(0, Math.Min(width, width * Value / 100.0));
+            if (fillWidth <= 0.1) return;
+
+            var fillRect = new Rect(0, 0, fillWidth, height);
+            var fill = new LinearGradientBrush();
+            fill.StartPoint = new Point(0, 0.5);
+            fill.EndPoint = new Point(1, 0.5);
+            fill.GradientStops.Add(new GradientStop(Color.FromRgb(29, 190, 255), 0));
+            fill.GradientStops.Add(new GradientStop(Color.FromRgb(111, 119, 255), 0.55));
+            fill.GradientStops.Add(new GradientStop(Color.FromRgb(193, 74, 255), 1));
+            dc.DrawRoundedRectangle(fill, null, fillRect, radius, radius);
+
+            dc.PushClip(new RectangleGeometry(fillRect, radius, radius));
+            var shimmer = new LinearGradientBrush();
+            shimmer.StartPoint = new Point(0, 0.5);
+            shimmer.EndPoint = new Point(1, 0.5);
+            shimmer.GradientStops.Add(new GradientStop(Color.FromArgb(0, 255, 255, 255), 0));
+            shimmer.GradientStops.Add(new GradientStop(Color.FromArgb(95, 255, 255, 255), 0.48));
+            shimmer.GradientStops.Add(new GradientStop(Color.FromArgb(0, 255, 255, 255), 1));
+            dc.DrawRectangle(shimmer, null, new Rect(_phase - 110, 0, 90, height));
+            dc.Pop();
+        }
+    }
+
     internal static class Motion
     {
         private static IEasingFunction EaseOut()
@@ -1168,7 +1284,20 @@ namespace GPT2JSON.ArtSetup
             element.BeginAnimation(UIElement.OpacityProperty, animation);
         }
 
-        internal static void AnimateProgress(WpfProgressBar progress, double target)
+        internal static void StartHorizontalFlow(FrameworkElement element, double from, double to, int milliseconds, int delayMilliseconds)
+        {
+            if (element == null) return;
+
+            var animation = new DoubleAnimation(from, to, TimeSpan.FromMilliseconds(milliseconds))
+            {
+                BeginTime = TimeSpan.FromMilliseconds(delayMilliseconds),
+                RepeatBehavior = RepeatBehavior.Forever,
+                EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+            };
+            element.BeginAnimation(Canvas.LeftProperty, animation);
+        }
+
+        internal static void AnimateProgress(ElegantProgressBar progress, double target)
         {
             if (progress == null) return;
 
@@ -1176,7 +1305,7 @@ namespace GPT2JSON.ArtSetup
             {
                 EasingFunction = EaseOut()
             };
-            progress.BeginAnimation(WpfProgressBar.ValueProperty, animation);
+            progress.BeginAnimation(ElegantProgressBar.ValueProperty, animation);
         }
 
         internal static void ButtonMouseEnter(object sender, MouseEventArgs args)

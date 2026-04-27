@@ -14,6 +14,7 @@
 - GUI preflight now reports skipped rows and separates selected output formats from already generated files.
 - GUI layout is resizable again: input/log areas expand with the window, while advanced options moved to a labeled dialog.
 - GUI preferences now use a file-backed ini store instead of the Windows registry backend.
+- Windows art installer now uses visible flowing light accents, a custom animated progress bar, and a matching art-style uninstall shell.
 
 ## [0.1.0] - 2026-04-27
 
