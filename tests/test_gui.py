@@ -8,7 +8,7 @@ QtWidgets = pytest.importorskip("PySide6.QtWidgets")
 QtTest = pytest.importorskip("PySide6.QtTest")
 QtCore = pytest.importorskip("PySide6.QtCore")
 
-from gpt2json.gui import APP_NAME, ORG_NAME, MainWindow
+from gpt2json.gui import APP_NAME, ORG_NAME, MainWindow  # noqa: E402
 
 
 def _app():
@@ -74,6 +74,13 @@ def test_gui_input_mode_switch_and_clear(tmp_path):
     assert window._input_mode == "file"
     assert window.input_stack.currentIndex() == 1
     assert window._last_preflight_count == 1
+    assert not window.sub2api_row.isVisible()
+    assert not window.cpa_row.isVisible()
+
+    window.sub2api_row.set_path(str(tmp_path / "out" / "sub2api_accounts.secret.json"))
+    window.cpa_row.set_path(str(tmp_path / "out" / "CPA"))
+    window._refresh_output_format_state()
+    app.processEvents()
     assert window.sub2api_row.isVisible()
     assert window.cpa_row.isVisible()
 

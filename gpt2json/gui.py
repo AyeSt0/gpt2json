@@ -677,12 +677,15 @@ class MainWindow(QMainWindow):
         output_layout = QVBoxLayout(output_card)
         output_layout.setContentsMargins(16, 14, 16, 14)
         output_layout.setSpacing(12)
-        output_layout.addWidget(SectionHeader(UI_OUTPUT_PATH, "输出文件"))
-        self.output_hint_label = QLabel("勾选导出格式后，生成的文件会在这里显示。")
+        output_layout.addWidget(SectionHeader(UI_OUTPUT_PATH, "导出结果"))
+        self.output_hint_label = QLabel("任务完成后显示可打开的结果；未运行时这里保持精简。")
         self.output_hint_label.setObjectName("HintText")
+        self.output_hint_label.setWordWrap(True)
         output_layout.addWidget(self.output_hint_label)
         self.sub2api_row = FileOutputRow("sub2api_accounts.secret.json", "Sub2API")
         self.cpa_row = FileOutputRow("CPA/（每账号一个 JSON）", "CPA")
+        self.sub2api_row.setVisible(False)
+        self.cpa_row.setVisible(False)
         output_layout.addWidget(self.sub2api_row)
         output_layout.addWidget(self.cpa_row)
         layout.addWidget(output_card, 0)
@@ -953,12 +956,22 @@ class MainWindow(QMainWindow):
 
     def _refresh_output_format_state(self, *_args: Any) -> None:
         if hasattr(self, "sub2api_row"):
-            self.sub2api_row.setVisible(True)
-            self.cpa_row.setVisible(True)
-            self.sub2api_row.setEnabled(self.sub2api_check.isChecked() or bool(self.sub2api_row.path))
-            self.cpa_row.setEnabled(self.cpa_check.isChecked() or bool(self.cpa_row.path))
             any_selected = self.sub2api_check.isChecked() or self.cpa_check.isChecked()
-            self.output_hint_label.setText("生成完成后可打开或复制文件路径。" if any_selected else "请至少勾选一种导出格式。")
+            has_sub2api = bool(self.sub2api_row.path)
+            has_cpa = bool(self.cpa_row.path)
+            has_result = has_sub2api or has_cpa
+            self.sub2api_row.setVisible(has_sub2api)
+            self.cpa_row.setVisible(has_cpa)
+            self.sub2api_row.setEnabled(has_sub2api)
+            self.cpa_row.setEnabled(has_cpa)
+            if self._is_running:
+                self.output_hint_label.setText("正在导出，完成后这里会自动出现文件 / 文件夹入口。")
+            elif has_result:
+                self.output_hint_label.setText("已生成结果，可直接打开或复制路径。")
+            elif any_selected:
+                self.output_hint_label.setText("结果区会在导出完成后显示；平时不用在这里操作。")
+            else:
+                self.output_hint_label.setText("请至少勾选一种导出格式。")
         self._refresh_controls_state()
 
     def clear_input(self) -> None:
@@ -1337,6 +1350,7 @@ class MainWindow(QMainWindow):
         self._set_running(True)
         self.sub2api_row.set_path("")
         self.cpa_row.set_path("")
+        self._refresh_output_format_state()
         config = ExportConfig(
             input_path=input_path or "<paste>",
             out_dir=output_dir,
@@ -1503,6 +1517,7 @@ class MainWindow(QMainWindow):
         cpa_path = str(summary.get("cpa_dir") or summary.get("cpa_manifest") or "")
         self.sub2api_row.set_path(sub2api_path)
         self.cpa_row.set_path(cpa_path)
+        self._refresh_output_format_state()
         self.append_log("")
         self.append_log(f"🎉 收工汇总：成功 {success_count} 个，失败 {failure_count} 个。")
         if sub2api_path:
@@ -1516,6 +1531,7 @@ class MainWindow(QMainWindow):
         self._set_running(False)
         self._running = 0
         self.running_stat.set_value(0)
+        self._refresh_output_format_state()
         self._set_status("失败", "failed")
         self.append_log(f"💥 主流程异常：{message}")
         QMessageBox.critical(self, "运行失败", message)
