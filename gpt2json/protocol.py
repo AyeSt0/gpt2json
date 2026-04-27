@@ -6,6 +6,7 @@ import os
 import re
 import time
 import urllib.parse
+from collections.abc import Callable
 from typing import Any
 
 from curl_cffi import requests
@@ -14,7 +15,6 @@ from .models import AccountRow, AttemptResult, utc_now_iso
 from .oauth import OAuthStart, decode_jwt_segment, generate_oauth_url, submit_callback_url
 from .otp import OtpFetcher
 from .parsing import mask_email, mask_source
-
 
 PAGE_TYPE_HINTS = (
     ("/sign-in-with-chatgpt/codex/consent", "sign_in_with_chatgpt_codex_consent"),
@@ -370,7 +370,7 @@ def _extract_workspaces_count_from_payload(payload: Any) -> int:
     return len(workspaces) if isinstance(workspaces, list) else 0
 
 
-def _probe_client_auth_session_dump(session: requests.Session, *, client: "ProtocolLoginClient", proxies: Any) -> dict[str, Any]:
+def _probe_client_auth_session_dump(session: requests.Session, *, client: ProtocolLoginClient, proxies: Any) -> dict[str, Any]:
     auth_session_values = _get_cookie_values(session, "oai-client-auth-session")
     minimized_values = _get_cookie_values(session, "auth-session-minimized")
     checksum_values = _get_cookie_values(session, "auth-session-minimized-client-checksum")
@@ -518,11 +518,33 @@ def _is_consent_branch(*, page_type: str, continue_url: str) -> bool:
     return normalized_page_type == "sign_in_with_chatgpt_codex_consent" or "sign-in-with-chatgpt/codex/consent" in normalized_continue_url
 
 
+ProtocolEventCallback = Callable[[dict[str, Any]], None]
+
+
 class ProtocolLoginClient:
-    def __init__(self, *, impersonate: str = DEFAULT_IMPERSONATE, verify_ssl: bool = True, timeout: int = 30) -> None:
+    def __init__(
+        self,
+        *,
+        impersonate: str = DEFAULT_IMPERSONATE,
+        verify_ssl: bool = True,
+        timeout: int = 30,
+        event_callback: ProtocolEventCallback | None = None,
+    ) -> None:
         self.impersonate = str(impersonate or DEFAULT_IMPERSONATE).strip() or DEFAULT_IMPERSONATE
         self.verify_ssl = bool(verify_ssl)
         self.timeout = max(10, int(timeout or 30))
+        self.event_callback = event_callback
+
+    def _emit_stage(self, stage: str, **payload: Any) -> None:
+        if not self.event_callback:
+            return
+        event = {"stage": stage}
+        event.update(payload)
+        try:
+            self.event_callback(event)
+        except Exception:
+            # Runtime telemetry must never break the actual login flow.
+            return
 
     def _request(self, session: requests.Session, method: str, url: str, *, proxies: Any = None, headers: dict[str, Any] | None = None, json_body: Any = None, data: Any = None, allow_redirects: bool = False, timeout: int | None = None) -> Any:
         kwargs = {
@@ -802,6 +824,7 @@ class ProtocolLoginClient:
         session = requests.Session()
         oauth_start = generate_oauth_url()
         try:
+            self._emit_stage("oauth_start")
             otp_fetcher.prime_row(row, proxies=proxies)
             entry = self._request(
                 session,
@@ -814,6 +837,7 @@ class ProtocolLoginClient:
             )
             entry_status = int(getattr(entry, "status_code", 0) or 0)
             result.events.append({"stage": "entry", "status_code": entry_status, "url": str(getattr(entry, "url", "") or "")[:300]})
+            self._emit_stage("entry", status_code=entry_status)
             if entry_status >= 400:
                 result.status = "auth_entry_error"
                 result.stage = "entry"
@@ -841,6 +865,11 @@ class ProtocolLoginClient:
             )
             authorize_transition = _extract_transition_targets_from_response(authorize_resp, request_url="https://auth.openai.com/api/accounts/authorize/continue")
             result.events.append({"stage": "authorize_continue", "status_code": authorize_transition["status_code"], "page_type": authorize_transition["page_type"], "continue_url": authorize_transition["continue_url"][:300]})
+            self._emit_stage(
+                "authorize_continue",
+                status_code=authorize_transition["status_code"],
+                page_type=authorize_transition["page_type"],
+            )
             if authorize_transition["status_code"] >= 400:
                 result.status = "authorize_continue_error"
                 result.stage = "authorize_continue"
@@ -860,6 +889,12 @@ class ProtocolLoginClient:
             )
             pwd_transition = _extract_transition_targets_from_response(pwd_resp, request_url="https://auth.openai.com/api/accounts/password/verify")
             result.events.append({"stage": "password_verify", "status_code": pwd_transition["status_code"], "page_type": pwd_transition["page_type"], "continue_url": pwd_transition["continue_url"][:300], "callback_url_present": bool(pwd_transition["callback_url"])})
+            self._emit_stage(
+                "password_verify",
+                status_code=pwd_transition["status_code"],
+                page_type=pwd_transition["page_type"],
+                callback_url_present=bool(pwd_transition["callback_url"]),
+            )
 
             if pwd_transition["status_code"] >= 400:
                 result.status = "bad_password" if pwd_transition["status_code"] in {400, 401, 403} else "password_error"
@@ -872,7 +907,9 @@ class ProtocolLoginClient:
             if needs_otp:
                 result.otp_required = True
                 result.stage = "email_verification"
-                result.events.append({"stage": "otp_backend_plan", **otp_fetcher.backend_plan_for_row(row)})
+                otp_plan = otp_fetcher.backend_plan_for_row(row)
+                result.events.append({"stage": "otp_backend_plan", **otp_plan})
+                self._emit_stage("otp_backend_plan", **otp_plan)
                 code = otp_fetcher.poll_row(row, proxies=proxies)
                 if not code:
                     otp_details = otp_fetcher.last_details_for_row(row)
@@ -884,6 +921,12 @@ class ProtocolLoginClient:
                             "code_present": False,
                             "signature": otp_details.signature[:12],
                         }
+                    )
+                    self._emit_stage(
+                        "otp_fetch",
+                        backend=otp_details.backend,
+                        status_code=otp_details.status_code,
+                        code_present=False,
                     )
                     result.status = "otp_timeout"
                     result.reason = "otp_timeout"
@@ -898,6 +941,12 @@ class ProtocolLoginClient:
                         "signature": otp_details.signature[:12],
                     }
                 )
+                self._emit_stage(
+                    "otp_fetch",
+                    backend=otp_details.backend,
+                    status_code=otp_details.status_code,
+                    code_present=True,
+                )
                 otp_resp = self._post_with_retry(
                     session,
                     "https://auth.openai.com/api/accounts/email-otp/validate",
@@ -911,11 +960,18 @@ class ProtocolLoginClient:
                 )
                 current_transition = _extract_transition_targets_from_response(otp_resp, request_url="https://auth.openai.com/api/accounts/email-otp/validate")
                 result.events.append({"stage": "email_otp_validate", "status_code": current_transition["status_code"], "page_type": current_transition["page_type"], "continue_url": current_transition["continue_url"][:300], "callback_url_present": bool(current_transition["callback_url"])})
+                self._emit_stage(
+                    "email_otp_validate",
+                    status_code=current_transition["status_code"],
+                    page_type=current_transition["page_type"],
+                    callback_url_present=bool(current_transition["callback_url"]),
+                )
                 if current_transition["status_code"] >= 400:
                     result.status = "email_otp_validate_error"
                     result.reason = current_transition["error_code"] or f"http_{current_transition['status_code']}"
                     return result
 
+            self._emit_stage("finalize")
             token_json, finalize_reason, finalize_transition = self._finalize_transition(
                 session,
                 transition=current_transition,
@@ -929,6 +985,11 @@ class ProtocolLoginClient:
                 result.token_json = token_json
                 result.meta["final_page_type"] = str(finalize_transition.get("page_type") or "").strip()
                 result.meta["final_continue_url"] = str(finalize_transition.get("continue_url") or "").strip()
+                self._emit_stage(
+                    "callback",
+                    page_type=str(finalize_transition.get("page_type") or "").strip(),
+                    callback_url_present=bool(finalize_transition.get("callback_url")),
+                )
                 return result
 
             result.status = "finalize_error"

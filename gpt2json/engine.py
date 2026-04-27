@@ -3,17 +3,17 @@ from __future__ import annotations
 import json
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .formats import build_export, convert_current_token_to_sub, write_json
 from .models import AttemptResult, utc_now_iso
 from .otp import OtpFetcher
 from .parsing import mask_email, mask_source, parse_by_format, read_account_file, secret_hash, slug_email
 from .protocol import DEFAULT_IMPERSONATE, ProtocolLoginClient
-
 
 Logger = Callable[[str], None]
 EventCallback = Callable[[dict[str, Any]], None]
@@ -157,11 +157,28 @@ def run_export(
     lock = threading.Lock()
     results: list[AttemptResult] = []
     successes: list[dict[str, Any]] = []
-    client_builder = client_factory or (lambda: ProtocolLoginClient(impersonate=config.impersonate, verify_ssl=config.verify_ssl, timeout=config.timeout))
-
     def run_one(row: Any) -> AttemptResult:
         emit({"type": "row_start", "line_no": row.line_no, "email_masked": mask_email(row.login_email)})
-        client = client_builder()
+
+        def emit_stage(event: dict[str, Any]) -> None:
+            payload = {
+                "type": "row_stage",
+                "line_no": row.line_no,
+                "email_masked": mask_email(row.login_email),
+            }
+            payload.update(event)
+            emit(payload)
+
+        client = (
+            client_factory()
+            if client_factory is not None
+            else ProtocolLoginClient(
+                impersonate=config.impersonate,
+                verify_ssl=config.verify_ssl,
+                timeout=config.timeout,
+                event_callback=emit_stage,
+            )
+        )
         otp_fetcher = OtpFetcher(
             mode=config.otp_mode,
             command=config.otp_command,
@@ -199,6 +216,7 @@ def run_export(
                     "line_no": result.row.line_no,
                     "email_masked": mask_email(result.row.login_email),
                     "otp_required": bool(result.otp_required),
+                    "events": result.events[-8:],
                 }
             )
 

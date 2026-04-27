@@ -49,8 +49,12 @@ UI_SETTINGS_PATH = ASSET_DIR / "ui_settings.png"
 UI_OUTPUT_PATH = ASSET_DIR / "ui_output.png"
 UI_LOG_PATH = ASSET_DIR / "ui_log.png"
 UI_UPLOAD_PATH = ASSET_DIR / "ui_upload.png"
+STAT_TOTAL_PATH = ASSET_DIR / "stat_total.png"
+STAT_SUCCESS_PATH = ASSET_DIR / "stat_success.png"
+STAT_FAILED_PATH = ASSET_DIR / "stat_failed.png"
+STAT_RUNNING_PATH = ASSET_DIR / "stat_running.png"
 
-READY_LOG = "系统就绪，选择输入来源后开始预检查。\n当前支持：自动识别 / LDXP Plus7 三段式 OTP。\n取码后端：HTTP URL / HTML API 自动发现；IMAP、Graph、JMAP、POP3、API 预留。"
+READY_LOG = "🧭 等你投喂账号文本或账号文件。\n✨ 当前支持：自动识别 / LDXP Plus7 三段式 OTP。\n📮 取码后端：HTTP URL / HTML API 自动发现；IMAP、Graph、JMAP、POP3、API 已预留。"
 _UI_FONT_FAMILY = ""
 
 LIGHT_THEME = {
@@ -154,21 +158,27 @@ class FileDropBox(QFrame):
         self.path = ""
         self.setAcceptDrops(True)
         self.setObjectName("FileDropBox")
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(14, 0, 14, 0)
-        layout.setSpacing(10)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 20, 18, 20)
+        layout.setSpacing(8)
         icon = QLabel("TXT")
         icon.setObjectName("DropIcon")
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         if UI_UPLOAD_PATH.exists():
-            icon.setPixmap(QPixmap(str(UI_UPLOAD_PATH)).scaled(20, 20, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            icon.setPixmap(QPixmap(str(UI_UPLOAD_PATH)).scaled(44, 44, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        self.icon = icon
         self.label = QLabel("拖入账号文件或点击选择")
         self.label.setObjectName("DropText")
-        suffix = QLabel(".txt / auto")
+        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        suffix = QLabel("支持 .txt · 自动识别账号格式")
         suffix.setObjectName("DropSuffix")
-        layout.addWidget(icon)
-        layout.addWidget(self.label, 1)
+        suffix.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addStretch(1)
+        layout.addWidget(icon, 0, Qt.AlignmentFlag.AlignHCenter)
+        layout.addWidget(self.label)
         layout.addWidget(suffix)
+        layout.addStretch(1)
 
     def _normalize_drop_value(self, value: str) -> str:
         text = str(value or "").strip().strip('"').strip("'")
@@ -234,13 +244,19 @@ class SectionHeader(QWidget):
 
 
 class InlineStat(QFrame):
-    def __init__(self, icon: str, title: str, color: str) -> None:
+    def __init__(self, icon: str | Path, title: str, color: str = "") -> None:
         super().__init__()
         self.setObjectName("StatCard")
-        icon_label = QLabel(icon)
+        icon_label = QLabel()
         icon_label.setObjectName("StatIcon")
-        icon_label.setStyleSheet(f"background:{color};")
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_path = Path(icon) if isinstance(icon, (str, Path)) else Path()
+        if icon_path.exists():
+            icon_label.setPixmap(QPixmap(str(icon_path)).scaled(34, 34, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        else:
+            icon_label.setText(str(icon))
+            if color:
+                icon_label.setStyleSheet(f"background:{color};")
         title_label = QLabel(title)
         title_label.setObjectName("StatTitle")
         self.value_label = QLabel("0")
@@ -503,8 +519,7 @@ class MainWindow(QMainWindow):
         self.file_drop = FileDropBox()
         self.file_drop.clicked.connect(self.pick_input)
         self.file_drop.path_changed.connect(self._on_file_changed)
-        file_page_layout.addWidget(self.file_drop)
-        file_page_layout.addStretch(1)
+        file_page_layout.addWidget(self.file_drop, 1)
         self.input_stack.addWidget(file_page)
         layout.addWidget(self.input_stack, 1)
 
@@ -625,10 +640,10 @@ class MainWindow(QMainWindow):
 
         stats = QHBoxLayout()
         stats.setSpacing(10)
-        self.total_stat = InlineStat("N", "总数", "#2563EB")
-        self.success_stat = InlineStat("OK", "成功", "#16A34A")
-        self.failed_stat = InlineStat("!", "失败", "#DC2626")
-        self.running_stat = InlineStat("...", "运行中", "#F59E0B")
+        self.total_stat = InlineStat(STAT_TOTAL_PATH, "总数")
+        self.success_stat = InlineStat(STAT_SUCCESS_PATH, "成功")
+        self.failed_stat = InlineStat(STAT_FAILED_PATH, "失败")
+        self.running_stat = InlineStat(STAT_RUNNING_PATH, "运行中")
         for stat in (self.total_stat, self.success_stat, self.failed_stat, self.running_stat):
             stats.addWidget(stat, 1)
         layout.addLayout(stats)
@@ -772,9 +787,11 @@ class MainWindow(QMainWindow):
             #SegmentLeft:checked, #SegmentRight:checked {{ color:#2563EB; background:{p['input']}; border-color:#3B82F6; }}
             #PasteBox {{ border-radius:9px; padding:10px; color:{p['text']}; background:{p['input']}; border:1px solid #3B82F6; font-family:Consolas, 'Microsoft YaHei UI', monospace; font-size:12px; }}
             #PasteBox:focus {{ border:1px solid #60A5FA; }}
-            #FileDropBox {{ min-height:44px; max-height:44px; border-radius:9px; background:{p['soft']}; border:1px dashed {p['border2']}; }}
+            #FileDropBox {{ min-height:44px; border-radius:9px; background:{p['soft']}; border:1px dashed {p['border2']}; }}
             #FileDropBox:hover {{ border-color:#3B82F6; }}
-            #DropIcon, #DropText, #DropSuffix {{ color:{p['muted']}; font-size:12px; font-weight:800; }}
+            #DropIcon {{ color:{p['muted']}; font-size:12px; font-weight:800; }}
+            #DropText {{ color:{p['text']}; font-size:14px; font-weight:900; }}
+            #DropSuffix {{ color:{p['muted']}; font-size:12px; font-weight:800; }}
             QLineEdit, QSpinBox, QComboBox {{ min-height:36px; border-radius:8px; padding-left:10px; padding-right:8px; color:{p['text']}; background:{p['input']}; border:1px solid {p['border']}; font-size:12px; font-weight:700; }}
             QLineEdit:focus, QSpinBox:focus, QComboBox:focus {{ border:1px solid #60A5FA; }}
             QComboBox::drop-down {{ width:24px; border:none; background:transparent; }}
@@ -793,7 +810,7 @@ class MainWindow(QMainWindow):
             #Progress::chunk {{ border-radius:5px; background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #2563EB,stop:1 #7C3AED); }}
             #PercentLabel {{ color:#2563EB; font-size:13px; font-weight:900; min-width:32px; }}
             #StatCard {{ background:{p['soft']}; border:1px solid {p['border']}; border-radius:9px; }}
-            #StatIcon {{ color:white; min-width:34px; max-width:34px; min-height:30px; max-height:30px; border-radius:15px; font-size:11px; font-weight:900; }}
+            #StatIcon {{ color:white; min-width:38px; max-width:38px; min-height:38px; max-height:38px; border-radius:12px; font-size:11px; font-weight:900; }}
             #StatTitle {{ color:{p['muted']}; font-size:11px; font-weight:700; }}
             #StatValue {{ color:{p['text']}; font-size:21px; font-weight:900; }}
             #PrimaryButton {{ min-height:44px; border:none; border-radius:9px; color:white; font-weight:900; font-size:14px; background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #1677FF,stop:1 #7C3AED); }}
@@ -812,7 +829,10 @@ class MainWindow(QMainWindow):
 
     def _apply_status_style(self) -> None:
         dark = self._theme == "dark"
-        if self._status_mode == "running":
+        if self._status_mode == "ready":
+            style = "color:transparent;background:transparent;border:1px solid transparent;"
+            self.status_label.setText("")
+        elif self._status_mode == "running":
             style = (
                 "color:#C4B5FD;background:#24154B;border:1px solid #5B21B6;"
                 if dark
@@ -833,7 +853,9 @@ class MainWindow(QMainWindow):
         else:
             p = self.palette()
             style = f"color:{p['status_fg']};background:{p['status_bg']};border:1px solid {p['status_bd']};"
-        self.status_label.setText(self._status_text)
+            self.status_label.setText(self._status_text)
+        if self._status_mode != "ready":
+            self.status_label.setText(self._status_text)
         self.status_label.setStyleSheet(style + "border-radius:14px;padding:6px 8px;min-width:94px;max-width:94px;font-size:13px;font-weight:800;")
 
     def toggle_theme(self) -> None:
@@ -1275,7 +1297,7 @@ class MainWindow(QMainWindow):
             outputs = self._selected_output_labels() or "未选择"
             input_format_label = self._input_format_label()
             skipped = max(0, raw_count - row_count)
-            self.append_log(f"[预检查] 有效行数: {self._total} | 跳过: {skipped} | 输入格式={input_format_label} | 输出: {outputs}")
+            self.append_log(f"🧪 预检查完成：识别到 {self._total} 个账号，跳过 {skipped} 行；输入格式={input_format_label}；输出={outputs}。")
             QMessageBox.information(self, "预检查完成", f"有效行数：{self._total}\n跳过行数：{skipped}\n输入格式：{input_format_label}\n输出：{outputs}")
         return bool(row_count)
 
@@ -1306,6 +1328,11 @@ class MainWindow(QMainWindow):
         self.log_edit.clear()
         self._log_waiting = False
         self._set_status("运行中", "running")
+        self.append_log("🚀 配置确认完毕，开始按协议批量获取 JSON。")
+        self.append_log(f"🧩 输入格式：{self._input_format_label()} · 导出：{self._selected_output_labels()} · 并发：{'自动' if int(self.concurrency_spin.value()) == 0 else self.concurrency_spin.value()}")
+        self.append_log("🧭 链路：OAuth 开门 → 账号密码 → 可选邮箱取码 → Callback 换 JSON。")
+        self.append_log("🔎 策略：优先账密登录；遇到验证码才切到取码后端，不拉浏览器。")
+        self.append_log(f"📁 输出目录：{Path(output_dir).resolve()}")
         self._set_running(True)
         self.sub2api_row.set_path("")
         self.cpa_row.set_path("")
@@ -1324,7 +1351,7 @@ class MainWindow(QMainWindow):
 
         def worker() -> None:
             try:
-                summary = run_export(config, logger=self.bridge.log.emit, on_event=self.bridge.event.emit)
+                summary = run_export(config, logger=lambda _text: None, on_event=self.bridge.event.emit)
                 self.bridge.done.emit(summary)
             except Exception as exc:
                 self.bridge.failed.emit(f"{type(exc).__name__}: {exc}")
@@ -1339,22 +1366,119 @@ class MainWindow(QMainWindow):
         percent = int((min(self._done, total) / total) * 100) if self._total else 0
         self.percent_label.setText(f"{percent}%")
 
+    def _status_code_label(self, value: Any) -> str:
+        try:
+            code = int(value or 0)
+        except Exception:
+            code = 0
+        return f"HTTP {code}" if code else "已响应"
+
+    def _backend_display(self, value: Any) -> str:
+        mapping = {
+            "http_url": "免登录 HTTP URL",
+            "command": "本地命令",
+            "imap": "IMAP",
+            "imap_xoauth2": "IMAP XOAUTH2",
+            "graph": "Graph",
+            "jmap": "JMAP",
+            "pop3": "POP3",
+            "api": "Provider API",
+            "json": "JSON 接口",
+            "html_api_json": "HTML 自动发现 API(JSON)",
+            "html_api_text": "HTML 自动发现 API(Text)",
+            "html": "HTML 页面",
+            "text": "文本页面",
+        }
+        key = str(value or "").strip()
+        return mapping.get(key, key or "自动")
+
+    def _stage_display(self, value: Any) -> str:
+        mapping = {
+            "oauth_start": "OAuth 初始化",
+            "entry": "授权入口",
+            "authorize_continue": "账号识别",
+            "password_verify": "密码验证",
+            "email_verification": "邮箱验证码",
+            "otp_backend_plan": "取码后端",
+            "otp_fetch": "验证码获取",
+            "email_otp_validate": "验证码提交",
+            "finalize": "Callback 换票",
+            "callback": "JSON 回调",
+            "password_error": "密码验证",
+            "bad_password": "密码验证",
+        }
+        key = str(value or "").strip()
+        return mapping.get(key, key or "未知阶段")
+
+    def _friendly_stage_message(self, event: dict[str, Any]) -> str:
+        email = str(event.get("email_masked") or "账号")
+        stage = str(event.get("stage") or "").strip()
+        status = self._status_code_label(event.get("status_code"))
+        page_type = str(event.get("page_type") or "").strip()
+        if stage == "oauth_start":
+            return f"🧭 {email} 正在打开 OAuth 通道：先敲门，不开浏览器。"
+        if stage == "entry":
+            return f"🚪 {email} 授权入口已响应（{status}），拿会话饼干中。"
+        if stage == "authorize_continue":
+            return f"📨 {email} 邮箱已递交给认证接口（{status}），看看下一站怎么走。"
+        if stage == "password_verify":
+            if bool(event.get("callback_url_present")):
+                return f"🪄 {email} 密码通过，服务端直接给了回调票。"
+            if "otp" in page_type.lower() or "verify" in page_type.lower():
+                return f"📮 {email} 密码通过，但被验证码关卡拦了一下，切取码通道。"
+            return f"🔑 {email} 密码验证完成（{status}），继续向 JSON 票据推进。"
+        if stage == "otp_backend_plan":
+            primary = self._backend_display(event.get("primary_backend"))
+            display_name = str(event.get("display_name") or "").strip()
+            suffix = f" · {display_name}" if display_name and display_name != primary else ""
+            return f"📫 {email} 取码方案选定：{primary}{suffix}，开始等新验证码。"
+        if stage == "otp_fetch":
+            backend = self._backend_display(event.get("backend"))
+            if bool(event.get("code_present")):
+                return f"📬 {email} 验证码已抓到（来源：{backend}，{status}），马上提交。"
+            return f"⌛ {email} 取码源暂时没吐码（来源：{backend}，{status}），这条先标记超时。"
+        if stage == "email_otp_validate":
+            if bool(event.get("callback_url_present")):
+                return f"🧾 {email} 验证码提交成功（{status}），回调票已到手。"
+            return f"🧾 {email} 验证码已提交（{status}），继续收尾。"
+        if stage == "finalize":
+            return f"🎫 {email} 开始换取最终 JSON，准备把票据装箱。"
+        if stage == "callback":
+            return f"📦 {email} Callback 完成，JSON 已落袋。"
+        return ""
+
     def on_event(self, event: dict[str, Any]) -> None:
         event_type = event.get("type")
         if event_type == "started":
             self._total = int(event.get("total") or 0)
             self.total_stat.set_value(self._total)
             self._update_progress()
+            concurrency = event.get("concurrency") or "自动"
+            self.append_log(f"📦 已装载 {self._total} 个账号，并发={concurrency}。账号小队出发。")
         elif event_type == "row_start":
             self._running += 1
             self.running_stat.set_value(self._running)
+            email = str(event.get("email_masked") or "")
+            self.append_log(f"🧑‍💻 {email} 进入执行队列：准备跑协议链路。")
+        elif event_type == "row_stage":
+            message = self._friendly_stage_message(event)
+            if message:
+                self.append_log(message)
         elif event_type == "row_done":
             self._done = int(event.get("done") or self._done + 1)
             self._running = max(0, self._running - 1)
+            email = str(event.get("email_masked") or "")
             if event.get("ok"):
                 self._success += 1
+                suffix = "，验证码关卡也过了" if event.get("otp_required") else ""
+                self.append_log(f"✅ {email} 已拿到 JSON{suffix}，等统一写入导出文件。")
             else:
                 self._failure += 1
+                status = str(event.get("status") or "failed")
+                reason = str(event.get("reason") or "").strip()
+                stage = str(event.get("stage") or "").strip()
+                detail = f"：{reason}" if reason else ""
+                self.append_log(f"⚠️ {email} 暂时没过，停在「{self._stage_display(stage or status)}」{detail}。")
             self.success_stat.set_value(self._success)
             self.failed_stat.set_value(self._failure)
             self.running_stat.set_value(self._running)
@@ -1379,11 +1503,12 @@ class MainWindow(QMainWindow):
         self.sub2api_row.set_path(sub2api_path)
         self.cpa_row.set_path(cpa_path)
         self.append_log("")
-        self.append_log(f"[汇总] 成功={success_count} 失败={failure_count}")
+        self.append_log(f"🎉 收工汇总：成功 {success_count} 个，失败 {failure_count} 个。")
         if sub2api_path:
-            self.append_log(f"[sub2api] {sub2api_path}")
+            self.append_log(f"🧰 Sub2API 文件已写好：{sub2api_path}")
         if cpa_path:
-            self.append_log(f"[cpa] {cpa_path}")
+            self.append_log(f"📘 CPA Manifest 已写好：{cpa_path}")
+        self.append_log("🍻 可以打开输出目录验货了。")
         QMessageBox.information(self, "完成", f"导出完成\n成功：{success_count}\n失败：{failure_count}")
 
     def on_failed(self, message: str) -> None:
@@ -1391,7 +1516,7 @@ class MainWindow(QMainWindow):
         self._running = 0
         self.running_stat.set_value(0)
         self._set_status("失败", "failed")
-        self.append_log(f"[fatal] {message}")
+        self.append_log(f"💥 主流程异常：{message}")
         QMessageBox.critical(self, "运行失败", message)
 
 
