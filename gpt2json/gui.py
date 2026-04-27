@@ -423,6 +423,8 @@ class MainWindow(QMainWindow):
         self.status_label.setObjectName("StatusPill")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setFixedWidth(94)
+        # 状态变更现在只进入日志和进度区；顶部不再保留“就绪/运行中”胶囊，避免标题栏出现无意义占位。
+        self.status_label.setVisible(False)
         self.theme_btn = QToolButton()
         self.theme_btn.setObjectName("ThemeButton")
         self.theme_btn.setToolTip("切换深色 / 浅色")
@@ -437,7 +439,6 @@ class MainWindow(QMainWindow):
 
         header.addWidget(self.logo)
         header.addLayout(title_stack, 1)
-        header.addWidget(self.status_label)
         header.addWidget(self.theme_btn)
         header.addSpacing(18)
         header.addWidget(self.min_btn)
