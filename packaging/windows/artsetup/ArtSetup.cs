@@ -69,7 +69,7 @@ namespace GPT2JSON.ArtSetup
                 Stroke = new LinearGradientBrush(Color.FromArgb(190, 33, 210, 255), Color.FromArgb(150, 182, 75, 255), 8),
                 StrokeThickness = 6,
                 Fill = Brushes.Transparent,
-                Opacity = 0.52,
+                Opacity = 0.24,
                 Effect = new BlurEffect { Radius = 7 }
             };
             Canvas.SetLeft(outerGlow, 40);
@@ -79,15 +79,12 @@ namespace GPT2JSON.ArtSetup
             var main = new WpfPath
             {
                 Data = ShellSurfaceGeometry(),
-                Fill = new LinearGradientBrush(
-                    Color.FromArgb(252, 5, 13, 36),
-                    Color.FromArgb(248, 9, 21, 53),
-                    36),
-                Stroke = new SolidColorBrush(Color.FromArgb(118, 118, 171, 255)),
-                StrokeThickness = 0.9,
+                Fill = new ImageBrush(LoadImage("GPT2JSON.ShellArt.png")) { Stretch = Stretch.Fill },
+                Stroke = Brushes.Transparent,
+                StrokeThickness = 0,
                 Effect = new DropShadowEffect
                 {
-                    BlurRadius = 42,
+                    BlurRadius = 38,
                     ShadowDepth = 0,
                     Opacity = 0.55,
                     Color = Color.FromRgb(0, 0, 0)
@@ -117,14 +114,12 @@ namespace GPT2JSON.ArtSetup
                 }
             };
 
-            AddIrregularBrandPanel(shell);
-            AddGlowGrain(shell);
-            AddContentSafePlate(shell);
+            AddBrandLabels(shell);
 
             // Interior layout is arranged only after the silhouette is fixed.
             // This margin is the safe content zone that avoids the top valley,
             // bottom wave and left organic brand island.
-            var content = new Grid { Margin = new Thickness(455, 70, 62, 26) };
+            var content = new Grid { Margin = new Thickness(410, 70, 62, 26) };
             shell.Children.Add(content);
             content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(52) });
             content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -299,52 +294,15 @@ namespace GPT2JSON.ArtSetup
             root.Children.Insert(0, aura);
         }
 
-        private void AddIrregularBrandPanel(Grid shell)
+        private void AddBrandLabels(Grid shell)
         {
-            var brandPath = new WpfPath
-            {
-                Data = Geometry.Parse("M0,0 L350,0 C388,39 355,107 376,164 C402,234 354,285 380,352 C402,414 363,463 382,514 C392,540 368,558 326,560 L0,560 Z"),
-                Fill = new ImageBrush(LoadImage("GPT2JSON.Side.png"))
-                {
-                    Stretch = Stretch.UniformToFill,
-                    AlignmentX = AlignmentX.Left,
-                    AlignmentY = AlignmentY.Center
-                }
-            };
-            shell.Children.Add(brandPath);
-
-            var wave = new WpfPath
-            {
-                Data = Geometry.Parse("M350,0 C388,39 355,107 376,164 C402,234 354,285 380,352 C402,414 363,463 382,514 C392,540 368,558 326,560"),
-                StrokeThickness = 2.0,
-                Stroke = new LinearGradientBrush(Color.FromArgb(210, 255, 255, 255), Color.FromArgb(20, 255, 255, 255), 90),
-                Fill = Brushes.Transparent,
-                Opacity = 0.88
-            };
-            shell.Children.Add(wave);
-
-            var logo = new Border
-            {
-                Width = 104,
-                Height = 104,
-                CornerRadius = new CornerRadius(34),
-                BorderThickness = new Thickness(1),
-                BorderBrush = new SolidColorBrush(Color.FromArgb(115, 128, 213, 255)),
-                Background = new ImageBrush(LoadImage("GPT2JSON.Icon.png")) { Stretch = Stretch.UniformToFill },
-                Margin = new Thickness(132, 136, 0, 0),
-                HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
-                VerticalAlignment = System.Windows.VerticalAlignment.Top,
-                Effect = new DropShadowEffect { BlurRadius = 18, ShadowDepth = 0, Color = Color.FromRgb(31, 180, 255), Opacity = 0.34 }
-            };
-            shell.Children.Add(logo);
-
             var title = new TextBlock
             {
                 Text = "GPT2JSON",
                 Foreground = Brushes.White,
                 FontSize = 38,
                 FontWeight = FontWeights.Bold,
-                Margin = new Thickness(76, 302, 0, 0),
+                Margin = new Thickness(95, 306, 0, 0),
                 Effect = new DropShadowEffect { BlurRadius = 18, ShadowDepth = 0, Color = Color.FromRgb(35, 162, 255), Opacity = 0.28 }
             };
             shell.Children.Add(title);
@@ -354,7 +312,7 @@ namespace GPT2JSON.ArtSetup
                 Text = "Sub2API / CPA JSON 导出工具",
                 Foreground = new SolidColorBrush(Color.FromRgb(184, 205, 236)),
                 FontSize = 14,
-                Margin = new Thickness(84, 354, 0, 0)
+                Margin = new Thickness(103, 354, 0, 0)
             };
             shell.Children.Add(sub);
 
@@ -367,7 +325,7 @@ namespace GPT2JSON.ArtSetup
                 Padding = new Thickness(12, 5, 12, 5),
                 HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
                 VerticalAlignment = System.Windows.VerticalAlignment.Bottom,
-                Margin = new Thickness(90, 0, 0, 54),
+                Margin = new Thickness(114, 0, 0, 52),
                 Child = new TextBlock
                 {
                     Text = Version,

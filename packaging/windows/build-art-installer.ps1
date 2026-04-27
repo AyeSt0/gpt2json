@@ -7,6 +7,7 @@ $out = Join-Path $root "release\GPT2JSON-ArtSetup-v0.1.0.exe"
 $icon = Join-Path $root "gpt2json\assets\gpt2json_icon.ico"
 $iconPng = Join-Path $root "gpt2json\assets\gpt2json_icon.png"
 $sidePng = Join-Path $root "packaging\windows\assets\installer-side-art-dark.png"
+$shellArtPng = Join-Path $root "packaging\windows\assets\installer-art-shell-clean.png"
 
 if (-not (Test-Path $setupExe)) { throw "未找到 Inno 安装核心：$setupExe。请先运行 build-installer.ps1。" }
 if (-not (Test-Path $source)) { throw "未找到艺术安装器源码：$source" }
@@ -42,7 +43,8 @@ $args = @(
     "/win32icon:$icon",
     "/resource:$setupExe,GPT2JSON.Setup.exe",
     "/resource:$iconPng,GPT2JSON.Icon.png",
-    "/resource:$sidePng,GPT2JSON.Side.png"
+    "/resource:$sidePng,GPT2JSON.Side.png",
+    "/resource:$shellArtPng,GPT2JSON.ShellArt.png"
 )
 foreach ($r in $refs) { $args += "/reference:$r" }
 $args += $source
