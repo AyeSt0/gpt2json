@@ -354,7 +354,7 @@ namespace GPT2JSON.ArtSetup
                 BorderThickness = new Thickness(1),
                 Child = new TextBlock
                 {
-                    Text = "艺术安装器 · " + Version,
+                    Text = Version,
                     Foreground = new SolidColorBrush(Color.FromRgb(174, 212, 255)),
                     FontSize = 12,
                     FontWeight = FontWeights.SemiBold
@@ -685,6 +685,7 @@ namespace GPT2JSON.ArtSetup
         }
     }
 }
+
 
 
 
