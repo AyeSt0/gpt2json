@@ -49,12 +49,13 @@ UI_SETTINGS_PATH = ASSET_DIR / "ui_settings.png"
 UI_OUTPUT_PATH = ASSET_DIR / "ui_output.png"
 UI_LOG_PATH = ASSET_DIR / "ui_log.png"
 UI_UPLOAD_PATH = ASSET_DIR / "ui_upload.png"
+UI_CHEVRON_DOWN_PATH = ASSET_DIR / "ui_chevron_down.png"
 STAT_TOTAL_PATH = ASSET_DIR / "stat_total.png"
 STAT_SUCCESS_PATH = ASSET_DIR / "stat_success.png"
 STAT_FAILED_PATH = ASSET_DIR / "stat_failed.png"
 STAT_RUNNING_PATH = ASSET_DIR / "stat_running.png"
 
-READY_LOG = "🧭 等你投喂账号文本或账号文件。\n✨ 当前支持：自动识别 / LDXP Plus7 三段式 OTP。\n📮 取码后端：HTTP URL / HTML API 自动发现；IMAP、Graph、JMAP、POP3、API 已预留。"
+READY_LOG = "🧭 等你投喂账号文本或账号文件。\n✨ 当前支持：自动识别 / LDXP Plus7 三段式 OTP。\n📮 验证码获取：免登录 URL / HTML API 自动发现；IMAP、Graph、JMAP、POP3、API 已预留。"
 _UI_FONT_FAMILY = ""
 
 LIGHT_THEME = {
@@ -331,6 +332,45 @@ class FormatCombo(QComboBox):
         self.setFixedHeight(38)
 
 
+class PresetNumberCombo(QComboBox):
+    def __init__(self, *, minimum: int, maximum: int, presets: list[int], auto_text: str = "自动") -> None:
+        super().__init__()
+        self.minimum = int(minimum)
+        self.maximum = int(maximum)
+        self.auto_text = auto_text
+        self.setEditable(True)
+        self.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.setObjectName("PresetNumberCombo")
+        self.setFixedHeight(38)
+        self.addItem(auto_text, 0)
+        for value in presets:
+            if self.minimum <= int(value) <= self.maximum:
+                self.addItem(str(int(value)), int(value))
+        self.setCurrentIndex(0)
+
+    def value(self) -> int:
+        text = self.currentText().strip()
+        if not text or text.lower() == "auto" or text == self.auto_text:
+            return 0
+        try:
+            value = int(text)
+        except Exception:
+            return 0
+        return max(self.minimum, min(self.maximum, value))
+
+    def setValue(self, value: int) -> None:
+        value = max(self.minimum, min(self.maximum, int(value or 0)))
+        if value == 0:
+            self.setCurrentIndex(0)
+            self.setEditText(self.auto_text)
+            return
+        for index in range(self.count()):
+            if int(self.itemData(index) or 0) == value:
+                self.setCurrentIndex(index)
+                return
+        self.setEditText(str(value))
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -472,14 +512,17 @@ class MainWindow(QMainWindow):
         layout.setSpacing(10)
         layout.addWidget(SectionHeader(UI_INPUT_PATH, "账号输入"))
 
-        tabs = QHBoxLayout()
+        tabs_frame = QFrame()
+        tabs_frame.setObjectName("SegmentGroup")
+        tabs = QHBoxLayout(tabs_frame)
+        tabs.setContentsMargins(2, 2, 2, 2)
         tabs.setSpacing(0)
         self.paste_tab = QPushButton("粘贴文本")
-        self.paste_tab.setObjectName("SegmentLeft")
+        self.paste_tab.setObjectName("SegmentButton")
         self.paste_tab.setCheckable(True)
         self.paste_tab.setChecked(True)
         self.file_tab = QPushButton("导入文件")
-        self.file_tab.setObjectName("SegmentRight")
+        self.file_tab.setObjectName("SegmentButton")
         self.file_tab.setCheckable(True)
         self.input_mode_group = QButtonGroup(self)
         self.input_mode_group.setExclusive(True)
@@ -489,7 +532,7 @@ class MainWindow(QMainWindow):
         self.file_tab.clicked.connect(lambda: self._select_input_mode("file"))
         tabs.addWidget(self.paste_tab)
         tabs.addWidget(self.file_tab)
-        layout.addLayout(tabs)
+        layout.addWidget(tabs_frame)
 
         source_row = QHBoxLayout()
         source_row.setSpacing(8)
@@ -571,11 +614,11 @@ class MainWindow(QMainWindow):
         compact = QGridLayout()
         compact.setHorizontalSpacing(10)
         compact.setVerticalSpacing(6)
-        compact.addWidget(self._field_label("并发"), 0, 0)
-        compact.addWidget(self._field_label("取码后端"), 0, 1)
-        self.concurrency_spin = self._spin(0, 64, 0)
-        self.concurrency_spin.setSpecialValueText("自动")
-        self.backend_label = QLabel("Auto · HTTP URL / HTML API")
+        compact.addWidget(self._field_label("并发数量"), 0, 0)
+        compact.addWidget(self._field_label("验证码获取"), 0, 1)
+        self.concurrency_spin = PresetNumberCombo(minimum=0, maximum=64, presets=[1, 2, 4, 8, 12, 16, 24, 32, 64])
+        self.concurrency_spin.setToolTip("可下拉选择常用并发，也可以直接输入 1-64；自动会按账号数上限 8。")
+        self.backend_label = QLabel("自动：URL / HTML")
         self.backend_label.setObjectName("BackendPill")
         self.backend_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         compact.addWidget(self.concurrency_spin, 1, 0)
@@ -584,8 +627,9 @@ class MainWindow(QMainWindow):
         compact.setColumnStretch(1, 2)
         layout.addLayout(compact)
 
-        self.backend_hint_label = QLabel("后续按协议扩展：IMAP / Graph / JMAP / POP3 / API")
+        self.backend_hint_label = QLabel("仅账号触发邮箱验证码时启用；邮箱协议后续接入 IMAP / Graph / JMAP / POP3 / API。")
         self.backend_hint_label.setObjectName("HintText")
+        self.backend_hint_label.setWordWrap(True)
         layout.addWidget(self.backend_hint_label)
 
         output_grid = QGridLayout()
@@ -756,6 +800,7 @@ class MainWindow(QMainWindow):
 
     def apply_style(self) -> None:
         p = self.palette()
+        chevron_url = UI_CHEVRON_DOWN_PATH.as_posix()
         QApplication.instance().setFont(QFont(load_ui_font(), 10))  # type: ignore[union-attr]
         self.shadow.setColor(Qt.GlobalColor.black if self._theme == "dark" else Qt.GlobalColor.gray)
         self.theme_btn.setText("")
@@ -785,10 +830,10 @@ class MainWindow(QMainWindow):
             #FieldLabel {{ color:{p['text']}; font-size:12px; font-weight:800; }}
             #HintText {{ color:{p['muted']}; font-size:12px; }}
             #SourcePill {{ min-height:30px; border-radius:8px; padding:0 10px; color:{p['muted']}; background:{p['soft']}; border:1px solid {p['border']}; font-size:12px; font-weight:800; }}
-            #SegmentLeft, #SegmentRight {{ min-height:37px; border:1px solid {p['border']}; color:{p['muted']}; background:{p['soft']}; font-size:13px; font-weight:800; }}
-            #SegmentLeft {{ border-top-left-radius:8px; border-bottom-left-radius:8px; border-right:none; }}
-            #SegmentRight {{ border-top-right-radius:8px; border-bottom-right-radius:8px; }}
-            #SegmentLeft:checked, #SegmentRight:checked {{ color:#2563EB; background:{p['input']}; border-color:#3B82F6; }}
+            #SegmentGroup {{ min-height:38px; border:1px solid {p['border']}; border-radius:9px; background:{p['soft']}; }}
+            #SegmentButton {{ min-height:34px; border:none; border-radius:7px; color:{p['muted']}; background:transparent; font-size:13px; font-weight:800; }}
+            #SegmentButton:hover {{ color:#2563EB; background:{p['input']}; }}
+            #SegmentButton:checked {{ color:#2563EB; background:{p['input']}; }}
             #PasteBox {{ border-radius:9px; padding:10px; color:{p['text']}; background:{p['input']}; border:1px solid #3B82F6; font-family:Consolas, 'Microsoft YaHei UI', monospace; font-size:12px; }}
             #PasteBox:focus {{ border:1px solid #60A5FA; }}
             #FileDropBox {{ min-height:44px; border-radius:9px; background:{p['soft']}; border:1px dashed {p['border2']}; }}
@@ -799,6 +844,7 @@ class MainWindow(QMainWindow):
             QLineEdit, QSpinBox, QComboBox {{ min-height:36px; border-radius:8px; padding-left:10px; padding-right:8px; color:{p['text']}; background:{p['input']}; border:1px solid {p['border']}; font-size:12px; font-weight:700; }}
             QLineEdit:focus, QSpinBox:focus, QComboBox:focus {{ border:1px solid #60A5FA; }}
             QComboBox::drop-down {{ width:24px; border:none; background:transparent; }}
+            QComboBox::down-arrow {{ image:url("{chevron_url}"); width:10px; height:10px; margin-right:7px; }}
             QComboBox QAbstractItemView {{ color:{p['text']}; background:{p['card']}; border:1px solid {p['border']}; selection-background-color:#2563EB; selection-color:white; }}
             QSpinBox::up-button, QSpinBox::down-button {{ width:20px; border:none; background:transparent; }}
             #BrowseButton {{ min-height:36px; min-width:62px; border-radius:8px; color:{p['text']}; background:{p['soft']}; border:1px solid {p['border']}; font-weight:800; }}
@@ -1345,7 +1391,7 @@ class MainWindow(QMainWindow):
         self.append_log("🚀 配置确认完毕，开始按协议批量获取 JSON。")
         self.append_log(f"🧩 输入格式：{self._input_format_label()} · 导出：{self._selected_output_labels()} · 并发：{'自动' if int(self.concurrency_spin.value()) == 0 else self.concurrency_spin.value()}")
         self.append_log("🧭 链路：OAuth 开门 → 账号密码 → 可选邮箱取码 → Callback 换 JSON。")
-        self.append_log("🔎 策略：优先账密登录；遇到验证码才切到取码后端，不拉浏览器。")
+        self.append_log("🔎 策略：优先账密登录；遇到验证码才启用验证码获取，不拉浏览器。")
         self.append_log(f"📁 输出目录：{Path(output_dir).resolve()}")
         self._set_running(True)
         self.sub2api_row.set_path("")
@@ -1414,7 +1460,7 @@ class MainWindow(QMainWindow):
             "authorize_continue": "账号识别",
             "password_verify": "密码验证",
             "email_verification": "邮箱验证码",
-            "otp_backend_plan": "取码后端",
+            "otp_backend_plan": "验证码获取",
             "otp_fetch": "验证码获取",
             "email_otp_validate": "验证码提交",
             "finalize": "Callback 换票",
