@@ -31,6 +31,7 @@ dependencies = [
 [project.optional-dependencies]
 gui = ["PySide6>=6.7"]
 dev = ["pytest>=8", "ruff>=0.6", "build>=1.2", "twine>=5"]
+release = ["build>=1.2", "twine>=5", "pyinstaller>=6"]
 
 [project.urls]
 Homepage = "https://github.com/AyeSt0/gpt2json"

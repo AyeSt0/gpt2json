@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
 from . import __version__
 from .engine import ExportConfig, run_export
 from .parsing import decode_text_file, list_future_input_format_presets, list_input_formats, parse_by_format
+from .updater import RELEASES_PAGE_URL, check_latest_release
 
 APP_NAME = "GPT2JSON"
 APP_VERSION = f"v{__version__}"
@@ -122,6 +123,7 @@ class WorkerBridge(QObject):
     event = Signal(dict)
     done = Signal(dict)
     failed = Signal(str)
+    update_checked = Signal(dict)
 
 
 class DropLineEdit(QLineEdit):
@@ -396,9 +398,11 @@ class MainWindow(QMainWindow):
         self.bridge.event.connect(self.on_event)
         self.bridge.done.connect(self.on_done)
         self.bridge.failed.connect(self.on_failed)
+        self.bridge.update_checked.connect(self.on_update_checked)
         self._worker_thread: threading.Thread | None = None
         self._drag_start: Any = None
         self._theme = "light"
+        self._update_check_running = False
         self._input_mode = "paste"
         self._is_running = False
         self._status_text = "就绪"
@@ -463,9 +467,12 @@ class MainWindow(QMainWindow):
         title_row.setSpacing(8)
         title = QLabel(APP_NAME)
         title.setObjectName("Title")
-        self.version_badge = QLabel(APP_VERSION)
+        self.version_badge = QToolButton()
+        self.version_badge.setText(APP_VERSION)
         self.version_badge.setObjectName("VersionBadge")
-        self.version_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.version_badge.setToolTip("检查 GitHub Release 更新")
+        self.version_badge.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.version_badge.clicked.connect(self.check_updates)
         subtitle = QLabel(APP_SUBTITLE)
         subtitle.setObjectName("Subtitle")
         title_row.addWidget(title)
@@ -951,6 +958,49 @@ class MainWindow(QMainWindow):
         self._theme = "dark" if self._theme == "light" else "light"
         self.apply_style()
         self._save_settings()
+
+    def check_updates(self) -> None:
+        if self._update_check_running:
+            return
+        self._update_check_running = True
+        self.version_badge.setEnabled(False)
+        self.version_badge.setText("检查中")
+        self.append_log("🛰️ 正在查询 GitHub Release：只检查版本，不会自动替换本地程序。")
+
+        def worker() -> None:
+            info = check_latest_release(__version__)
+            self.bridge.update_checked.emit(info.as_dict())
+
+        threading.Thread(target=worker, name="gpt2json-update-check", daemon=True).start()
+
+    def on_update_checked(self, info: dict[str, Any]) -> None:
+        self._update_check_running = False
+        self.version_badge.setEnabled(True)
+        self.version_badge.setText(APP_VERSION)
+
+        error = str(info.get("error") or "").strip()
+        html_url = str(info.get("html_url") or RELEASES_PAGE_URL)
+        if error:
+            self.append_log(f"ℹ️ 更新检查完成：{error}")
+            QMessageBox.information(self, "检查更新", f"{error}\n\n如果还没发布正式版，可以继续使用当前构建。")
+            return
+
+        latest = str(info.get("tag_name") or info.get("latest_version") or "").strip()
+        if bool(info.get("update_available")):
+            self.append_log(f"✨ 发现新版本 {latest}，可前往 GitHub Release 下载。")
+            answer = QMessageBox.question(
+                self,
+                "发现新版本",
+                f"当前版本：{APP_VERSION}\n最新版本：{latest}\n\n是否打开 GitHub Release 下载页？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                QDesktopServices.openUrl(QUrl(html_url))
+            return
+
+        self.append_log(f"✅ 当前已经是最新发布版：{latest or APP_VERSION}。")
+        QMessageBox.information(self, "检查更新", f"当前已经是最新发布版：{latest or APP_VERSION}")
 
     def _restore_settings(self) -> None:
         def int_setting(key: str, default: int, minimum: int, maximum: int | None = None) -> int:

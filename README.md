@@ -133,6 +133,16 @@ gpt2json --version
 
 版本号统一来自 `gpt2json.__version__`；CLI、GUI 标题栏和 Python 包元数据会保持一致。
 
+## 更新策略
+
+GPT2JSON 不做真正的热更新，也不会在后台自动替换本地程序。桌面版左上角版本号可点击，会通过 GitHub Release 检查是否有新版本；发现更新后只打开下载页，由用户自行下载替换。
+
+推荐发布方式：
+
+- 平时开发：直接运行源码版；
+- 对外分发：打 `vX.Y.Z` Git tag，由 GitHub Actions 构建并上传 Release 资产；
+- 用户更新：下载 Release 里的 `GPT2JSON-windows-x64.zip`，解压覆盖旧目录。
+
 ## 输出文件
 
 成功运行后，输出目录大致如下：
@@ -177,6 +187,11 @@ python -m twine check dist/*
 ```
 
 发版时先更新 `gpt2json/__init__.py` 与 `CHANGELOG.md`，再创建对应的 `vX.Y.Z` Git tag。
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
 
 如果只是发布 GitHub Release，建议使用 Git tag / GitHub 自动生成的 Source archive，不要手动打包本地工作区，避免把 `output/` 下的本地导出文件带进去。
 
