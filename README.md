@@ -108,13 +108,15 @@ gpt2json-gui
 
 ## Windows 发行包
 
-GitHub Release 会自动构建三类 Windows 产物：
+GitHub Release 提供三类 Windows 产物，普通用户优先下载艺术安装器：
 
 | 文件 | 用途 |
 | --- | --- |
-| `GPT2JSON-ArtSetup-vX.Y.Z.exe` | 主推安装器。WPF 异形艺术外壳 + 内置 Inno 静默安装核心。 |
-| `GPT2JSON-Setup-vX.Y.Z.exe` | 传统 Inno Setup 安装器，作为稳定备用入口。 |
+| `GPT2JSON-ArtSetup-vX.Y.Z.exe` | 推荐入口。资产化异形 WPF 外壳，内置 Inno 安装核心，视觉更接近独立桌面应用。 |
+| `GPT2JSON-Setup-vX.Y.Z.exe` | 传统安装器，适合作为兼容性备用入口。 |
 | `GPT2JSON-windows-x64.zip` | 便携包，解压后直接运行 `GPT2JSON.exe`。 |
+
+艺术安装器会展示自定义外观并完成标准安装流程；不需要用户了解内部打包方式。预览图使用通用安装路径示例，不包含个人账号或本机隐私信息。
 
 <p align="center">
   <img src="docs/assets/installer-art-preview.jpg" alt="GPT2JSON 艺术安装器预览" width="80%">

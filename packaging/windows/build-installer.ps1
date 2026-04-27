@@ -12,6 +12,15 @@ $releaseDir = Join-Path $root "release"
 if (-not (Test-Path $distExe)) {
     throw "未找到 PyInstaller 产物：$distExe。请先构建 dist\GPT2JSON。"
 }
+if (-not (Test-Path $script)) {
+    throw "未找到 Inno Setup 脚本：$script"
+}
+
+$scriptText = Get-Content -LiteralPath $script -Raw
+if ($scriptText -notmatch '(?m)^#define\s+MyAppVersion\s+"([^"]+)"') {
+    throw "无法从 Inno Setup 脚本读取 MyAppVersion：$script"
+}
+$appVersion = $Matches[1]
 
 New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
 
@@ -32,12 +41,13 @@ if ($command) {
     throw "未找到 Inno Setup 编译器 ISCC.exe。请安装 Inno Setup 6 后重试。"
 }
 
+Write-Host "使用版本: $appVersion"
 Write-Host "使用 Inno Setup: $iscc"
 Write-Host "编译脚本: $script"
 & $iscc $script
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup 编译失败。" }
 
-$installer = Join-Path $releaseDir "GPT2JSON-Setup-v0.1.0.exe"
+$installer = Join-Path $releaseDir "GPT2JSON-Setup-v$appVersion.exe"
 if (-not (Test-Path $installer)) {
     throw "安装器编译完成但未找到输出文件：$installer"
 }
