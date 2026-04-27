@@ -12,7 +12,6 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
-
 AUTH_URL = "https://auth.openai.com/oauth/authorize"
 TOKEN_URL = "https://auth.openai.com/oauth/token"
 CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
@@ -120,7 +119,7 @@ def parse_callback_url(callback_url: str) -> dict[str, str]:
             query[key] = values
 
     def get1(key: str) -> str:
-        return str((query.get(key, [""])[0] or "")).strip()
+        return str(query.get(key, [""])[0] or "").strip()
 
     code = get1("code")
     state = get1("state")

@@ -131,6 +131,8 @@ gpt2json --help
 gpt2json --version
 ```
 
+版本号统一来自 `gpt2json.__version__`；CLI、GUI 标题栏和 Python 包元数据会保持一致。
+
 ## 输出文件
 
 成功运行后，输出目录大致如下：
@@ -173,6 +175,8 @@ python -m pytest -q
 python -m build
 python -m twine check dist/*
 ```
+
+发版时先更新 `gpt2json/__init__.py` 与 `CHANGELOG.md`，再创建对应的 `vX.Y.Z` Git tag。
 
 如果只是发布 GitHub Release，建议使用 Git tag / GitHub 自动生成的 Source archive，不要手动打包本地工作区，避免把 `output/` 下的本地导出文件带进去。
 

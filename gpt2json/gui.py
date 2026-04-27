@@ -34,10 +34,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import __version__
 from .engine import ExportConfig, run_export
 from .parsing import decode_text_file, list_future_input_format_presets, list_input_formats, parse_by_format
 
 APP_NAME = "GPT2JSON"
+APP_VERSION = f"v{__version__}"
 APP_SUBTITLE = "Sub2API / CPA JSON 导出工具"
 ORG_NAME = "GPT2JSON"
 ASSET_DIR = Path(__file__).resolve().parent / "assets"
@@ -381,7 +383,7 @@ class PresetNumberCombo(QComboBox):
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle(APP_NAME)
+        self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
         self.setMinimumSize(980, 640)
         self.resize(1180, 740)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
@@ -456,11 +458,20 @@ class MainWindow(QMainWindow):
 
         title_stack = QVBoxLayout()
         title_stack.setSpacing(0)
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(8)
         title = QLabel(APP_NAME)
         title.setObjectName("Title")
+        self.version_badge = QLabel(APP_VERSION)
+        self.version_badge.setObjectName("VersionBadge")
+        self.version_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         subtitle = QLabel(APP_SUBTITLE)
         subtitle.setObjectName("Subtitle")
-        title_stack.addWidget(title)
+        title_row.addWidget(title)
+        title_row.addWidget(self.version_badge, 0, Qt.AlignmentFlag.AlignBottom)
+        title_row.addStretch(1)
+        title_stack.addLayout(title_row)
         title_stack.addWidget(subtitle)
 
         self.status_label = QLabel(self._status_text)
@@ -843,6 +854,7 @@ class MainWindow(QMainWindow):
             #SizeGrip {{ width:18px; height:18px; }}
             #LogoImage {{ min-width:50px; max-width:50px; min-height:50px; max-height:50px; border-radius:14px; }}
             #Title {{ color:{p['text']}; font-size:26px; font-weight:900; letter-spacing:-0.6px; }}
+            #VersionBadge {{ color:#2563EB; background:{p['soft']}; border:1px solid {p['border']}; border-radius:8px; padding:2px 7px; font-size:11px; font-weight:900; margin-bottom:4px; }}
             #Subtitle {{ color:{p['muted']}; font-size:14px; font-weight:500; }}
             #StatusPill {{ border-radius:14px; padding:6px 15px; min-width:50px; font-size:13px; font-weight:800; }}
             #WindowControls {{ min-height:40px; max-height:40px; }}

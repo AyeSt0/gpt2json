@@ -185,7 +185,7 @@ def backend_plan_for_row(row: AccountRow) -> BackendPlan:
         source_kind="mailbox",
         provider=provider.id,
         display_name=provider.display_name,
-        domain=email_domain((context.email if context else row.otp_email or row.otp_source or row.login_email)),
+        domain=email_domain(context.email if context else row.otp_email or row.otp_source or row.login_email),
         credential_kind=kind,
         preferred_backends=provider.preferred_backends,
     )

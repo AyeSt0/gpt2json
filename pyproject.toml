@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gpt2json"
-version = "0.1.0"
+dynamic = ["version"]
 description = "轻量独立的 Sub2API / CPA JSON 导出工具。"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -44,6 +44,9 @@ gpt2json-gui = "gpt2json.gui:main"
 
 [tool.setuptools.package-data]
 gpt2json = ["assets/*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "gpt2json.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["gpt2json*"]

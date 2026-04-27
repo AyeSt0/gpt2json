@@ -3,12 +3,12 @@ from __future__ import annotations
 import hashlib
 import re
 import urllib.parse
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any
 
 from .models import AccountRow
-
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 HTTP_URL_RE = re.compile(r"^https?://", re.IGNORECASE)

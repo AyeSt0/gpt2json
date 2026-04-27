@@ -8,7 +8,7 @@ QtWidgets = pytest.importorskip("PySide6.QtWidgets")
 QtTest = pytest.importorskip("PySide6.QtTest")
 QtCore = pytest.importorskip("PySide6.QtCore")
 
-from gpt2json.gui import APP_NAME, ORG_NAME, MainWindow  # noqa: E402
+from gpt2json.gui import APP_NAME, APP_VERSION, ORG_NAME, MainWindow  # noqa: E402
 
 
 def _app():
@@ -30,6 +30,8 @@ def test_gui_enables_run_only_after_valid_preflight(tmp_path):
     window.show()
     app.processEvents()
 
+    assert window.windowTitle() == f"{APP_NAME} {APP_VERSION}"
+    assert window.version_badge.text() == APP_VERSION
     assert not window.run_btn.isEnabled()
 
     window.paste_edit.setPlainText("ok@example.com----pass----https://otp.test/{email}")

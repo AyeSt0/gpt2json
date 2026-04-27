@@ -15,7 +15,6 @@ from .mail_providers import backend_plan_for_row
 from .models import AccountRow
 from .parsing import is_url_source, normalize_email, secret_hash
 
-
 OTP_RE = re.compile(r"(?<!\d)(\d{6})(?!\d)")
 HTML_RE = re.compile(r"<(?:!doctype|html|head|body|script|style)\b", re.IGNORECASE)
 FETCH_URL_RE = re.compile(
