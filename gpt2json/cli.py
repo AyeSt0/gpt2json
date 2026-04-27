@@ -7,10 +7,12 @@ from pathlib import Path
 
 from . import __version__
 from .engine import ExportConfig, run_export
+from .parsing import list_input_formats
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="GPT2JSON：协议优先的 Sub2API / CPA JSON 导出工具。")
+    supported_formats = ", ".join(["auto", *(fmt.id for fmt in list_input_formats())])
     parser.add_argument("--version", action="version", version=f"GPT2JSON {__version__}")
     parser.add_argument("--input", help="账号文本文件：GPT邮箱----GPT密码----OTP取码源")
     parser.add_argument("--stdin", action="store_true", help="从标准输入读取账号文本；优先级高于 --input")
@@ -20,7 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--token-type", default="plus", help="高级：写入 token type 字段")
     parser.add_argument("--sub2api", action=argparse.BooleanOptionalAction, default=True, help="是否导出 Sub2API JSON")
     parser.add_argument("--cpa", action=argparse.BooleanOptionalAction, default=True, help="是否导出 CPA JSON")
-    parser.add_argument("--input-format", default="auto", help="输入格式：auto 或 dash_otp")
+    parser.add_argument("--input-format", default="auto", help=f"输入格式：{supported_formats}")
     parser.add_argument("--otp-mode", default="auto", choices=["auto", "command", "none"], help="OTP 模式")
     parser.add_argument("--otp-command", default="", help="外部取码命令模板")
     parser.add_argument("--otp-timeout", type=int, default=180, help="OTP 等待超时秒数")

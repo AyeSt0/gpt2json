@@ -23,9 +23,11 @@ GPT2JSON 是一个小型独立工具，用于把账号文本批量处理成 **Su
 
 它只负责生成本地 JSON 文件，不会直接连接或写入 Sub2API 后台，适合先批量生成、检查后再手动导入。
 
-## 当前支持的账号格式
+## 输入格式
 
-当前版本优先适配 **LDXP Plus7** 的账号格式：
+GPT2JSON 的输入解析是注册表驱动的，桌面版和 CLI 都保留了 `自动识别` / `--input-format` 入口，后续可以继续增加其它来源的账号格式。
+
+当前版本内置并优先适配 **LDXP Plus7** 的账号格式：
 
 > 账号来源：<https://pay.ldxp.cn/shop/plus7>
 
@@ -49,7 +51,7 @@ user@example.test----example-gpt-password----https://otp-service.test/latest?mai
 | `GPT密码` | GPT/OpenAI 登录密码，不是邮箱密码。 |
 | `OTP取码源` | 免登录验证码 URL、取码邮箱或其它取码源。 |
 
-其它来源 / 其它邮箱凭据格式后续再适配；当前请先整理成上面的三段格式。
+其它来源 / 其它邮箱凭据格式后续会作为新的 input format 接入；当前暂时请先选择 `自动识别`，或整理成上面的三段格式。
 
 ## 主要功能
 
@@ -69,11 +71,12 @@ gpt2json-gui
 
 使用流程：
 
-1. 粘贴账号文本，或导入账号文件；
-2. 选择输出目录；
-3. 勾选导出格式：`Sub2API JSON`、`CPA Manifest`；
-4. 并发保持 `自动` 即可，必要时再手动调整；
-5. 点击 `开始导出`。
+1. 选择账号格式：默认 `自动识别`；
+2. 粘贴账号文本，或导入账号文件；
+3. 选择输出目录；
+4. 勾选导出格式：`Sub2API JSON`、`CPA Manifest`；
+5. 并发保持 `自动` 即可，必要时再手动调整；
+6. 点击 `开始导出`。
 
 <p align="center">
   <img src="docs/assets/gui-zh-preview.png" alt="GPT2JSON 浅色界面预览" width="80%">

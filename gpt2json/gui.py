@@ -10,6 +10,7 @@ from PySide6.QtCore import QSize
 from PySide6.QtGui import QDesktopServices, QFont, QFontDatabase, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
     QFileDialog,
     QFrame,
     QGraphicsDropShadowEffect,
@@ -29,7 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from .engine import ExportConfig, run_export
-from .parsing import parse_by_format, read_account_file
+from .parsing import list_input_formats, parse_by_format, read_account_file
 
 APP_NAME = "GPT2JSON"
 APP_SUBTITLE = "协议优先 · JSON 导出器"
@@ -270,6 +271,13 @@ class FileOutputRow(QFrame):
             QApplication.clipboard().setText(self.path)
 
 
+class FormatCombo(QComboBox):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setObjectName("FormatCombo")
+        self.setFixedHeight(38)
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -406,7 +414,7 @@ class MainWindow(QMainWindow):
 
         self.paste_edit = QPlainTextEdit()
         self.paste_edit.setObjectName("PasteBox")
-        self.paste_edit.setPlaceholderText("1  GPT邮箱----GPT密码----OTP取码源\n2  每行一个账号，粘贴内容优先于文件\n3")
+        self.paste_edit.setPlaceholderText("自动识别账号格式\n当前支持：GPT邮箱----GPT密码----OTP取码源\n每行一个账号，粘贴内容优先于文件。")
         self.paste_edit.textChanged.connect(self._on_paste_changed)
         layout.addWidget(self.paste_edit, 1)
 
@@ -426,6 +434,14 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(12)
         layout.addWidget(SectionHeader(UI_SETTINGS_PATH, "导出设置"))
+
+        layout.addWidget(self._field_label("账号格式"))
+        self.input_format_combo = FormatCombo()
+        self.input_format_combo.addItem("自动识别（推荐）", "auto")
+        for fmt in list_input_formats():
+            self.input_format_combo.addItem(fmt.label, fmt.id)
+        self.input_format_combo.currentIndexChanged.connect(self._on_input_format_changed)
+        layout.addWidget(self.input_format_combo)
 
         layout.addWidget(self._field_label("导出格式"))
         format_row = QHBoxLayout()
@@ -651,8 +667,10 @@ class MainWindow(QMainWindow):
             #FileDropBox {{ min-height:44px; max-height:44px; border-radius:9px; background:{p['soft']}; border:1px dashed {p['border2']}; }}
             #FileDropBox:hover {{ border-color:#3B82F6; }}
             #DropIcon, #DropText, #DropSuffix {{ color:{p['muted']}; font-size:12px; font-weight:800; }}
-            QLineEdit, QSpinBox {{ min-height:36px; border-radius:8px; padding-left:10px; padding-right:8px; color:{p['text']}; background:{p['input']}; border:1px solid {p['border']}; font-size:12px; font-weight:700; }}
-            QLineEdit:focus, QSpinBox:focus {{ border:1px solid #60A5FA; }}
+            QLineEdit, QSpinBox, QComboBox {{ min-height:36px; border-radius:8px; padding-left:10px; padding-right:8px; color:{p['text']}; background:{p['input']}; border:1px solid {p['border']}; font-size:12px; font-weight:700; }}
+            QLineEdit:focus, QSpinBox:focus, QComboBox:focus {{ border:1px solid #60A5FA; }}
+            QComboBox::drop-down {{ width:24px; border:none; background:transparent; }}
+            QComboBox QAbstractItemView {{ color:{p['text']}; background:{p['card']}; border:1px solid {p['border']}; selection-background-color:#2563EB; selection-color:white; }}
             QSpinBox::up-button, QSpinBox::down-button {{ width:20px; border:none; background:transparent; }}
             #BrowseButton {{ min-height:36px; min-width:62px; border-radius:8px; color:{p['text']}; background:{p['soft']}; border:1px solid {p['border']}; font-weight:800; }}
             #BrowseButton:hover, #AdvancedBar:hover, #SecondaryButton:hover {{ border-color:#3B82F6; color:#2563EB; }}
@@ -710,6 +728,17 @@ class MainWindow(QMainWindow):
         if self._paste_text():
             self.paste_tab.setChecked(True)
             self.file_tab.setChecked(False)
+        self.preflight(silent=True)
+
+    def _on_input_format_changed(self) -> None:
+        format_id = self._input_format()
+        if format_id == "auto":
+            self.paste_edit.setPlaceholderText("自动识别账号格式\n当前支持：GPT邮箱----GPT密码----OTP取码源\n每行一个账号，粘贴内容优先于文件。")
+        else:
+            for fmt in list_input_formats():
+                if fmt.id == format_id:
+                    self.paste_edit.setPlaceholderText(fmt.placeholder or fmt.description or fmt.label)
+                    break
         self.preflight(silent=True)
 
     def _toggle_max_restore(self) -> None:
@@ -774,6 +803,17 @@ class MainWindow(QMainWindow):
     def _input_path(self) -> str:
         return self.file_drop.path.strip()
 
+    def _input_format(self) -> str:
+        if not hasattr(self, "input_format_combo"):
+            return "auto"
+        value = self.input_format_combo.currentData()
+        return str(value or "auto")
+
+    def _input_format_label(self) -> str:
+        if not hasattr(self, "input_format_combo"):
+            return "自动识别"
+        return str(self.input_format_combo.currentText() or "自动识别")
+
     def _selected_output_labels(self) -> str:
         labels: list[str] = []
         if self.sub2api_check.isChecked():
@@ -784,13 +824,14 @@ class MainWindow(QMainWindow):
 
     def _preview_rows(self) -> tuple[bool, int]:
         paste_text = self._paste_text()
+        input_format = self._input_format()
         if paste_text:
-            rows = parse_by_format(paste_text.splitlines(), format_id="auto")
+            rows = parse_by_format(paste_text.splitlines(), format_id=input_format)
             return True, len(rows)
         input_path = Path(self._input_path())
         if not input_path.exists() or not input_path.is_file():
             return False, 0
-        rows = read_account_file(input_path)
+        rows = read_account_file(input_path, format_id=input_format)
         return True, len(rows)
 
     def preflight(self, silent: bool = False) -> bool:
@@ -813,8 +854,9 @@ class MainWindow(QMainWindow):
         self._update_progress()
         if not silent:
             outputs = self._selected_output_labels() or "未选择"
-            self.append_log(f"[预检查] 有效行数: {self._total} | 格式=auto | 输出: {outputs}")
-            QMessageBox.information(self, "预检查完成", f"有效行数：{self._total}\n格式：自动识别\n输出：{outputs}")
+            input_format_label = self._input_format_label()
+            self.append_log(f"[预检查] 有效行数: {self._total} | 输入格式={input_format_label} | 输出: {outputs}")
+            QMessageBox.information(self, "预检查完成", f"有效行数：{self._total}\n输入格式：{input_format_label}\n输出：{outputs}")
         return bool(row_count)
 
     def start_run(self) -> None:
@@ -858,7 +900,7 @@ class MainWindow(QMainWindow):
             otp_timeout=int(self.otp_timeout_spin.value()),
             otp_interval=int(self.otp_interval_spin.value()),
             timeout=int(self.timeout_spin.value()),
-            input_format="auto",
+            input_format=self._input_format(),
         )
 
         def worker() -> None:

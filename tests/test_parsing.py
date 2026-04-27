@@ -25,7 +25,9 @@ def test_parse_account_lines_dedupes_and_normalizes():
 
 
 def test_input_format_registry_supports_auto_and_errors():
-    assert any(fmt.id == "dash_otp" for fmt in list_input_formats())
+    dash_format = next(fmt for fmt in list_input_formats() if fmt.id == "dash_otp")
+    assert "LDXP" in dash_format.label
+    assert dash_format.placeholder
     rows = parse_by_format(["user@example.com----pass----https://mail.local/code"], format_id="auto")
     assert len(rows) == 1
     with pytest.raises(ValueError):

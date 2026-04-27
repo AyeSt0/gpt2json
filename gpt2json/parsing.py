@@ -29,6 +29,8 @@ class InputFormat:
     id: str
     label: str
     parser: Callable[[Iterable[str]], list[AccountRow]]
+    description: str = ""
+    placeholder: str = ""
 
 
 def normalize_email(value: Any) -> str:
@@ -155,8 +157,10 @@ def parse_account_lines(lines: Iterable[str]) -> list[AccountRow]:
 INPUT_FORMATS: dict[str, InputFormat] = {
     "dash_otp": InputFormat(
         id="dash_otp",
-        label="gpt-email----gpt-password----otp-source",
+        label="LDXP Plus7 / 三段式 OTP",
         parser=parse_dash_otp_lines,
+        description="LDXP Plus7 当前交付格式：GPT邮箱----GPT密码----OTP取码源；第二段是 GPT/OpenAI 登录密码。",
+        placeholder="GPT邮箱----GPT密码----OTP取码源\n每行一个账号，粘贴内容优先于文件。",
     ),
 }
 

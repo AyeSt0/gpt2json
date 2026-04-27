@@ -31,6 +31,8 @@ AccountRow(
 
 ## 当前内置格式
 
+当前内置格式注册为 `dash_otp`，桌面端显示为 `LDXP Plus7 / 三段式 OTP`。用户侧默认可以保持 `auto`，由 parser 注册表自动匹配。
+
 ```text
 GPT邮箱----GPT密码----OTP取码源
 ```

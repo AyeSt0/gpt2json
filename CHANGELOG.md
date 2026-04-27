@@ -11,6 +11,7 @@
 - Sub2API / CPA JSON 导出。
 - PySide6 轻量桌面 GUI。
 - GUI 支持账号文件或直接粘贴文本输入，导出格式可单选或多选。
+- GUI 支持账号格式选择，当前默认自动识别，后续格式由 parser 注册表扩展。
 - 并发数默认自动，CLI 支持 `--stdin` 管道输入。
 - 输入格式 parser 注册表与 auto-detect 入口。
 - Backend-first 邮箱 OTP 注册表骨架，围绕 IMAP / Graph / JMAP / POP3 / API 扩展。
