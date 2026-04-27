@@ -219,7 +219,7 @@ namespace GPT2JSON.ArtSetup
 
             var title = new TextBlock
             {
-                Text = "GPT2JSON 安装",
+                Text = "安装设置",
                 Foreground = Brushes.White,
                 FontSize = 43,
                 FontWeight = FontWeights.Bold,
