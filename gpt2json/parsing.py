@@ -33,6 +33,17 @@ class InputFormat:
     placeholder: str = ""
 
 
+@dataclass(frozen=True)
+class InputFormatPreset:
+    """A visible but not necessarily implemented input-format preset."""
+
+    id: str
+    label: str
+    description: str = ""
+    placeholder: str = ""
+    enabled: bool = False
+
+
 def normalize_email(value: Any) -> str:
     return str(value or "").strip().lower()
 
@@ -165,8 +176,36 @@ INPUT_FORMATS: dict[str, InputFormat] = {
 }
 
 
+FUTURE_INPUT_FORMAT_PRESETS: tuple[InputFormatPreset, ...] = (
+    InputFormatPreset(
+        id="mail_password",
+        label="邮箱账密 / IMAP（即将支持）",
+        description="GPT 账密 + 邮箱账号密码 / app-password，后续走 IMAP/POP3 取码。",
+    ),
+    InputFormatPreset(
+        id="mail_oauth",
+        label="邮箱 Token / Graph（即将支持）",
+        description="GPT 账密 + 邮箱 access/refresh token，后续走 Graph 或 IMAP XOAUTH2 取码。",
+    ),
+    InputFormatPreset(
+        id="jmap_api",
+        label="JMAP / API Token（即将支持）",
+        description="面向 Fastmail、Luckmail 或自定义取码 API 的 token 型格式。",
+    ),
+    InputFormatPreset(
+        id="csv_table",
+        label="CSV / 表格批量（即将支持）",
+        description="表格列映射导入，适合多来源混合整理后的批量文件。",
+    ),
+)
+
+
 def list_input_formats() -> list[InputFormat]:
     return list(INPUT_FORMATS.values())
+
+
+def list_future_input_format_presets() -> list[InputFormatPreset]:
+    return list(FUTURE_INPUT_FORMAT_PRESETS)
 
 
 def parse_by_format(lines: Iterable[str], *, format_id: str = "auto") -> list[AccountRow]:

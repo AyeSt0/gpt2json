@@ -33,6 +33,8 @@ AccountRow(
 
 当前内置格式注册为 `dash_otp`，桌面端显示为 `LDXP Plus7 / 三段式 OTP`。用户侧默认可以保持 `auto`，由 parser 注册表自动匹配。
 
+桌面端也会展示若干未来预制格式，例如邮箱账密、邮箱 token、JMAP/API、CSV/表格批量等；这些预制项当前仅用于展示路线，处于禁用状态，不能被选中。
+
 ```text
 GPT邮箱----GPT密码----OTP取码源
 ```

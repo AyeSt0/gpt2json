@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from .engine import ExportConfig, run_export
-from .parsing import list_input_formats, parse_by_format, read_account_file
+from .parsing import list_future_input_format_presets, list_input_formats, parse_by_format, read_account_file
 
 APP_NAME = "GPT2JSON"
 APP_SUBTITLE = "协议优先 · JSON 导出器"
@@ -423,9 +423,9 @@ class MainWindow(QMainWindow):
         self.file_drop.path_changed.connect(lambda _p: self.preflight(silent=True))
         layout.addWidget(self.file_drop)
 
-        hint = QLabel("第二段是 GPT/OpenAI 登录密码，不是邮箱密码。")
-        hint.setObjectName("HintText")
-        layout.addWidget(hint)
+        self.input_hint_label = QLabel()
+        self.input_hint_label.setObjectName("HintText")
+        layout.addWidget(self.input_hint_label)
         return card
 
     def _build_settings_card(self) -> QFrame:
@@ -440,8 +440,18 @@ class MainWindow(QMainWindow):
         self.input_format_combo.addItem("自动识别（推荐）", "auto")
         for fmt in list_input_formats():
             self.input_format_combo.addItem(fmt.label, fmt.id)
+            self.input_format_combo.setItemData(self.input_format_combo.count() - 1, fmt.description, Qt.ItemDataRole.ToolTipRole)
+        for preset in list_future_input_format_presets():
+            label = f"{preset.label}"
+            self.input_format_combo.addItem(label, f"disabled:{preset.id}")
+            index = self.input_format_combo.count() - 1
+            self.input_format_combo.setItemData(index, preset.description or "预制格式，后续版本开放。", Qt.ItemDataRole.ToolTipRole)
+            item = self.input_format_combo.model().item(index)
+            if item is not None:
+                item.setEnabled(False)
         self.input_format_combo.currentIndexChanged.connect(self._on_input_format_changed)
         layout.addWidget(self.input_format_combo)
+        self._on_input_format_changed()
 
         layout.addWidget(self._field_label("导出格式"))
         format_row = QHBoxLayout()
@@ -733,11 +743,13 @@ class MainWindow(QMainWindow):
     def _on_input_format_changed(self) -> None:
         format_id = self._input_format()
         if format_id == "auto":
-            self.paste_edit.setPlaceholderText("自动识别账号格式\n当前支持：GPT邮箱----GPT密码----OTP取码源\n每行一个账号，粘贴内容优先于文件。")
+            self.paste_edit.setPlaceholderText("粘贴账号文本，或导入账号文件。\n每行一个账号；字段含义以识别到的账号格式为准。\n当前默认自动识别。")
+            self.input_hint_label.setText("当前为自动识别；不同账号格式的字段语义以所选格式说明为准。")
         else:
             for fmt in list_input_formats():
                 if fmt.id == format_id:
                     self.paste_edit.setPlaceholderText(fmt.placeholder or fmt.description or fmt.label)
+                    self.input_hint_label.setText(fmt.description or "字段语义以当前账号格式为准。")
                     break
         self.preflight(silent=True)
 
