@@ -40,8 +40,12 @@ from .parsing import decode_text_file, list_future_input_format_presets, list_in
 APP_NAME = "GPT2JSON"
 APP_SUBTITLE = "Sub2API / CPA JSON 导出工具"
 ORG_NAME = "GPT2JSON"
-ICON_PATH = Path(__file__).resolve().parent / "assets" / "gpt2json_icon.png"
 ASSET_DIR = Path(__file__).resolve().parent / "assets"
+ICON_PATH = ASSET_DIR / "gpt2json_icon.png"
+ICON_ICO_PATH = ASSET_DIR / "gpt2json_icon.ico"
+ICON_LIGHT_PATH = ASSET_DIR / "gpt2json_icon_light.png"
+ICON_DARK_PATH = ASSET_DIR / "gpt2json_icon_dark.png"
+APP_ICON_PATH = ICON_ICO_PATH if ICON_ICO_PATH.exists() else ICON_PATH
 THEME_SUN_PATH = ASSET_DIR / "theme_sun.png"
 THEME_MOON_PATH = ASSET_DIR / "theme_moon.png"
 UI_INPUT_PATH = ASSET_DIR / "ui_input.png"
@@ -382,8 +386,8 @@ class MainWindow(QMainWindow):
         self.resize(1180, 740)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        if ICON_PATH.exists():
-            self.setWindowIcon(QIcon(str(ICON_PATH)))
+        if APP_ICON_PATH.exists():
+            self.setWindowIcon(QIcon(str(APP_ICON_PATH)))
         self.settings = QSettings(ORG_NAME, APP_NAME)
         self.bridge = WorkerBridge()
         self.bridge.log.connect(self.append_log)
@@ -448,10 +452,7 @@ class MainWindow(QMainWindow):
         self.logo = QLabel()
         self.logo.setObjectName("LogoImage")
         self.logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        if ICON_PATH.exists():
-            self.logo.setPixmap(QPixmap(str(ICON_PATH)).scaled(50, 50, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        else:
-            self.logo.setText("GJ")
+        self._refresh_logo()
 
         title_stack = QVBoxLayout()
         title_stack.setSpacing(0)
@@ -804,11 +805,30 @@ class MainWindow(QMainWindow):
     def palette(self) -> dict[str, str]:
         return DARK_THEME if self._theme == "dark" else LIGHT_THEME
 
+    def _refresh_logo(self) -> None:
+        icon_path = ICON_DARK_PATH if self._theme == "dark" else ICON_LIGHT_PATH
+        if not icon_path.exists():
+            icon_path = ICON_PATH
+        if icon_path.exists():
+            self.logo.setText("")
+            self.logo.setPixmap(
+                QPixmap(str(icon_path)).scaled(
+                    50,
+                    50,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
+        else:
+            self.logo.setPixmap(QPixmap())
+            self.logo.setText("GJ")
+
     def apply_style(self) -> None:
         p = self.palette()
         chevron_url = UI_CHEVRON_DOWN_PATH.as_posix()
         QApplication.instance().setFont(QFont(load_ui_font(), 10))  # type: ignore[union-attr]
         self.shadow.setColor(Qt.GlobalColor.black if self._theme == "dark" else Qt.GlobalColor.gray)
+        self._refresh_logo()
         self.theme_btn.setText("")
         icon_path = THEME_SUN_PATH if self._theme == "dark" else THEME_MOON_PATH
         self.theme_btn.setToolTip("切换到浅色模式" if self._theme == "dark" else "切换到深色模式")
@@ -1594,8 +1614,8 @@ class MainWindow(QMainWindow):
 def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
-    if ICON_PATH.exists():
-        app.setWindowIcon(QIcon(str(ICON_PATH)))
+    if APP_ICON_PATH.exists():
+        app.setWindowIcon(QIcon(str(APP_ICON_PATH)))
     window = MainWindow()
     window.show()
     return app.exec()

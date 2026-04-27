@@ -5,7 +5,7 @@
 <h1 align="center">GPT2JSON</h1>
 
 <p align="center">
-  协议优先的 Sub2API / CPA JSON 导出工具。面向中文环境，支持 CLI 与轻量桌面 GUI。
+  轻量独立的 Sub2API / CPA JSON 导出工具。面向中文环境，支持 CLI 与桌面 GUI。
 </p>
 
 <p align="center">
