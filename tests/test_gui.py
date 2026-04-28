@@ -351,6 +351,9 @@ def test_text_context_menu_is_chinese():
     menu = build_chinese_text_context_menu(window.paste_edit)
     action_texts = [action.text() for action in menu.actions() if not action.isSeparator()]
     assert action_texts == ["撤销", "重做", "剪切", "复制", "粘贴", "删除", "全选"]
+    assert menu.objectName() == "TextContextMenu"
+    assert "border-radius:10px" in menu.styleSheet()
+    assert "#2563EB" in menu.styleSheet()
 
     log_menu = build_chinese_text_context_menu(window.log_edit)
     log_actions = {action.text(): action for action in log_menu.actions() if not action.isSeparator()}

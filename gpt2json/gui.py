@@ -279,8 +279,56 @@ def _text_widget_delete_selection(widget: Any) -> None:
             widget.setTextCursor(cursor)
 
 
+def _context_menu_palette(widget: Any) -> dict[str, str]:
+    window = widget.window() if hasattr(widget, "window") else None
+    if window is not None and hasattr(window, "_theme") and callable(getattr(window, "palette", None)):
+        palette = window.palette()
+        if isinstance(palette, dict):
+            return palette
+    return DARK_THEME if bool(getattr(window, "_theme", "") == "dark") else LIGHT_THEME
+
+
+def _style_text_context_menu(menu: QMenu, widget: Any) -> None:
+    p = _context_menu_palette(widget)
+    menu.setObjectName("TextContextMenu")
+    menu.setStyleSheet(
+        f"""
+        QMenu#TextContextMenu {{
+            background:{p['card']};
+            color:{p['text']};
+            border:1px solid {p['border']};
+            border-radius:10px;
+            padding:6px;
+            font-size:13px;
+            font-weight:700;
+        }}
+        QMenu#TextContextMenu::item {{
+            min-width:118px;
+            min-height:28px;
+            padding:5px 24px 5px 14px;
+            border-radius:7px;
+            background:transparent;
+        }}
+        QMenu#TextContextMenu::item:selected {{
+            color:white;
+            background:#2563EB;
+        }}
+        QMenu#TextContextMenu::item:disabled {{
+            color:{p['muted2']};
+            background:transparent;
+        }}
+        QMenu#TextContextMenu::separator {{
+            height:1px;
+            margin:6px 8px;
+            background:{p['border']};
+        }}
+        """
+    )
+
+
 def build_chinese_text_context_menu(widget: Any) -> QMenu:
     menu = QMenu(widget)
+    _style_text_context_menu(menu, widget)
     read_only = bool(getattr(widget, "isReadOnly", lambda: False)())
     has_selection = _text_widget_has_selection(widget)
     clipboard_data = QApplication.clipboard().mimeData()
