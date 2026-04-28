@@ -12,7 +12,14 @@ QtWidgets = pytest.importorskip("PySide6.QtWidgets")
 QtTest = pytest.importorskip("PySide6.QtTest")
 
 from gpt2json import gui as gui_module  # noqa: E402
-from gpt2json.gui import APP_NAME, APP_VERSION, MainWindow, classify_log_line, create_app_settings  # noqa: E402
+from gpt2json.gui import (  # noqa: E402
+    APP_NAME,
+    APP_VERSION,
+    MainWindow,
+    build_chinese_text_context_menu,
+    classify_log_line,
+    create_app_settings,
+)
 
 
 def _app():
@@ -328,3 +335,28 @@ def test_log_line_classification_for_semantic_colors():
     assert classify_log_line("📦 任务已启动：共 3 个账号，并发=3。") == "start"
     assert classify_log_line("🧭 执行流程：OAuth 初始化 → 账号密码验证 → 按需获取邮箱验证码 → Callback 换取 JSON。") == "info"
     assert classify_log_line("🔎 登录策略：遇到验证码才启用取码源。") == "info"
+
+
+def test_text_context_menu_is_chinese():
+    _clear_settings()
+    app = _app()
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+
+    window.paste_edit.setPlainText("hello")
+    cursor = window.paste_edit.textCursor()
+    cursor.select(cursor.SelectionType.Document)
+    window.paste_edit.setTextCursor(cursor)
+    menu = build_chinese_text_context_menu(window.paste_edit)
+    action_texts = [action.text() for action in menu.actions() if not action.isSeparator()]
+    assert action_texts == ["撤销", "重做", "剪切", "复制", "粘贴", "删除", "全选"]
+
+    log_menu = build_chinese_text_context_menu(window.log_edit)
+    log_actions = {action.text(): action for action in log_menu.actions() if not action.isSeparator()}
+    assert "复制" in log_actions
+    assert "粘贴" in log_actions
+    assert not log_actions["粘贴"].isEnabled()
+
+    window.close()
+    _clear_settings()

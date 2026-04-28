@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
@@ -253,6 +254,88 @@ class WorkerBridge(QObject):
     preflight_done = Signal(dict)
 
 
+def _text_widget_has_selection(widget: Any) -> bool:
+    if isinstance(widget, QLineEdit):
+        return bool(widget.hasSelectedText())
+    if isinstance(widget, QPlainTextEdit):
+        return bool(widget.textCursor().hasSelection())
+    return False
+
+
+def _text_widget_delete_selection(widget: Any) -> None:
+    if isinstance(widget, QLineEdit):
+        if not widget.hasSelectedText():
+            return
+        text = widget.text()
+        start = max(0, int(widget.selectionStart()))
+        selected = widget.selectedText()
+        widget.setText(text[:start] + text[start + len(selected) :])
+        widget.setCursorPosition(start)
+        return
+    if isinstance(widget, QPlainTextEdit):
+        cursor = widget.textCursor()
+        if cursor.hasSelection():
+            cursor.removeSelectedText()
+            widget.setTextCursor(cursor)
+
+
+def build_chinese_text_context_menu(widget: Any) -> QMenu:
+    menu = QMenu(widget)
+    read_only = bool(getattr(widget, "isReadOnly", lambda: False)())
+    has_selection = _text_widget_has_selection(widget)
+    clipboard_data = QApplication.clipboard().mimeData()
+    clipboard_has_text = bool(clipboard_data is not None and clipboard_data.hasText())
+
+    undo_available = bool(getattr(widget, "isUndoAvailable", lambda: False)())
+    redo_available = bool(getattr(widget, "isRedoAvailable", lambda: False)())
+    if isinstance(widget, QPlainTextEdit):
+        undo_available = bool(widget.document().isUndoAvailable())
+        redo_available = bool(widget.document().isRedoAvailable())
+
+    undo_action = menu.addAction("撤销")
+    undo_action.setEnabled(not read_only and undo_available)
+    undo_action.triggered.connect(widget.undo)
+    redo_action = menu.addAction("重做")
+    redo_action.setEnabled(not read_only and redo_available)
+    redo_action.triggered.connect(widget.redo)
+    menu.addSeparator()
+
+    cut_action = menu.addAction("剪切")
+    cut_action.setEnabled(not read_only and has_selection)
+    cut_action.triggered.connect(widget.cut)
+    copy_action = menu.addAction("复制")
+    copy_action.setEnabled(has_selection)
+    copy_action.triggered.connect(widget.copy)
+    paste_action = menu.addAction("粘贴")
+    paste_action.setEnabled(not read_only and clipboard_has_text)
+    paste_action.triggered.connect(widget.paste)
+    delete_action = menu.addAction("删除")
+    delete_action.setEnabled(not read_only and has_selection)
+    delete_action.triggered.connect(lambda _checked=False, w=widget: _text_widget_delete_selection(w))
+    menu.addSeparator()
+
+    select_all_action = menu.addAction("全选")
+    if isinstance(widget, QLineEdit):
+        has_text = bool(widget.text())
+    elif isinstance(widget, QPlainTextEdit):
+        has_text = bool(widget.toPlainText())
+    else:
+        has_text = True
+    select_all_action.setEnabled(has_text)
+    select_all_action.triggered.connect(widget.selectAll)
+    return menu
+
+
+def install_chinese_text_context_menu(widget: Any) -> None:
+    widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+
+    def show_menu(pos: Any, target: Any = widget) -> None:
+        menu = build_chinese_text_context_menu(target)
+        menu.exec(target.mapToGlobal(pos))
+
+    widget.customContextMenuRequested.connect(show_menu)
+
+
 class DropLineEdit(QLineEdit):
     dropped = Signal(str)
 
@@ -260,6 +343,7 @@ class DropLineEdit(QLineEdit):
         super().__init__()
         self.directory = directory
         self.setAcceptDrops(True)
+        install_chinese_text_context_menu(self)
 
     def dragEnterEvent(self, event) -> None:  # type: ignore[override]
         if event.mimeData().hasUrls() or event.mimeData().hasText():
@@ -713,6 +797,7 @@ class MainWindow(QMainWindow):
         self.paste_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.paste_edit.setPlaceholderText("自动识别账号格式\n当前支持：GPT邮箱----GPT密码----OTP取码源\n每行一个账号，以当前选中的输入来源为准。")
         self.paste_edit.textChanged.connect(self._on_paste_changed)
+        install_chinese_text_context_menu(self.paste_edit)
         self.input_stack.addWidget(self.paste_edit)
 
         file_page = QWidget()
@@ -915,6 +1000,7 @@ class MainWindow(QMainWindow):
         self.log_edit.setObjectName("LogBox")
         self.log_edit.setReadOnly(True)
         self.log_edit.setPlainText(READY_LOG)
+        install_chinese_text_context_menu(self.log_edit)
         self.log_highlighter = LogHighlighter(self.log_edit.document(), theme=self._theme)
         log_layout.addWidget(self.log_edit, 1)
         layout.addWidget(log_card, 1)
