@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
 import threading
@@ -156,6 +157,7 @@ class WorkerBridge(QObject):
     done = Signal(dict)
     failed = Signal(str)
     update_checked = Signal(dict)
+    preflight_done = Signal(dict)
 
 
 class DropLineEdit(QLineEdit):
@@ -431,13 +433,17 @@ class MainWindow(QMainWindow):
         self.bridge.done.connect(self.on_done)
         self.bridge.failed.connect(self.on_failed)
         self.bridge.update_checked.connect(self.on_update_checked)
+        self.bridge.preflight_done.connect(self.on_preflight_done)
         self._worker_thread: threading.Thread | None = None
+        self._preflight_thread: threading.Thread | None = None
         self._drag_start: Any = None
         self._theme = "light"
         self._update_check_running = False
         self._input_mode = "paste"
         self._clearing_input = False
         self._is_running = False
+        self._is_cancelling = False
+        self._cancel_event: threading.Event | None = None
         self._status_text = "就绪"
         self._status_mode = "ready"
         self._total = 0
@@ -449,6 +455,9 @@ class MainWindow(QMainWindow):
         self._last_preflight_raw_count = 0
         self._last_preflight_error = ""
         self._last_preflight_source = ""
+        self._last_preflight_snapshot_key = ""
+        self._preflight_seq = 0
+        self._preflight_running = False
         self._log_waiting = True
         self._preflight_timer = QTimer(self)
         self._preflight_timer.setSingleShot(True)
@@ -759,11 +768,16 @@ class MainWindow(QMainWindow):
         self.run_btn = QPushButton("开始导出")
         self.run_btn.setObjectName("PrimaryButton")
         self.run_btn.clicked.connect(self.start_run)
+        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn.setObjectName("SecondaryButton")
+        self.cancel_btn.setToolTip("请求取消当前导出；已在执行的账号会在安全点收尾。")
+        self.cancel_btn.clicked.connect(self.cancel_run)
         self.open_out_btn = QPushButton("打开输出目录")
         self.open_out_btn.setObjectName("SecondaryButton")
         self.open_out_btn.clicked.connect(self.open_output_dir)
         buttons.addWidget(self.preflight_btn, 1)
         buttons.addWidget(self.run_btn, 2)
+        buttons.addWidget(self.cancel_btn, 1)
         buttons.addWidget(self.open_out_btn, 1)
         layout.addLayout(buttons)
         return card
@@ -1080,6 +1094,9 @@ class MainWindow(QMainWindow):
         self._last_preflight_count = 0
         self._last_preflight_raw_count = 0
         self._last_preflight_error = ""
+        self._last_preflight_snapshot_key = ""
+        self._preflight_seq += 1
+        self._preflight_running = False
         if self._has_active_input():
             self._set_status("预检查中", "running")
         self._preflight_timer.start()
@@ -1122,6 +1139,7 @@ class MainWindow(QMainWindow):
             self._last_preflight_count = 0
             self._last_preflight_raw_count = 0
             self._last_preflight_error = ""
+            self._last_preflight_snapshot_key = ""
             self._reset_counts(0)
             self._set_status("就绪", "ready")
             self._refresh_controls_state()
@@ -1167,6 +1185,7 @@ class MainWindow(QMainWindow):
         self._last_preflight_count = 0
         self._last_preflight_raw_count = 0
         self._last_preflight_error = ""
+        self._last_preflight_snapshot_key = ""
         self._refresh_input_mode()
         self._reset_counts(0)
         self._set_status("就绪", "ready")
@@ -1192,9 +1211,14 @@ class MainWindow(QMainWindow):
         has_output = bool(self.output_edit.text().strip())
         has_input = self._has_active_input()
         has_valid_rows = self._last_preflight_count > 0 and not self._last_preflight_error
-        can_start = (not self._is_running) and output_selected and has_output and has_input and has_valid_rows
+        can_start = (not self._is_running) and (not self._preflight_running) and output_selected and has_output and has_input and has_valid_rows
         self.run_btn.setEnabled(can_start)
-        self.preflight_btn.setEnabled((not self._is_running) and has_input)
+        self.run_btn.setText("取消中..." if self._is_cancelling else "开始导出")
+        self.cancel_btn.setVisible(self._is_running)
+        self.cancel_btn.setEnabled(self._is_running and not self._is_cancelling)
+        self.cancel_btn.setText("取消中..." if self._is_cancelling else "取消")
+        self.preflight_btn.setText("预检查中..." if self._preflight_running else "预检查")
+        self.preflight_btn.setEnabled((not self._is_running) and (not self._preflight_running) and has_input)
         self.clear_input_btn.setEnabled(not self._is_running and (bool(self._paste_text()) or bool(self._input_path())))
         if hasattr(self, "clear_log_btn"):
             self.clear_log_btn.setEnabled(not self._is_running)
@@ -1221,6 +1245,20 @@ class MainWindow(QMainWindow):
 
     def _set_running(self, running: bool) -> None:
         self._is_running = bool(running)
+        if not running:
+            self._is_cancelling = False
+            self._cancel_event = None
+        self._refresh_controls_state()
+
+    def cancel_run(self) -> None:
+        if not self._is_running:
+            return
+        if self._cancel_event is not None:
+            self._cancel_event.set()
+        if not self._is_cancelling:
+            self._is_cancelling = True
+            self._set_status("取消中", "warning")
+            self.append_log("🛑 已发送取消请求：不再推进新账号，正在等待当前账号到安全点收尾。")
         self._refresh_controls_state()
 
     def _validate_output_dir(self, *, create: bool = False) -> tuple[bool, str]:
@@ -1309,13 +1347,14 @@ class MainWindow(QMainWindow):
             answer = QMessageBox.question(
                 self,
                 "任务仍在运行",
-                "当前导出任务还在运行，关闭窗口会中断界面进程。确定要关闭吗？",
+                "当前导出任务还在运行。建议先取消并等待收尾，避免留下半成品。\n\n是否现在请求取消？",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
             )
-            if answer != QMessageBox.StandardButton.Yes:
-                event.ignore()
-                return
+            if answer == QMessageBox.StandardButton.Yes:
+                self.cancel_run()
+            event.ignore()
+            return
         self._save_settings()
         super().closeEvent(event)
 
@@ -1447,40 +1486,143 @@ class MainWindow(QMainWindow):
             labels.append("CPA JSON")
         return " + ".join(labels)
 
-    def _preview_rows(self) -> tuple[bool, int, int]:
+    def _make_preflight_snapshot(self, *, silent: bool) -> dict[str, Any]:
         input_format = self._input_format()
-        if self._input_mode == "paste":
+        mode = self._input_mode
+        if mode == "paste":
             paste_text = self._paste_text()
-            if not paste_text:
-                self._last_preflight_source = "paste"
-                return False, 0, 0
-            lines = paste_text.splitlines()
-            rows = parse_by_format(lines, format_id=input_format)
-            self._last_preflight_source = "paste"
-            return True, len(rows), len([line for line in lines if str(line).strip()])
-        input_path = Path(self._input_path())
+            digest = hashlib.sha256(paste_text.encode("utf-8")).hexdigest()
+            return {
+                "mode": "paste",
+                "source": paste_text,
+                "source_label": "paste",
+                "format_id": input_format,
+                "key": f"paste:{input_format}:{digest}",
+                "has_input": bool(paste_text),
+                "silent": bool(silent),
+            }
+
+        raw_path = self._input_path()
+        path = Path(raw_path)
+        key = f"file:{input_format}:{raw_path}:missing"
+        source_label = "file"
+        has_input = False
+        try:
+            if raw_path and path.exists() and path.is_file():
+                stat = path.stat()
+                resolved = str(path.resolve())
+                key = f"file:{input_format}:{resolved}:{stat.st_size}:{stat.st_mtime_ns}"
+                source_label = resolved
+                has_input = True
+        except Exception:
+            pass
+        return {
+            "mode": "file",
+            "source": raw_path,
+            "source_label": source_label,
+            "format_id": input_format,
+            "key": key,
+            "has_input": has_input,
+            "silent": bool(silent),
+        }
+
+    @staticmethod
+    def _evaluate_preflight_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+        mode = str(snapshot.get("mode") or "paste")
+        source = str(snapshot.get("source") or "")
+        format_id = str(snapshot.get("format_id") or "auto")
+        if mode == "paste":
+            if not source.strip():
+                return {"has_input": False, "row_count": 0, "raw_count": 0, "source": "paste"}
+            lines = source.splitlines()
+            rows = parse_by_format(lines, format_id=format_id)
+            return {"has_input": True, "row_count": len(rows), "raw_count": len([line for line in lines if str(line).strip()]), "source": "paste"}
+
+        input_path = Path(source)
         if not input_path.exists() or not input_path.is_file():
-            self._last_preflight_source = "file"
-            return False, 0, 0
+            return {"has_input": False, "row_count": 0, "raw_count": 0, "source": "file"}
         lines = decode_text_file(input_path).splitlines()
-        rows = parse_by_format(lines, format_id=input_format)
-        self._last_preflight_source = str(input_path)
-        return True, len(rows), len([line for line in lines if str(line).strip()])
+        rows = parse_by_format(lines, format_id=format_id)
+        return {"has_input": True, "row_count": len(rows), "raw_count": len([line for line in lines if str(line).strip()]), "source": str(input_path)}
+
+    def _current_preflight_cache_valid(self) -> bool:
+        snapshot = self._make_preflight_snapshot(silent=True)
+        return (
+            bool(snapshot.get("has_input"))
+            and bool(self._last_preflight_snapshot_key)
+            and self._last_preflight_snapshot_key == snapshot.get("key")
+            and self._last_preflight_count > 0
+            and not self._last_preflight_error
+        )
 
     def preflight(self, silent: bool = False) -> bool:
         if self._is_running:
             return True
-        try:
-            has_input, row_count, raw_count = self._preview_rows()
-        except Exception as exc:
+        snapshot = self._make_preflight_snapshot(silent=silent)
+        if not snapshot.get("has_input"):
+            result = {
+                "seq": self._preflight_seq + 1,
+                "key": snapshot.get("key", ""),
+                "silent": bool(silent),
+                "has_input": False,
+                "row_count": 0,
+                "raw_count": 0,
+                "source": snapshot.get("source_label", ""),
+                "error": "",
+            }
+            self._preflight_seq = int(result["seq"])
+            self.on_preflight_done(result)
+            return False
+
+        self._preflight_seq += 1
+        seq = self._preflight_seq
+        snapshot["seq"] = seq
+        self._preflight_running = True
+        self._set_status("预检查中", "running")
+        self._refresh_controls_state()
+
+        def worker() -> None:
+            try:
+                result = self._evaluate_preflight_snapshot(snapshot)
+                result["error"] = ""
+            except Exception as exc:
+                result = {
+                    "has_input": False,
+                    "row_count": 0,
+                    "raw_count": 0,
+                    "source": snapshot.get("source_label", ""),
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            result.update({"seq": seq, "key": snapshot.get("key", ""), "silent": bool(silent)})
+            self.bridge.preflight_done.emit(result)
+
+        self._preflight_thread = threading.Thread(target=worker, name="gpt2json-preflight", daemon=True)
+        self._preflight_thread.start()
+        return self._current_preflight_cache_valid()
+
+    def on_preflight_done(self, result: dict[str, Any]) -> None:
+        if int(result.get("seq") or 0) != self._preflight_seq:
+            return
+        self._preflight_running = False
+        if self._is_running:
+            self._refresh_controls_state()
+            return
+        silent = bool(result.get("silent"))
+        error = str(result.get("error") or "")
+        has_input = bool(result.get("has_input"))
+        row_count = int(result.get("row_count") or 0)
+        raw_count = int(result.get("raw_count") or 0)
+        self._last_preflight_source = str(result.get("source") or "")
+        self._last_preflight_snapshot_key = str(result.get("key") or "") if not error and has_input else ""
+        if error:
             self._last_preflight_count = 0
             self._last_preflight_raw_count = 0
-            self._last_preflight_error = f"{type(exc).__name__}: {exc}"
+            self._last_preflight_error = error
             self._set_status("等待修正" if silent else "预检查失败", "warning" if silent else "failed")
             self._refresh_controls_state()
             if not silent:
-                QMessageBox.critical(self, "预检查失败", f"读取失败：{type(exc).__name__}: {exc}")
-            return False
+                QMessageBox.critical(self, "预检查失败", f"读取失败：{error}")
+            return
         if not has_input:
             self._last_preflight_count = 0
             self._last_preflight_raw_count = 0
@@ -1490,7 +1632,7 @@ class MainWindow(QMainWindow):
             self._refresh_controls_state()
             if not silent:
                 QMessageBox.warning(self, "缺少输入", "请粘贴账号文本，或导入账号文件。")
-            return False
+            return
         self._reset_counts(row_count)
         self._last_preflight_count = row_count
         self._last_preflight_raw_count = raw_count
@@ -1506,7 +1648,6 @@ class MainWindow(QMainWindow):
             skipped = max(0, raw_count - row_count)
             self.append_log(f"🧪 预检查完成：识别到 {self._total} 个账号，跳过 {skipped} 行；输入格式={input_format_label}；输出={outputs}。")
             QMessageBox.information(self, "预检查完成", f"有效行数：{self._total}\n跳过行数：{skipped}\n输入格式：{input_format_label}\n输出：{outputs}")
-        return bool(row_count)
 
     def start_run(self) -> None:
         if self._worker_thread and self._worker_thread.is_alive():
@@ -1528,8 +1669,9 @@ class MainWindow(QMainWindow):
         if not (self.sub2api_check.isChecked() or self.cpa_check.isChecked()):
             QMessageBox.warning(self, "缺少导出格式", "请至少选择 Sub2API JSON 或 CPA JSON。")
             return
-        if not self.preflight(silent=True):
-            QMessageBox.warning(self, "没有有效账号", "输入内容中没有识别到有效行。")
+        if not self._current_preflight_cache_valid():
+            self.preflight(silent=True)
+            QMessageBox.information(self, "预检查中", "输入内容需要先完成预检查。请稍等识别完成后再开始导出。")
             return
         self._reset_counts(self._total)
         self.log_edit.clear()
@@ -1540,6 +1682,8 @@ class MainWindow(QMainWindow):
         self.append_log("🧭 链路：OAuth 开门 → 账号密码 → 可选邮箱取码 → Callback 换 JSON。")
         self.append_log("🔎 策略：优先账密登录；遇到验证码才启用验证码获取，不拉浏览器。")
         self.append_log(f"📁 输出目录：{Path(output_dir).resolve()}")
+        self._cancel_event = threading.Event()
+        self._is_cancelling = False
         self._set_running(True)
         self.sub2api_row.set_path("")
         self.cpa_row.set_path("")
@@ -1559,7 +1703,7 @@ class MainWindow(QMainWindow):
 
         def worker() -> None:
             try:
-                summary = run_export(config, logger=lambda _text: None, on_event=self.bridge.event.emit)
+                summary = run_export(config, logger=lambda _text: None, on_event=self.bridge.event.emit, cancel_event=self._cancel_event)
                 self.bridge.done.emit(summary)
             except Exception as exc:
                 self.bridge.failed.emit(f"{type(exc).__name__}: {exc}")
@@ -1615,6 +1759,7 @@ class MainWindow(QMainWindow):
             "runtime_exception": "单账号异常",
             "worker_future": "任务线程",
             "export_prepare": "JSON 整理",
+            "cancelled": "用户取消",
             "password_error": "密码验证",
             "bad_password": "密码验证",
         }
@@ -1660,6 +1805,8 @@ class MainWindow(QMainWindow):
             return f"🧯 {email} 这条任务内部异常，已隔离，不影响其它账号继续跑。"
         if stage == "export_prepare":
             return f"🧹 {email} JSON 整理时发现格式异常，已跳过这条。"
+        if stage == "cancelled":
+            return f"🛑 {email} 收到取消信号，这条不再继续推进。"
         return ""
 
     def on_event(self, event: dict[str, Any]) -> None:
@@ -1679,6 +1826,10 @@ class MainWindow(QMainWindow):
             message = self._friendly_stage_message(event)
             if message:
                 self.append_log(message)
+        elif event_type == "cancelling":
+            self._is_cancelling = True
+            self._set_status("取消中", "warning")
+            self._refresh_controls_state()
         elif event_type == "row_done":
             self._done = int(event.get("done") or self._done + 1)
             self._running = max(0, self._running - 1)
@@ -1692,8 +1843,11 @@ class MainWindow(QMainWindow):
                 status = str(event.get("status") or "failed")
                 reason = str(event.get("reason") or "").strip()
                 stage = str(event.get("stage") or "").strip()
-                detail = f"：{reason}" if reason else ""
-                self.append_log(f"⚠️ {email} 暂时没过，停在「{self._stage_display(stage or status)}」{detail}。")
+                if status == "cancelled":
+                    self.append_log(f"🛑 {email} 已取消，等其它运行中的账号安全收尾。")
+                else:
+                    detail = f"：{reason}" if reason else ""
+                    self.append_log(f"⚠️ {email} 暂时没过，停在「{self._stage_display(stage or status)}」{detail}。")
             self.success_stat.set_value(self._success)
             self.failed_stat.set_value(self._failure)
             self.running_stat.set_value(self._running)
@@ -1703,7 +1857,11 @@ class MainWindow(QMainWindow):
         self._set_running(False)
         success_count = int(summary.get("success_count", 0) or 0)
         failure_count = int(summary.get("failure_count", 0) or 0)
-        if success_count and failure_count:
+        cancelled = bool(summary.get("cancelled"))
+        cancelled_count = int(summary.get("cancelled_count", 0) or 0)
+        if cancelled:
+            self._set_status("已取消", "warning")
+        elif success_count and failure_count:
             self._set_status("部分完成", "warning")
         elif success_count:
             self._set_status("完成", "done")
@@ -1721,7 +1879,10 @@ class MainWindow(QMainWindow):
         self.cpa_row.set_path(cpa_path)
         self._refresh_output_format_state()
         self.append_log("")
-        self.append_log(f"🎉 收工汇总：成功 {success_count} 个，失败 {failure_count} 个。")
+        if cancelled:
+            self.append_log(f"🛑 已按请求取消：成功 {success_count} 个，未完成/失败 {failure_count} 个，其中取消 {cancelled_count} 个。")
+        else:
+            self.append_log(f"🎉 收工汇总：成功 {success_count} 个，失败 {failure_count} 个。")
         if sub2api_path:
             self.append_log(f"🧰 Sub2API 文件已写好：{sub2api_path}")
         if cpa_path:
@@ -1730,7 +1891,10 @@ class MainWindow(QMainWindow):
             if cpa_dir:
                 self.append_log(f"📚 CPA 单账号 JSON 目录：{cpa_dir}")
         self.append_log("🍻 可以打开输出目录验货了。")
-        QMessageBox.information(self, "完成", f"导出完成\n成功：{success_count}\n失败：{failure_count}")
+        if cancelled:
+            QMessageBox.information(self, "已取消", f"导出已取消\n成功：{success_count}\n失败/未完成：{failure_count}\n取消：{cancelled_count}")
+        else:
+            QMessageBox.information(self, "完成", f"导出完成\n成功：{success_count}\n失败：{failure_count}")
 
     def on_failed(self, message: str) -> None:
         self._set_running(False)

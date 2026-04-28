@@ -1,4 +1,6 @@
 import json
+import threading
+import time
 
 from gpt2json import otp
 from gpt2json.models import AccountRow
@@ -79,3 +81,16 @@ def test_otp_prime_row_renders_email_placeholder(monkeypatch):
     fetcher.prime_row(row)
 
     assert calls[0][0] == "https://otp.local/latest?email=probe%40example.com"
+
+
+def test_otp_poll_source_cancel_wakes_interval(monkeypatch):
+    cancel_event = threading.Event()
+    fetcher = otp.OtpFetcher(timeout=30, interval=30, cancel_event=cancel_event)
+    monkeypatch.setattr(fetcher, "fetch_source_once", lambda *args, **kwargs: "")
+
+    started = time.monotonic()
+    cancel_event.set()
+    code = fetcher.poll_source("https://otp.local/latest", "probe@example.com")
+
+    assert code == ""
+    assert time.monotonic() - started < 1

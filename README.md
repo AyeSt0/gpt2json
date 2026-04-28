@@ -202,11 +202,12 @@ python -m pip install -e .[gui]
 ```bash
 python -m pip install -e .[dev,gui]
 python -m pytest -q
+python scripts/check_release.py
 python -m build
 python -m twine check dist/*
 ```
 
-发版时先更新 `gpt2json/__init__.py` 与 `CHANGELOG.md`，再创建对应的 `vX.Y.Z` Git tag。
+发版时先更新 `gpt2json/__init__.py`、`packaging/windows/GPT2JSON.iss` 与 `CHANGELOG.md`，并运行 `python scripts/check_release.py --require-assets` 校验版本、日志标题和已生成资产 SHA256，再创建对应的 `vX.Y.Z` Git tag。
 
 ```bash
 git tag v0.1.1

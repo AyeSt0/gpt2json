@@ -112,6 +112,20 @@ def _exception_result(row: Any, *, status: str, stage: str, exc: BaseException) 
     )
 
 
+def _is_cancelled(cancel_event: threading.Event | None) -> bool:
+    return bool(cancel_event is not None and cancel_event.is_set())
+
+
+def _cancelled_result(row: Any) -> AttemptResult:
+    return AttemptResult(
+        row=row,
+        status="cancelled",
+        stage="cancelled",
+        reason="user_cancelled",
+        events=[{"stage": "cancelled", "reason": "user_cancelled"}],
+    )
+
+
 def _prepare_token_data(token_json: str, *, pool: str, token_type: str, fallback_email: str = "") -> dict[str, Any]:
     data = json.loads(token_json)
     if not isinstance(data, dict):
@@ -160,6 +174,7 @@ def run_export(
     logger: Logger | None = None,
     on_event: EventCallback | None = None,
     client_factory: Callable[[], ProtocolLoginClient] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> dict[str, Any]:
     log = logger or (lambda _text: None)
     emit = on_event or (lambda _event: None)
@@ -210,6 +225,8 @@ def run_export(
 
     def run_one(row: Any) -> AttemptResult:
         emit({"type": "row_start", "line_no": row.line_no, "email_masked": mask_email(row.login_email)})
+        if _is_cancelled(cancel_event):
+            return _cancelled_result(row)
 
         def emit_stage(event: dict[str, Any]) -> None:
             payload = {
@@ -238,10 +255,18 @@ def run_export(
                 interval=config.otp_interval,
                 impersonate=config.impersonate,
                 verify=config.verify_ssl,
+                cancel_event=cancel_event,
             )
+            if _is_cancelled(cancel_event):
+                return _cancelled_result(row)
             result = client.login_and_exchange(row, otp_fetcher=otp_fetcher)
             if not isinstance(result, AttemptResult):
                 raise TypeError(f"client returned {type(result).__name__}, expected AttemptResult")
+            if _is_cancelled(cancel_event) and not result.ok:
+                result.status = "cancelled"
+                result.stage = "cancelled"
+                result.reason = "user_cancelled"
+                result.events.append({"stage": "cancelled", "reason": "user_cancelled"})
             return result
         except Exception as exc:
             emit_stage({"stage": "runtime_exception", "reason": f"{type(exc).__name__}: {str(exc)[:180]}"})
@@ -294,6 +319,8 @@ def run_export(
                     "events": result.events[-8:],
                 }
             )
+            if _is_cancelled(cancel_event):
+                emit({"type": "cancelling", "done": len(results), "total": len(rows)})
 
     successes.sort(key=lambda item: str(item.get("email") or ""))
     sub_accounts: list[dict[str, Any]] = []
@@ -341,6 +368,8 @@ def run_export(
     summary["finished_at"] = utc_now_iso()
     summary["success_count"] = len(successes)
     summary["failure_count"] = len(rows) - len(successes)
+    summary["cancelled"] = _is_cancelled(cancel_event)
+    summary["cancelled_count"] = len([result for result in results if result.status == "cancelled"])
     summary["success_emails"] = sorted(str(item.get("email") or "") for item in successes if str(item.get("email") or "").strip())
     summary["sub2api_export"] = str(out_dir / "sub2api_accounts.secret.json") if successes and export_sub2api else ""
     summary["cpa_dir"] = str(cpa_dir) if successes and export_cpa else ""
@@ -348,7 +377,10 @@ def run_export(
     summary["cpa_manifest"] = str(out_dir / "cpa_manifest.json") if successes and export_cpa else ""
     write_json(out_dir / "summary.json", summary)
     write_json(out_dir / "progress.json", summary)
-    log(f"[done] success={summary['success_count']} failure={summary['failure_count']}")
+    if summary["cancelled"]:
+        log(f"[cancelled] success={summary['success_count']} failure={summary['failure_count']}")
+    else:
+        log(f"[done] success={summary['success_count']} failure={summary['failure_count']}")
     emit({"type": "finished", "summary": summary})
     return summary
 

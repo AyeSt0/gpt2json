@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### Added
+
+- 开发者发版前可运行 `python scripts/check_release.py` 校验版本一致性、CHANGELOG 标题，并在 release 资产存在时输出 SHA256。
+- GUI 预检查改为后台线程执行，避免大文件读取/解析卡住主窗口，并会丢弃过期预检查结果。
+- 导出任务支持用户取消；OTP 轮询会被取消信号唤醒，GUI 会显示取消中和取消汇总。
+
 ## [0.1.1] - 2026-04-28
 
 ### Added

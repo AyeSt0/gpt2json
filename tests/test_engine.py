@@ -1,4 +1,5 @@
 import json
+import threading
 import zipfile
 from pathlib import Path
 
@@ -235,6 +236,27 @@ def test_run_export_keeps_previous_artifacts_when_input_load_fails(tmp_path: Pat
         run_export(ExportConfig(input_path=str(tmp_path / "missing.txt"), out_dir=str(out_dir)))
 
     assert stale.exists()
+
+
+def test_run_export_reports_cancelled_rows_without_outputs(tmp_path: Path):
+    out_dir = tmp_path / "out"
+    cancel_event = threading.Event()
+    cancel_event.set()
+
+    summary = run_export(
+        ExportConfig(input_path="missing.txt", out_dir=str(out_dir), input_text=account_text(), concurrency=3),
+        client_factory=lambda: FakeClient(),
+        cancel_event=cancel_event,
+    )
+
+    assert summary["cancelled"] is True
+    assert summary["success_count"] == 0
+    assert summary["failure_count"] == 3
+    assert summary["cancelled_count"] == 3
+    safe_rows = [json.loads(line) for line in (out_dir / "results.safe.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert {row["status"] for row in safe_rows} == {"cancelled"}
+    assert not (out_dir / "sub2api_accounts.secret.json").exists()
+    assert not (out_dir / "CPA").exists()
 
 
 def test_resolve_concurrency_auto_caps_at_eight():

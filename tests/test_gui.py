@@ -1,5 +1,6 @@
 import os
 import tempfile
+import threading
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -10,6 +11,7 @@ import pytest
 QtWidgets = pytest.importorskip("PySide6.QtWidgets")
 QtTest = pytest.importorskip("PySide6.QtTest")
 
+from gpt2json import gui as gui_module  # noqa: E402
 from gpt2json.gui import APP_NAME, APP_VERSION, MainWindow, create_app_settings  # noqa: E402
 
 
@@ -168,5 +170,78 @@ def test_gui_clear_input_preserves_current_tab_and_theme_toggle(tmp_path):
     assert window._last_preflight_count == 0
     assert not window.run_btn.isEnabled()
 
+    window.close()
+    _clear_settings()
+
+
+def test_gui_async_preflight_discards_stale_file_result(tmp_path, monkeypatch):
+    _clear_settings()
+    app = _app()
+    slow_file = tmp_path / "slow.txt"
+    fast_file = tmp_path / "fast.txt"
+    slow_file.write_text("placeholder", encoding="utf-8")
+    fast_file.write_text("placeholder", encoding="utf-8")
+    release_slow = threading.Event()
+
+    def fake_decode_text_file(path):
+        file_path = Path(path)
+        if file_path == slow_file:
+            release_slow.wait(1)
+            return "\n".join(
+                [
+                    "slow1@example.com----pass----https://otp.test/{email}",
+                    "slow2@example.com----pass----https://otp.test/{email}",
+                ]
+            )
+        return "fast@example.com----pass----https://otp.test/{email}"
+
+    monkeypatch.setattr(gui_module, "decode_text_file", fake_decode_text_file)
+
+    window = MainWindow()
+    window.output_edit.setText(str(tmp_path / "out"))
+    window.show()
+    app.processEvents()
+
+    window.file_drop.set_path(str(slow_file))
+    QtTest.QTest.qWait(330)
+    app.processEvents()
+    assert window._input_mode == "file"
+
+    window.file_drop.set_path(str(fast_file))
+    QtTest.QTest.qWait(420)
+    app.processEvents()
+    assert window._last_preflight_count == 1
+    assert window.run_btn.isEnabled()
+
+    release_slow.set()
+    QtTest.QTest.qWait(200)
+    app.processEvents()
+    assert window._last_preflight_count == 1
+
+    window.close()
+    _clear_settings()
+
+
+def test_gui_cancel_button_sets_cancel_event(tmp_path):
+    _clear_settings()
+    app = _app()
+    window = MainWindow()
+    window.output_edit.setText(str(tmp_path / "out"))
+    window.show()
+    app.processEvents()
+
+    window._cancel_event = threading.Event()
+    window._set_running(True)
+    app.processEvents()
+    assert window.cancel_btn.isVisible()
+    assert window.cancel_btn.isEnabled()
+
+    window.cancel_run()
+    app.processEvents()
+    assert window._is_cancelling
+    assert window._cancel_event.is_set()
+    assert not window.cancel_btn.isEnabled()
+
+    window._set_running(False)
     window.close()
     _clear_settings()

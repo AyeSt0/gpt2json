@@ -4,6 +4,7 @@ import json
 import os
 import re
 import subprocess
+import threading
 import time
 import urllib.parse
 from dataclasses import dataclass
@@ -299,6 +300,7 @@ class OtpFetcher:
         interval: int = 3,
         impersonate: str = "chrome136",
         verify: bool = True,
+        cancel_event: threading.Event | None = None,
     ) -> None:
         self.mode = str(mode or "auto").strip().lower()
         self.command = str(command or "").strip()
@@ -306,9 +308,19 @@ class OtpFetcher:
         self.interval = max(1, int(interval or 3))
         self.impersonate = str(impersonate or "chrome136").strip() or "chrome136"
         self.verify = bool(verify)
+        self.cancel_event = cancel_event
         self._seen_by_source: dict[str, set[str]] = {}
         self._primed_code_by_source: dict[str, tuple[str, str]] = {}
         self._last_details_by_source: dict[str, OtpFetchDetails] = {}
+
+    def is_cancelled(self) -> bool:
+        return bool(self.cancel_event is not None and self.cancel_event.is_set())
+
+    def _wait_interval(self) -> bool:
+        if self.cancel_event is not None:
+            return bool(self.cancel_event.wait(self.interval))
+        time.sleep(self.interval)
+        return False
 
     def has_backend_for_source(self, source: str) -> bool:
         text = str(source or "").strip()
@@ -408,6 +420,8 @@ class OtpFetcher:
         source_key = secret_hash(source)
         primed_deadline = time.time() + min(45, max(10, self.timeout // 3))
         while time.time() < deadline:
+            if self.is_cancelled():
+                return ""
             code = self.fetch_source_once(source, fallback_email, proxies=proxies)
             if code:
                 return code
@@ -417,7 +431,8 @@ class OtpFetcher:
                     seen = self._seen_by_source.setdefault(source_key, set())
                     seen.add(primed[1] or primed[0])
                     return primed[0]
-            time.sleep(self.interval)
+            if self._wait_interval():
+                return ""
         return ""
 
     def poll_row(self, row: AccountRow, proxies: Any = None) -> str:
@@ -428,8 +443,11 @@ class OtpFetcher:
             return ""
         deadline = time.time() + self.timeout
         while time.time() < deadline:
+            if self.is_cancelled():
+                return ""
             code = self.fetch_row_once(row, proxies=proxies)
             if code:
                 return code
-            time.sleep(self.interval)
+            if self._wait_interval():
+                return ""
         return ""
