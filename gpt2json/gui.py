@@ -249,13 +249,13 @@ def classify_log_line(text: str) -> str:
         return "error"
     if line.startswith("🛑") or line.startswith("取消"):
         return "cancel"
-    if line.startswith(("🔁", "🔄 自动重跑")):
+    if line.startswith(("🔁", "🔄 自动重跑", "🟡")):
         return "warning"
     if line.startswith(("🚀", "🧩", "📦 任务")) or line.startswith(("开始导出：", "运行配置：")):
         return "start"
     if line.startswith(("👤", "🚪", "🛡️", "📨", "🔑", "🎫", "📦")):
         return "account"
-    if line.startswith(("🧭", "🔎", "🧪", "🔄", "ℹ️", "✨", "👀", "🟢", "📄")):
+    if line.startswith(("🧭", "🔎", "🧪", "🔄", "ℹ️", "✨", "👀", "🟢", "📄", "🧮")):
         return "info"
     if line.startswith("🧾 失败诊断报告"):
         return "output"
@@ -2894,8 +2894,56 @@ class MainWindow(QMainWindow):
             return raw[:180] + "…"
         return raw
 
+    def _is_terminal_reason(self, value: Any) -> bool:
+        return str(value or "").strip().lower() in {
+            "account_deactivated",
+            "account_disabled",
+            "account_suspended",
+            "account_deleted",
+            "account_locked",
+            "account_not_found",
+            "user_not_found",
+            "invalid_credentials",
+        }
+
+    def _attempt_suffix(self, event: dict[str, Any]) -> str:
+        try:
+            attempt = int(event.get("attempt") or 1)
+            max_attempts = int(event.get("max_attempts") or 0)
+            normal_attempts = int(event.get("normal_attempts") or max_attempts or 0)
+            auto_rerun_attempts = int(event.get("auto_rerun_attempts") or max(0, max_attempts - normal_attempts))
+        except Exception:
+            return ""
+        if attempt <= 1:
+            return ""
+        if normal_attempts and attempt > normal_attempts:
+            extra_index = max(1, attempt - normal_attempts)
+            extra_total = max(1, auto_rerun_attempts)
+            return f"（补救 {extra_index}/{extra_total}，总 {attempt}/{max_attempts or attempt}）"
+        if normal_attempts:
+            return f"（重试 {attempt}/{normal_attempts}）"
+        return f"（第 {attempt} 次）"
+
+    def _retry_attempt_text(self, event: dict[str, Any]) -> str:
+        try:
+            next_attempt = int(event.get("next_attempt") or 0)
+            max_attempts = int(event.get("max_attempts") or 0)
+            normal_attempts = int(event.get("normal_attempts") or max_attempts or 0)
+            auto_rerun_attempts = int(event.get("auto_rerun_attempts") or max(0, max_attempts - normal_attempts))
+        except Exception:
+            return "下一次尝试"
+        if not next_attempt:
+            return "下一次尝试"
+        if bool(event.get("auto_rerun")):
+            extra_index = max(1, next_attempt - normal_attempts)
+            extra_total = max(1, auto_rerun_attempts)
+            return f"补救第 {extra_index}/{extra_total} 次（总第 {next_attempt}/{max_attempts or next_attempt} 次）"
+        if normal_attempts and max_attempts and max_attempts > normal_attempts:
+            return f"常规第 {next_attempt}/{normal_attempts} 次（总上限 {max_attempts} 次）"
+        return f"第 {next_attempt}/{max_attempts} 次尝试" if max_attempts else "下一次尝试"
+
     def _friendly_stage_message(self, event: dict[str, Any]) -> str:
-        account = self._account_label(event)
+        account = f"{self._account_label(event)}{self._attempt_suffix(event)}"
         stage = str(event.get("stage") or "").strip()
         status = self._status_code_label(event.get("status_code"))
         page_type = str(event.get("page_type") or "").strip()
@@ -2922,14 +2970,16 @@ class MainWindow(QMainWindow):
             backend = self._backend_display(event.get("backend"))
             if bool(event.get("code_present")):
                 return f"📬 {account}：已获取验证码（来源：{backend}，{status}），准备提交验证。"
-            return f"⌛ {account}：暂未获取到新验证码（来源：{backend}，{status}），将继续等待或按超时处理。"
+            return f"⌛ {account}：本轮未拿到新验证码（来源：{backend}，{status}），将进入自动恢复策略。"
         if stage == "email_otp_validate":
             try:
                 code = int(event.get("status_code") or 0)
             except Exception:
                 code = 0
+            final_attempt = int(event.get("attempt") or 1) >= int(event.get("max_attempts") or 1)
+            tail = "已到自动处理上限，将写入失败诊断" if final_attempt else "稍后会按策略自动处理"
             if code == 401:
-                return f"🧾 {account}：验证码提交后被拒绝（{status}），可能是旧码/过期码，稍后会按策略重试。"
+                return f"🧾 {account}：验证码提交后被拒绝（{status}），可能是旧码/过期码，{tail}。"
             if code == 403:
                 return f"🚫 {account}：验证码提交后被服务端拒绝（{status}），优先按账号状态问题诊断。"
             if code >= 400:
@@ -2974,10 +3024,8 @@ class MainWindow(QMainWindow):
             account = self._account_label(event)
             stage = str(event.get("stage") or event.get("status") or "").strip()
             reason = self._reason_display(event.get("reason"))
-            next_attempt = int(event.get("next_attempt") or 0)
-            max_attempts = int(event.get("max_attempts") or 0)
             auto_rerun = bool(event.get("auto_rerun"))
-            attempt_text = f"第 {next_attempt}/{max_attempts} 次尝试" if next_attempt and max_attempts else "下一次尝试"
+            attempt_text = self._retry_attempt_text(event)
             detail = f"；原因：{reason}" if reason else ""
             if auto_rerun:
                 self.append_log(f"🔄 自动重跑补救：{account} 上次停在「{self._stage_display(stage)}」{detail}，正在进行{attempt_text}。")
@@ -3000,11 +3048,19 @@ class MainWindow(QMainWindow):
                 status = str(event.get("status") or "failed")
                 reason = str(event.get("reason") or "").strip()
                 stage = str(event.get("stage") or "").strip()
+                attempt = int(event.get("attempt") or 1)
+                max_attempts = int(event.get("max_attempts") or 1)
                 if status == "cancelled":
                     self.append_log(f"🛑 取消：{account} 已停止，等待其它运行中的账号收尾。")
+                elif self._is_terminal_reason(reason):
+                    detail = self._reason_display(reason)
+                    self.append_log(f"🚫 终态失败：{account} {detail} 客户端已停止自动重跑。")
                 else:
                     detail = f"；原因：{self._reason_display(reason)}" if reason else ""
-                    self.append_log(f"⚠️ 失败：{account} 停在「{self._stage_display(stage or status)}」{detail}。")
+                    if attempt >= max_attempts and max_attempts > 1:
+                        self.append_log(f"⚠️ 可恢复失败：{account} 已自动处理 {attempt}/{max_attempts} 次，仍停在「{self._stage_display(stage or status)}」{detail}。")
+                    else:
+                        self.append_log(f"⚠️ 失败：{account} 停在「{self._stage_display(stage or status)}」{detail}。")
             self.success_stat.set_value(self._success)
             self.failed_stat.set_value(self._failure)
             self.running_stat.set_value(self._running)
@@ -3047,13 +3103,17 @@ class MainWindow(QMainWindow):
             self.append_log(f"🛑 任务已取消：成功 {success_count} 个，未完成/失败 {failure_count} 个，其中取消 {cancelled_count} 个。")
         else:
             self.append_log(f"🎉 任务完成：成功 {success_count} 个，失败 {failure_count} 个。")
-        if retry_count:
-            self.append_log(f"🔁 自动恢复：本次有 {retry_count} 个账号通过自动重试完成或收敛。")
-        if auto_rerun_count:
-            self.append_log(f"🔄 自动重跑补救：本次有 {auto_rerun_count} 个账号进入额外自动重跑。")
+        if retry_count or auto_rerun_count:
+            self.append_log(f"🧮 自动处理统计：{retry_count} 个账号触发恢复策略，其中 {auto_rerun_count} 个进入额外自动重跑补救。")
         if failure_categories:
             parts = [f"{name} {count} 个" for name, count in failure_categories.items()]
             self.append_log(f"⚠️ 失败诊断：{'；'.join(parts)}。")
+            terminal_count = sum(int(failure_categories.get(name, 0) or 0) for name in ("账号状态不可用", "账号被锁定", "账号不存在", "凭据无效"))
+            recoverable_left = max(0, failure_count - terminal_count - cancelled_count)
+            if terminal_count:
+                self.append_log(f"🚫 终态账号：{terminal_count} 个账号已被服务端明确拒绝，客户端不会继续消耗重跑次数。")
+            if recoverable_left and not cancelled:
+                self.append_log(f"🟡 可恢复失败：{recoverable_left} 个账号已达到当前自动处理上限；可增加自动重跑补救次数或降低并发后再次开始。")
         if sub2api_path:
             self.append_log(f"🧰 Sub2API 输出：{sub2api_path}")
         if result_dir:

@@ -358,18 +358,26 @@ def run_export(
         if _is_cancelled(cancel_event):
             return _cancelled_result(row, row_index=row_index, max_attempts=total_attempt_limit)
 
+        current_attempt = 1
+
         def emit_stage(event: dict[str, Any]) -> None:
             payload = {
                 "type": "row_stage",
                 "row_index": row_index,
                 "line_no": row.line_no,
                 "email_masked": mask_email(row.login_email),
+                "attempt": current_attempt,
+                "max_attempts": total_attempt_limit,
+                "normal_attempts": max_attempts,
+                "auto_rerun_attempts": auto_rerun_attempts,
+                "auto_rerun": current_attempt > max_attempts,
             }
             payload.update(event)
             emit(payload)
 
         result: AttemptResult | None = None
         for attempt in range(1, total_attempt_limit + 1):
+            current_attempt = attempt
             try:
                 client = (
                     client_factory()
@@ -484,6 +492,10 @@ def run_export(
                     "line_no": result.row.line_no,
                     "email_masked": mask_email(result.row.login_email),
                     "otp_required": bool(result.otp_required),
+                    "attempt": int((result.meta or {}).get("attempt") or 1),
+                    "max_attempts": int((result.meta or {}).get("max_attempts") or 1),
+                    "normal_attempts": int((result.meta or {}).get("normal_attempts") or (result.meta or {}).get("max_attempts") or 1),
+                    "auto_rerun_attempts": int((result.meta or {}).get("auto_rerun_attempts") or 0),
                     "events": result.events[-8:],
                 }
             )

@@ -380,12 +380,15 @@ def test_gui_runtime_logs_include_account_sequence(tmp_path):
             "reason": "wrong_email_otp_code",
             "next_attempt": 4,
             "max_attempts": 5,
+            "normal_attempts": 3,
+            "auto_rerun_attempts": 2,
             "auto_rerun": True,
         }
     )
     rerun_text = window.log_edit.toPlainText()
     assert "自动重跑补救" in rerun_text
-    assert "第 4/5 次尝试" in rerun_text
+    assert "补救第 1/2 次" in rerun_text
+    assert "总第 4/5 次" in rerun_text
 
     window.close()
     _clear_settings()
@@ -402,6 +405,9 @@ def test_log_line_classification_for_semantic_colors():
     assert classify_log_line("🚀 开始导出：配置已确认") == "start"
     assert classify_log_line("🔁 自动重试：账号 #001 正在进行第 2/2 次尝试。") == "warning"
     assert classify_log_line("🔄 自动重跑补救：账号 #001 正在进行第 4/5 次尝试。") == "warning"
+    assert classify_log_line("🧮 自动处理统计：2 个账号触发恢复策略") == "info"
+    assert classify_log_line("🟡 可恢复失败：1 个账号已达到当前自动处理上限") == "warning"
+    assert classify_log_line("🚫 终态失败：账号 #001 服务端返回账号已停用") == "error"
     assert classify_log_line("🧾 失败诊断报告：failure_report.safe.json") == "output"
     assert classify_log_line("📦 任务已启动：共 3 个账号，并发=3。") == "start"
     assert classify_log_line("🧭 执行流程：OAuth 初始化 → 账号密码验证 → 按需获取邮箱验证码 → Callback 换取 JSON。") == "info"
