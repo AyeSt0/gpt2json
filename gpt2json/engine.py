@@ -103,12 +103,28 @@ def _is_recoverable_retryable(result: AttemptResult) -> bool:
     status = str(result.status or "").strip()
     stage = str(result.stage or "").strip()
     reason = str(result.reason or "").strip().lower()
+    terminal_reasons = {
+        "account_deactivated",
+        "account_disabled",
+        "account_suspended",
+        "account_deleted",
+        "account_locked",
+        "account_not_found",
+        "user_not_found",
+        "invalid_credentials",
+    }
+    # The server has already made a deterministic account-state decision.
+    # Retrying these rows only burns time and may make the GUI look unstable.
+    if reason in terminal_reasons:
+        return False
     # These failures are often recoverable by re-running the whole account flow:
     # a new login attempt sends a fresh email OTP and rebuilds the OAuth session.
-    if status in {"otp_timeout", "email_otp_validate_error"}:
+    if status == "otp_timeout":
         return True
     if reason in {"otp_timeout", "wrong_email_otp_code", "email_otp_expired"}:
         return True
+    if status == "email_otp_validate_error":
+        return not reason or reason.startswith("http_5") or reason in {"bad_request", "invalid_auth_step"}
     if stage == "email_verification" and ("otp" in reason or "code" in reason or "验证码" in reason):
         return True
     transient_markers = (
@@ -143,6 +159,14 @@ def _diagnose_failure(result: AttemptResult) -> tuple[str, str]:
         return "用户取消", "任务已取消；如需继续，重新开始导出即可。"
     if status == "bad_password":
         return "密码验证失败", "请检查这条账号的 GPT/OpenAI 登录密码是否正确。"
+    if lowered in {"account_deactivated", "account_disabled", "account_suspended", "account_deleted"}:
+        return "账号状态不可用", "服务端明确返回账号已停用/禁用/注销；自动重试无法修复，建议更换账号或联系上游处理。"
+    if lowered in {"account_locked"}:
+        return "账号被锁定", "服务端明确返回账号锁定；建议暂停重试，等待解锁或联系上游处理。"
+    if lowered in {"account_not_found", "user_not_found"}:
+        return "账号不存在", "服务端未识别该 GPT/OpenAI 登录邮箱；请检查账号文本或更换账号。"
+    if lowered in {"invalid_credentials"}:
+        return "凭据无效", "服务端明确返回凭据无效；请检查 GPT/OpenAI 登录邮箱和登录密码。"
     if reason == "wrong_email_otp_code":
         return "验证码错误或过期", "取码源可能返回了旧验证码。客户端会尽量等待新码；如果仍失败，请稍后重新运行这一条。"
     if status == "otp_timeout" or reason == "otp_timeout":
@@ -533,4 +557,3 @@ def run_export(
         log(f"[done] success={summary['success_count']} failure={summary['failure_count']}")
     emit({"type": "finished", "summary": summary})
     return summary
-

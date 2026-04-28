@@ -137,6 +137,21 @@ class FlakyOtpClient(ProtocolLoginClient):
         return AttemptResult(row=row, status="success", stage="callback", token_json=token_json)
 
 
+class AccountDeactivatedClient(ProtocolLoginClient):
+    attempts_by_email: dict[str, int] = {}
+
+    def login_and_exchange(self, row, *, otp_fetcher, proxies=None):
+        del otp_fetcher, proxies
+        attempt = self.attempts_by_email.get(row.login_email, 0) + 1
+        self.attempts_by_email[row.login_email] = attempt
+        return AttemptResult(
+            row=row,
+            status="email_otp_validate_error",
+            stage="email_verification",
+            reason="account_deactivated",
+        )
+
+
 def account_text() -> str:
     return "\n".join(
         [
@@ -355,6 +370,35 @@ def test_run_export_retries_recoverable_stale_otp(tmp_path: Path):
     assert summary["failure_report"] == ""
 
 
+def test_run_export_does_not_retry_terminal_account_state(tmp_path: Path):
+    out_dir = tmp_path / "out"
+    AccountDeactivatedClient.attempts_by_email = {}
+    events = []
+    summary = run_export(
+        ExportConfig(
+            input_path="missing.txt",
+            out_dir=str(out_dir),
+            input_text="dead@example.com----pass----https://otp.local/1",
+            concurrency=1,
+            max_attempts=3,
+        ),
+        client_factory=lambda: AccountDeactivatedClient(),
+        on_event=events.append,
+    )
+
+    assert summary["success_count"] == 0
+    assert summary["failure_count"] == 1
+    assert summary["retry_count"] == 0
+    assert AccountDeactivatedClient.attempts_by_email["dead@example.com"] == 1
+    assert not [event for event in events if event.get("type") == "row_retry"]
+    assert summary["failure_categories"] == {"账号状态不可用": 1}
+    report = json.loads(Path(summary["failure_report"]).read_text(encoding="utf-8"))
+    failure = report["failures"][0]
+    assert failure["category"] == "账号状态不可用"
+    assert "自动重试无法修复" in failure["suggestion"]
+    assert failure["attempt"] == 1
+
+
 def test_run_export_keeps_previous_generated_artifacts_in_output_root(tmp_path: Path):
     out_dir = tmp_path / "out"
     (out_dir / "CPA").mkdir(parents=True)
@@ -468,5 +512,4 @@ def test_resolve_concurrency_auto_caps_at_eight():
     assert resolve_concurrency(0, 20) == 8
     assert resolve_concurrency(5, 20) == 5
     assert resolve_concurrency(128, 20) == 128
-
 

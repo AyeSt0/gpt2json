@@ -245,7 +245,7 @@ def classify_log_line(text: str) -> str:
         return "default"
     if line.startswith(("✅", "🎉")) or line.startswith("成功：") or "任务完成：" in line:
         return "success"
-    if line.startswith(("⚠️", "💥")) or line.startswith(("失败：", "主流程异常：")):
+    if line.startswith(("⚠️", "💥", "🚫")) or line.startswith(("失败：", "主流程异常：")):
         return "error"
     if line.startswith("🛑") or line.startswith("取消"):
         return "cancel"
@@ -2856,6 +2856,14 @@ class MainWindow(QMainWindow):
         lowered = raw.lower()
         mapping = {
             "wrong_email_otp_code": "验证码不正确或已过期，通常是取码源返回了旧码。",
+            "account_deactivated": "服务端返回账号已停用；自动重试无法修复，请更换账号或联系上游处理。",
+            "account_disabled": "服务端返回账号已禁用；自动重试无法修复，请更换账号或联系上游处理。",
+            "account_suspended": "服务端返回账号已暂停；自动重试无法修复，请更换账号或联系上游处理。",
+            "account_deleted": "服务端返回账号已注销；自动重试无法修复，请更换账号或联系上游处理。",
+            "account_locked": "服务端返回账号锁定；建议暂停重试，等待解锁或联系上游处理。",
+            "account_not_found": "服务端未识别该登录邮箱，请检查账号文本或更换账号。",
+            "user_not_found": "服务端未识别该登录邮箱，请检查账号文本或更换账号。",
+            "invalid_credentials": "服务端返回凭据无效，请检查 GPT/OpenAI 邮箱和登录密码。",
             "otp_timeout": "在等待时间内没有获取到新的验证码。",
             "callback_error": "没有拿到 OAuth Callback，可能是跳转链路未完成。",
             "finalize_unresolved": "登录已推进到收尾阶段，但最终 Callback 没有解析成功。",
@@ -2908,6 +2916,16 @@ class MainWindow(QMainWindow):
                 return f"📬 {account}：已获取验证码（来源：{backend}，{status}），准备提交验证。"
             return f"⌛ {account}：暂未获取到新验证码（来源：{backend}，{status}），将继续等待或按超时处理。"
         if stage == "email_otp_validate":
+            try:
+                code = int(event.get("status_code") or 0)
+            except Exception:
+                code = 0
+            if code == 401:
+                return f"🧾 {account}：验证码提交后被拒绝（{status}），可能是旧码/过期码，稍后会按策略重试。"
+            if code == 403:
+                return f"🚫 {account}：验证码提交后被服务端拒绝（{status}），优先按账号状态问题诊断。"
+            if code >= 400:
+                return f"🧾 {account}：验证码提交接口返回异常（{status}），等待失败诊断。"
             if bool(event.get("callback_url_present")):
                 return f"🧾 {account}：验证码提交成功（{status}），已获得 Callback。"
             return f"🧾 {account}：验证码已提交（{status}），正在进入收尾流程。"

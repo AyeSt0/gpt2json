@@ -375,6 +375,7 @@ def test_gui_runtime_logs_include_account_sequence(tmp_path):
 def test_log_line_classification_for_semantic_colors():
     assert classify_log_line("✅ 成功：账号 #001 已获取 JSON") == "success"
     assert classify_log_line("⚠️ 失败：账号 #002 停在「验证码提交」") == "error"
+    assert classify_log_line("🚫 账号 #002：验证码提交后被服务端拒绝（HTTP 403）") == "error"
     assert classify_log_line("🛑 取消请求：已发送") == "cancel"
     assert classify_log_line("📮 账号 #003：服务端要求邮箱验证码") == "otp"
     assert classify_log_line("🧰 Sub2API 输出：out.json") == "output"
