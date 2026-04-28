@@ -94,6 +94,9 @@ def test_gui_input_mode_switch_and_clear(tmp_path):
     app.processEvents()
     assert window.sub2api_row.isVisible()
     assert window.cpa_row.isVisible()
+    assert window.sub2api_row.open_btn.text() == "所在位置"
+    assert not hasattr(window.sub2api_row, "copy_btn")
+    assert "所在位置" in window.output_hint_label.text()
 
     window.clear_input()
     app.processEvents()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -428,35 +429,29 @@ class FileOutputRow(QFrame):
         self.name_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.open_btn = QToolButton()
         self.open_btn.setObjectName("CopyButton")
-        self.open_btn.setText("打开")
-        self.open_btn.setToolTip("打开文件")
+        self.open_btn.setText("所在位置")
+        self.open_btn.setToolTip("打开所在文件夹")
         self.open_btn.setEnabled(False)
-        self.open_btn.clicked.connect(self.open_path)
-        self.copy_btn = QToolButton()
-        self.copy_btn.setObjectName("CopyButton")
-        self.copy_btn.setText("复制")
-        self.copy_btn.setToolTip("复制路径")
-        self.copy_btn.setEnabled(False)
-        self.copy_btn.clicked.connect(self.copy_path)
+        self.open_btn.clicked.connect(self.reveal_in_folder)
         layout.addWidget(badge_label)
         layout.addWidget(self.name_label, 1)
         layout.addWidget(self.open_btn)
-        layout.addWidget(self.copy_btn)
 
     def set_path(self, path: str) -> None:
         self.path = path
         self.name_label.setText(Path(path).name if path else self.default_filename)
         self.open_btn.setEnabled(bool(path))
-        self.copy_btn.setEnabled(bool(path))
         self.setToolTip(path)
 
-    def open_path(self) -> None:
-        if self.path:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(self.path).resolve())))
-
-    def copy_path(self) -> None:
-        if self.path:
-            QApplication.clipboard().setText(self.path)
+    def reveal_in_folder(self) -> None:
+        if not self.path:
+            return
+        target = Path(self.path).resolve()
+        if sys.platform.startswith("win") and target.is_file():
+            subprocess.Popen(["explorer.exe", f"/select,{target}"])  # noqa: S603,S607
+            return
+        folder = target if target.is_dir() else target.parent
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
 
 class FormatCombo(QComboBox):
@@ -887,7 +882,7 @@ class MainWindow(QMainWindow):
         output_layout.setContentsMargins(16, 14, 16, 14)
         output_layout.setSpacing(12)
         output_layout.addWidget(SectionHeader(UI_OUTPUT_PATH, "导出结果"))
-        self.output_hint_label = QLabel("任务完成后显示可打开的结果；未运行时这里保持精简。")
+        self.output_hint_label = QLabel("任务完成后显示结果所在位置；未运行时这里保持精简。")
         self.output_hint_label.setObjectName("HintText")
         self.output_hint_label.setWordWrap(True)
         output_layout.addWidget(self.output_hint_label)
@@ -1057,7 +1052,7 @@ class MainWindow(QMainWindow):
             #OutputRow {{ min-height:54px; background:{p['soft']}; border:1px solid {p['border']}; border-radius:9px; }}
             #OutputBadge {{ color:white; background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #2563EB,stop:1 #7C3AED); min-width:54px; max-width:54px; min-height:26px; max-height:26px; border-radius:7px; font-size:10px; font-weight:900; }}
             #OutputName {{ color:{p['text']}; font-size:12px; font-weight:700; }}
-            #CopyButton {{ border:none; background:transparent; color:{p['muted2']}; min-width:42px; max-width:42px; min-height:28px; max-height:28px; border-radius:6px; font-size:11px; font-weight:800; }}
+            #CopyButton {{ border:none; background:transparent; color:{p['muted2']}; min-width:64px; max-width:64px; min-height:28px; max-height:28px; border-radius:6px; font-size:11px; font-weight:800; }}
             #CopyButton:hover {{ color:#2563EB; background:{p['card']}; }}
             #LogBox {{ border-radius:9px; border:1px solid {p['border']}; background:{p['log']}; color:{p['muted']}; padding:11px; font-family:Consolas, 'Cascadia Mono', monospace; font-size:12px; }}
             """
@@ -1260,9 +1255,9 @@ class MainWindow(QMainWindow):
             self.sub2api_row.setEnabled(has_sub2api)
             self.cpa_row.setEnabled(has_cpa)
             if self._is_running:
-                self.output_hint_label.setText("正在导出，完成后这里会自动出现文件 / 文件夹入口。")
+                self.output_hint_label.setText("正在导出，完成后这里会自动出现结果所在位置入口。")
             elif has_result:
-                self.output_hint_label.setText("已生成结果，可直接打开或复制路径。")
+                self.output_hint_label.setText("已生成结果，可直接打开所在位置。")
             elif any_selected:
                 self.output_hint_label.setText("结果区会在导出完成后显示；平时不用在这里操作。")
             else:
