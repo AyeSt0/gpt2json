@@ -1395,7 +1395,7 @@ class MainWindow(QMainWindow):
         self.output_hint_label.setWordWrap(True)
         output_layout.addWidget(self.output_hint_label)
         self.sub2api_row = FileOutputRow("sub2api_accounts.secret.json", "Sub2API")
-        self.cpa_row = FileOutputRow("CPA/", "CPA")
+        self.cpa_row = FileOutputRow("CPA_<批次>/", "CPA")
         self.sub2api_row.setVisible(False)
         self.cpa_row.setVisible(False)
         output_layout.addWidget(self.sub2api_row)

@@ -504,7 +504,8 @@ def run_export(
     successes.sort(key=lambda item: str(item.get("email") or ""))
     sub_accounts: list[dict[str, Any]] = []
     cpa_files: list[dict[str, Any]] = []
-    cpa_dir = out_dir / "CPA"
+    cpa_dir_name = f"CPA_{run_stamp}"
+    cpa_dir = out_dir / cpa_dir_name
     for index, token_payload in enumerate(successes, 1):
         email = str(token_payload.get("email") or "").strip()
         if export_cpa:
@@ -531,7 +532,7 @@ def run_export(
                 "exported_at": utc_now_iso(),
                 "count": len(successes),
                 "format": "cpa-per-account-json",
-                "directory": "CPA",
+                "directory": cpa_dir_name,
                 "files": cpa_files,
             },
         )

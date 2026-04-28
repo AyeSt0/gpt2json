@@ -11,7 +11,7 @@
 ### Changed
 
 - GUI 高级选项新增“自动重跑补救次数”，并在日志中区分普通自动重试和额外自动重跑。
-- CPA 导出改为只保留 `CPA/` 单账号 JSON 文件夹，不再额外生成 `cpa_tokens_*.zip`。
+- CPA 导出改为只保留唯一 `CPA_<批次>/` 单账号 JSON 文件夹，不再额外生成 `cpa_tokens_*.zip`。
 
 ### Planned
 

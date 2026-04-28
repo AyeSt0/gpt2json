@@ -216,7 +216,10 @@ def test_run_export_writes_cpa_and_sub2api(tmp_path: Path):
     assert summary["batch_id"] in batch_dir.name
     assert (batch_dir / "cpa_manifest.json").exists()
     assert (batch_dir / "sub2api_accounts.secret.json").exists()
-    cpa_files = sorted((batch_dir / "CPA").glob("*.json"))
+    cpa_dir = Path(str(summary["cpa_dir"]))
+    assert cpa_dir.parent == batch_dir
+    assert cpa_dir.name == f"CPA_{summary['batch_id']}"
+    cpa_files = sorted(cpa_dir.glob("*.json"))
     assert len(cpa_files) == 2
     assert {item.name for item in cpa_files} == {"ok1@example.com.json", "ok2@example.com.json"}
     assert summary["cpa_zip"] == ""
@@ -230,6 +233,7 @@ def test_run_export_writes_cpa_and_sub2api(tmp_path: Path):
     manifest = json.loads((batch_dir / "cpa_manifest.json").read_text(encoding="utf-8"))
     assert manifest["count"] == 2
     assert manifest["format"] == "cpa-per-account-json"
+    assert manifest["directory"] == cpa_dir.name
     assert len(manifest["files"]) == 2
     assert "accounts" not in manifest
 
@@ -263,7 +267,10 @@ def test_run_export_cpa_only(tmp_path: Path):
     assert summary["cpa_manifest"]
     assert summary["cpa_zip"] == ""
     batch_dir = batch_dir_from(summary)
-    assert len(list((batch_dir / "CPA").glob("*.json"))) == 2
+    cpa_dir = Path(str(summary["cpa_dir"]))
+    assert cpa_dir.parent == batch_dir
+    assert cpa_dir.name == f"CPA_{summary['batch_id']}"
+    assert len(list(cpa_dir.glob("*.json"))) == 2
     assert (batch_dir / "cpa_manifest.json").exists()
     assert not list(batch_dir.glob("cpa_tokens_*.zip"))
     assert not (batch_dir / "sub2api_accounts.secret.json").exists()
@@ -287,6 +294,7 @@ def test_run_export_sub2api_only(tmp_path: Path):
     assert summary["sub2api_export"]
     batch_dir = batch_dir_from(summary)
     assert not (batch_dir / "CPA").exists()
+    assert not list(batch_dir.glob("CPA_*"))
     assert (batch_dir / "sub2api_accounts.secret.json").exists()
     assert not (batch_dir / "cpa_manifest.json").exists()
 
@@ -335,7 +343,7 @@ def test_run_export_marks_malformed_success_token_as_failure(tmp_path: Path):
     assert summary["failure_count"] == 1
     safe_rows = safe_rows_from(summary)
     assert {row["status"] for row in safe_rows} == {"success", "export_prepare_error"}
-    assert len(list((batch_dir_from(summary) / "CPA").glob("*.json"))) == 1
+    assert len(list(Path(str(summary["cpa_dir"])).glob("*.json"))) == 1
 
 
 def test_run_export_retries_transient_finalize_timeout(tmp_path: Path):
@@ -522,10 +530,15 @@ def test_run_export_does_not_overwrite_duplicate_cpa_account_filenames(tmp_path:
         client_factory=lambda: ConstantTokenEmailClient(),
     )
 
-    cpa_files = sorted((batch_dir_from(summary) / "CPA").glob("*.json"))
+    cpa_dir = Path(str(summary["cpa_dir"]))
+    cpa_files = sorted(cpa_dir.glob("*.json"))
     assert [item.name for item in cpa_files] == ["same@example.com.json", "same@example.com_002.json"]
     manifest = json.loads((batch_dir_from(summary) / "cpa_manifest.json").read_text(encoding="utf-8"))
-    assert [item["file"] for item in manifest["files"]] == ["CPA/same@example.com.json", "CPA/same@example.com_002.json"]
+    assert manifest["directory"] == cpa_dir.name
+    assert [item["file"] for item in manifest["files"]] == [
+        f"{cpa_dir.name}/same@example.com.json",
+        f"{cpa_dir.name}/same@example.com_002.json",
+    ]
     assert "zip" not in manifest
 
 
@@ -561,6 +574,7 @@ def test_run_export_reports_cancelled_rows_without_outputs(tmp_path: Path):
     batch_dir = batch_dir_from(summary)
     assert not (batch_dir / "sub2api_accounts.secret.json").exists()
     assert not (batch_dir / "CPA").exists()
+    assert not list(batch_dir.glob("CPA_*"))
 
 
 def test_resolve_concurrency_auto_caps_at_eight():

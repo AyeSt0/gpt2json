@@ -140,7 +140,7 @@ def test_gui_input_mode_switch_and_clear(tmp_path):
     assert not window.cpa_row.isVisible()
 
     window.sub2api_row.set_path(str(tmp_path / "out" / "sub2api_accounts.secret.json"))
-    window.cpa_row.set_path(str(tmp_path / "out" / "CPA"))
+    window.cpa_row.set_path(str(tmp_path / "out" / "CPA_20260429_043512_a1b2c3"))
     window._refresh_output_format_state()
     app.processEvents()
     assert window.sub2api_row.isVisible()
