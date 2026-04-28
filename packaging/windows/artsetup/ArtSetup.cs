@@ -227,52 +227,14 @@ namespace GPT2JSON.ArtSetup
 
         private void AddAmbientFlow(Grid shell)
         {
-            var flow = new Canvas
+            var flow = new CurveFlowLayer
             {
                 Width = 1040,
                 Height = 560,
                 IsHitTestVisible = false,
-                Opacity = 0.95
+                Opacity = 0.96
             };
             shell.Children.Add(flow);
-
-            var low = FlowRibbon(340, 6, Color.FromArgb(0, 40, 220, 255), Color.FromArgb(190, 41, 214, 255), Color.FromArgb(0, 180, 80, 255));
-            Canvas.SetLeft(low, -380);
-            Canvas.SetTop(low, 492);
-            flow.Children.Add(low);
-            Motion.StartHorizontalFlow(low, -380, 1080, 5200, 350);
-
-            var mid = FlowRibbon(250, 4, Color.FromArgb(0, 170, 70, 255), Color.FromArgb(135, 188, 96, 255), Color.FromArgb(0, 58, 202, 255));
-            Canvas.SetLeft(mid, -310);
-            Canvas.SetTop(mid, 104);
-            flow.Children.Add(mid);
-            Motion.StartHorizontalFlow(mid, -310, 1010, 6800, 1250);
-
-            var panelLine = FlowRibbon(180, 3, Color.FromArgb(0, 250, 250, 255), Color.FromArgb(125, 255, 255, 255), Color.FromArgb(0, 180, 82, 255));
-            Canvas.SetLeft(panelLine, 420);
-            Canvas.SetTop(panelLine, 414);
-            flow.Children.Add(panelLine);
-            Motion.StartHorizontalFlow(panelLine, 420, 810, 3600, 900);
-        }
-
-        private Border FlowRibbon(double width, double height, Color left, Color middle, Color right)
-        {
-            var brush = new LinearGradientBrush();
-            brush.StartPoint = new Point(0, 0.5);
-            brush.EndPoint = new Point(1, 0.5);
-            brush.GradientStops.Add(new GradientStop(left, 0));
-            brush.GradientStops.Add(new GradientStop(middle, 0.5));
-            brush.GradientStops.Add(new GradientStop(right, 1));
-
-            return new Border
-            {
-                Width = width,
-                Height = height,
-                CornerRadius = new CornerRadius(height / 2),
-                Background = brush,
-                Effect = new BlurEffect { Radius = 3.5 },
-                RenderTransform = new RotateTransform(-4)
-            };
         }
 
         private void AddInstallerControls(Grid shell)
@@ -1132,6 +1094,150 @@ namespace GPT2JSON.ArtSetup
         }
     }
 
+    internal sealed class CurveFlowLayer : FrameworkElement
+    {
+        private sealed class Curve
+        {
+            public Point P0;
+            public Point P1;
+            public Point P2;
+            public Point P3;
+            public Color Core;
+            public Color Halo;
+            public double Width;
+            public double Offset;
+            public double Speed;
+        }
+
+        private readonly Curve[] _curves;
+        private readonly DispatcherTimer _timer;
+        private double _phase;
+
+        public CurveFlowLayer()
+        {
+            _curves = new[]
+            {
+                new Curve
+                {
+                    P0 = new Point(82, 78), P1 = new Point(38, 188), P2 = new Point(45, 315), P3 = new Point(112, 444),
+                    Core = Color.FromRgb(38, 220, 255), Halo = Color.FromRgb(73, 100, 255), Width = 2.8, Offset = 0.00, Speed = 0.78
+                },
+                new Curve
+                {
+                    P0 = new Point(286, 62), P1 = new Point(166, 160), P2 = new Point(184, 310), P3 = new Point(300, 462),
+                    Core = Color.FromRgb(183, 69, 255), Halo = Color.FromRgb(38, 185, 255), Width = 3.2, Offset = 0.25, Speed = 0.68
+                },
+                new Curve
+                {
+                    P0 = new Point(94, 464), P1 = new Point(172, 524), P2 = new Point(338, 476), P3 = new Point(506, 510),
+                    Core = Color.FromRgb(46, 206, 255), Halo = Color.FromRgb(188, 77, 255), Width = 2.4, Offset = 0.48, Speed = 0.58
+                },
+                new Curve
+                {
+                    P0 = new Point(104, 32), P1 = new Point(202, 12), P2 = new Point(250, 94), P3 = new Point(374, 56),
+                    Core = Color.FromRgb(154, 83, 255), Halo = Color.FromRgb(39, 206, 255), Width = 2.1, Offset = 0.64, Speed = 0.52
+                },
+                new Curve
+                {
+                    P0 = new Point(208, 92), P1 = new Point(242, 170), P2 = new Point(160, 238), P3 = new Point(214, 326),
+                    Core = Color.FromRgb(37, 191, 255), Halo = Color.FromRgb(182, 69, 255), Width = 1.8, Offset = 0.82, Speed = 0.74
+                }
+            };
+
+            _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(24) };
+            _timer.Tick += delegate
+            {
+                _phase += 0.0065;
+                if (_phase > 1) _phase -= 1;
+                InvalidateVisual();
+            };
+            Loaded += delegate { _timer.Start(); };
+            Unloaded += delegate { _timer.Stop(); };
+        }
+
+        protected override void OnRender(DrawingContext dc)
+        {
+            base.OnRender(dc);
+
+            for (int i = 0; i < _curves.Length; i++)
+            {
+                DrawBaseCurve(dc, _curves[i]);
+                DrawComet(dc, _curves[i]);
+            }
+        }
+
+        private void DrawBaseCurve(DrawingContext dc, Curve curve)
+        {
+            var geometry = new StreamGeometry();
+            using (var ctx = geometry.Open())
+            {
+                ctx.BeginFigure(curve.P0, false, false);
+                ctx.BezierTo(curve.P1, curve.P2, curve.P3, true, true);
+            }
+            geometry.Freeze();
+
+            var haloPen = new Pen(new SolidColorBrush(Color.FromArgb(22, curve.Halo.R, curve.Halo.G, curve.Halo.B)), curve.Width + 5);
+            haloPen.StartLineCap = PenLineCap.Round;
+            haloPen.EndLineCap = PenLineCap.Round;
+            dc.DrawGeometry(null, haloPen, geometry);
+
+            var corePen = new Pen(new SolidColorBrush(Color.FromArgb(42, curve.Core.R, curve.Core.G, curve.Core.B)), curve.Width);
+            corePen.StartLineCap = PenLineCap.Round;
+            corePen.EndLineCap = PenLineCap.Round;
+            dc.DrawGeometry(null, corePen, geometry);
+        }
+
+        private void DrawComet(DrawingContext dc, Curve curve)
+        {
+            double head = Wrap(_phase * curve.Speed + curve.Offset);
+            const int segments = 24;
+            const double step = 0.009;
+
+            for (int i = segments; i >= 1; i--)
+            {
+                double t1 = Wrap(head - i * step);
+                double t2 = Wrap(head - (i - 1) * step);
+                if (Math.Abs(t2 - t1) > 0.2) continue;
+
+                Point a = Sample(curve, t1);
+                Point b = Sample(curve, t2);
+                double fade = 1.0 - (double)i / segments;
+                byte haloAlpha = (byte)(18 + 92 * fade);
+                byte coreAlpha = (byte)(32 + 170 * fade);
+
+                var haloPen = new Pen(new SolidColorBrush(Color.FromArgb(haloAlpha, curve.Halo.R, curve.Halo.G, curve.Halo.B)), curve.Width + 7 * fade);
+                haloPen.StartLineCap = PenLineCap.Round;
+                haloPen.EndLineCap = PenLineCap.Round;
+                dc.DrawLine(haloPen, a, b);
+
+                var corePen = new Pen(new SolidColorBrush(Color.FromArgb(coreAlpha, curve.Core.R, curve.Core.G, curve.Core.B)), curve.Width + 1.6 * fade);
+                corePen.StartLineCap = PenLineCap.Round;
+                corePen.EndLineCap = PenLineCap.Round;
+                dc.DrawLine(corePen, a, b);
+            }
+
+            Point p = Sample(curve, head);
+            dc.DrawEllipse(new SolidColorBrush(Color.FromArgb(65, curve.Halo.R, curve.Halo.G, curve.Halo.B)), null, p, curve.Width + 8, curve.Width + 8);
+            dc.DrawEllipse(new SolidColorBrush(Color.FromArgb(230, 255, 255, 255)), null, p, curve.Width + 1.4, curve.Width + 1.4);
+            dc.DrawEllipse(new SolidColorBrush(Color.FromArgb(240, curve.Core.R, curve.Core.G, curve.Core.B)), null, p, curve.Width, curve.Width);
+        }
+
+        private static Point Sample(Curve curve, double t)
+        {
+            double u = 1 - t;
+            double x = u * u * u * curve.P0.X + 3 * u * u * t * curve.P1.X + 3 * u * t * t * curve.P2.X + t * t * t * curve.P3.X;
+            double y = u * u * u * curve.P0.Y + 3 * u * u * t * curve.P1.Y + 3 * u * t * t * curve.P2.Y + t * t * t * curve.P3.Y;
+            return new Point(x, y);
+        }
+
+        private static double Wrap(double value)
+        {
+            value = value - Math.Floor(value);
+            if (value < 0) value += 1;
+            return value;
+        }
+    }
+
     internal sealed class ElegantProgressBar : FrameworkElement
     {
         public static readonly DependencyProperty ValueProperty =
@@ -1282,19 +1388,6 @@ namespace GPT2JSON.ArtSetup
                 EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
             };
             element.BeginAnimation(UIElement.OpacityProperty, animation);
-        }
-
-        internal static void StartHorizontalFlow(FrameworkElement element, double from, double to, int milliseconds, int delayMilliseconds)
-        {
-            if (element == null) return;
-
-            var animation = new DoubleAnimation(from, to, TimeSpan.FromMilliseconds(milliseconds))
-            {
-                BeginTime = TimeSpan.FromMilliseconds(delayMilliseconds),
-                RepeatBehavior = RepeatBehavior.Forever,
-                EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
-            };
-            element.BeginAnimation(Canvas.LeftProperty, animation);
         }
 
         internal static void AnimateProgress(ElegantProgressBar progress, double target)
