@@ -561,11 +561,34 @@ class ProtocolLoginClient:
             kwargs["data"] = data
         return session.request(method=method.upper(), url=url, **kwargs)
 
-    def _post_with_retry(self, session: requests.Session, url: str, *, headers: dict[str, Any], proxies: Any = None, json_body: Any = None, data: Any = None, timeout: int | None = None, retries: int = 2) -> Any:
+    def _request_with_retry(
+        self,
+        session: requests.Session,
+        method: str,
+        url: str,
+        *,
+        proxies: Any = None,
+        headers: dict[str, Any] | None = None,
+        json_body: Any = None,
+        data: Any = None,
+        allow_redirects: bool = False,
+        timeout: int | None = None,
+        retries: int = 2,
+    ) -> Any:
         last_error: Exception | None = None
         for attempt in range(retries + 1):
             try:
-                return self._request(session, "POST", url, proxies=proxies, headers=headers, json_body=json_body, data=data, timeout=timeout)
+                return self._request(
+                    session,
+                    method,
+                    url,
+                    proxies=proxies,
+                    headers=headers,
+                    json_body=json_body,
+                    data=data,
+                    allow_redirects=allow_redirects,
+                    timeout=timeout,
+                )
             except Exception as exc:
                 last_error = exc
                 if attempt >= retries:
@@ -574,6 +597,19 @@ class ProtocolLoginClient:
         if last_error:
             raise last_error
         raise RuntimeError("request failed without exception")
+
+    def _post_with_retry(self, session: requests.Session, url: str, *, headers: dict[str, Any], proxies: Any = None, json_body: Any = None, data: Any = None, timeout: int | None = None, retries: int = 2) -> Any:
+        return self._request_with_retry(
+            session,
+            "POST",
+            url,
+            proxies=proxies,
+            headers=headers,
+            json_body=json_body,
+            data=data,
+            timeout=timeout,
+            retries=retries,
+        )
 
     def _build_sentinel_request_body(self, did: str, *, flow: str = "authorize_continue") -> str:
         return json.dumps({"p": str(os.getenv("OPENAI_SENTINEL_P") or "").strip(), "id": str(did or "").strip(), "flow": str(flow or "authorize_continue").strip()}, ensure_ascii=False)
@@ -592,19 +628,32 @@ class ProtocolLoginClient:
 
     def request_authorize_continue_sentinel(self, did: str, *, proxies: Any = None, flow: str = "authorize_continue") -> str:
         body = self._build_sentinel_request_body(did, flow=flow)
-        resp = requests.post(
-            "https://sentinel.openai.com/backend-api/sentinel/req",
-            headers={
-                "origin": "https://sentinel.openai.com",
-                "referer": "https://sentinel.openai.com/backend-api/sentinel/frame.html?sv=20260219f9f6",
-                "content-type": "text/plain;charset=UTF-8",
-            },
-            data=body,
-            proxies=proxies,
-            verify=self.verify_ssl,
-            timeout=15,
-            impersonate=self.impersonate,
-        )
+        last_error: Exception | None = None
+        for attempt in range(3):
+            try:
+                resp = requests.post(
+                    "https://sentinel.openai.com/backend-api/sentinel/req",
+                    headers={
+                        "origin": "https://sentinel.openai.com",
+                        "referer": "https://sentinel.openai.com/backend-api/sentinel/frame.html?sv=20260219f9f6",
+                        "content-type": "text/plain;charset=UTF-8",
+                    },
+                    data=body,
+                    proxies=proxies,
+                    verify=self.verify_ssl,
+                    timeout=self.timeout,
+                    impersonate=self.impersonate,
+                )
+                break
+            except Exception as exc:
+                last_error = exc
+                if attempt >= 2:
+                    raise
+                time.sleep(1 + attempt)
+        else:
+            if last_error:
+                raise last_error
+            raise RuntimeError("sentinel req failed without exception")
         if resp.status_code != 200:
             raise RuntimeError(f"sentinel req returned status {resp.status_code}")
         token = str((resp.json() or {}).get("token") or "").strip()
@@ -624,16 +673,17 @@ class ProtocolLoginClient:
                     code_verifier=oauth_start.code_verifier,
                     redirect_uri=oauth_start.redirect_uri,
                     verify=self.verify_ssl,
+                    timeout=self.timeout,
                 )
                 return token_json, ""
-            final_resp = self._request(
+            final_resp = self._request_with_retry(
                 session,
                 "GET",
                 current_url,
                 proxies=proxies,
                 headers=_headers(AUTH_NAV_HEADERS, referer="https://auth.openai.com/"),
                 allow_redirects=False,
-                timeout=15,
+                timeout=self.timeout,
             )
             next_url = ""
             if final_resp.status_code in {301, 302, 303, 307, 308}:
@@ -647,6 +697,7 @@ class ProtocolLoginClient:
                         code_verifier=oauth_start.code_verifier,
                         redirect_uri=oauth_start.redirect_uri,
                         verify=self.verify_ssl,
+                        timeout=self.timeout,
                     )
                     return token_json, ""
                 if "consent_challenge=" in current_url:
@@ -661,7 +712,7 @@ class ProtocolLoginClient:
                         },
                         data={"action": "accept"},
                         proxies=proxies,
-                        timeout=15,
+                        timeout=self.timeout,
                     )
                     next_url = _normalize_absolute_url(current_url, (getattr(consent_resp, "headers", {}) or {}).get("Location") or "")
                 else:
@@ -684,7 +735,7 @@ class ProtocolLoginClient:
             ),
             data=json.dumps({"workspace_id": workspace_id}, ensure_ascii=False, separators=(",", ":")),
             proxies=proxies,
-            timeout=30,
+            timeout=self.timeout,
         )
         transition = _extract_transition_targets_from_response(select_resp, request_url="https://auth.openai.com/api/accounts/workspace/select")
         if transition["callback_url"]:
@@ -694,6 +745,7 @@ class ProtocolLoginClient:
                 code_verifier=oauth_start.code_verifier,
                 redirect_uri=oauth_start.redirect_uri,
                 verify=self.verify_ssl,
+                timeout=self.timeout,
             )
             return token_json, transition, ""
 
@@ -729,6 +781,7 @@ class ProtocolLoginClient:
                         code_verifier=oauth_start.code_verifier,
                         redirect_uri=oauth_start.redirect_uri,
                         verify=self.verify_ssl,
+                        timeout=self.timeout,
                     )
                     token_json = _inject_selected_org_context(token_json, organization_id=selected_org_id, project_id=selected_project_id)
                     return token_json, org_transition, ""
@@ -761,6 +814,7 @@ class ProtocolLoginClient:
                 code_verifier=oauth_start.code_verifier,
                 redirect_uri=oauth_start.redirect_uri,
                 verify=self.verify_ssl,
+                timeout=self.timeout,
             )
             return token_json, "", transition
 
@@ -849,6 +903,9 @@ class ProtocolLoginClient:
                 "oai-did",
                 preferred_domains=("auth.openai.com", ".auth.openai.com", "openai.com", ".openai.com"),
             )
+            result.stage = "sentinel"
+            result.events.append({"stage": "sentinel", "did_present": bool(did)})
+            self._emit_stage("sentinel", did_present=bool(did))
             sentinel = self.request_authorize_continue_sentinel(did, proxies=proxies)
             result.meta["did_present"] = bool(did)
 
@@ -971,6 +1028,7 @@ class ProtocolLoginClient:
                     result.reason = current_transition["error_code"] or f"http_{current_transition['status_code']}"
                     return result
 
+            result.stage = "finalize"
             self._emit_stage("finalize")
             token_json, finalize_reason, finalize_transition = self._finalize_transition(
                 session,

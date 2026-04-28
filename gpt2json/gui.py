@@ -1748,6 +1748,7 @@ class MainWindow(QMainWindow):
         mapping = {
             "oauth_start": "OAuth 初始化",
             "entry": "授权入口",
+            "sentinel": "风控票据",
             "authorize_continue": "账号识别",
             "password_verify": "密码验证",
             "email_verification": "邮箱验证码",
@@ -1775,6 +1776,8 @@ class MainWindow(QMainWindow):
             return f"🧭 {email} 正在打开 OAuth 通道：先敲门，不开浏览器。"
         if stage == "entry":
             return f"🚪 {email} 授权入口已响应（{status}），拿会话饼干中。"
+        if stage == "sentinel":
+            return f"🛡️ {email} 会话已建立，正在换风控通行证。"
         if stage == "authorize_continue":
             return f"📨 {email} 邮箱已递交给认证接口（{status}），看看下一站怎么走。"
         if stage == "password_verify":

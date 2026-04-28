@@ -83,6 +83,58 @@ def test_otp_prime_row_renders_email_placeholder(monkeypatch):
     assert calls[0][0] == "https://otp.local/latest?email=probe%40example.com"
 
 
+def test_otp_poll_ignores_primed_code_when_payload_signature_changes(monkeypatch):
+    calls = []
+    responses = iter(
+        [
+            otp.OtpFetchDetails(code="111111", signature="old-envelope", backend="json", status_code=200),
+            otp.OtpFetchDetails(code="111111", signature="new-envelope-same-code", backend="json", status_code=200),
+        ]
+    )
+
+    def fake_fetch(email, source, **kwargs):  # noqa: ANN001, ARG001
+        calls.append((email, source))
+        return next(responses)
+
+    row = AccountRow(
+        line_no=1,
+        login_email="probe@example.com",
+        password="pass",
+        otp_source="https://otp.local/latest?email={email}",
+    )
+    fetcher = otp.OtpFetcher(timeout=30, interval=30)
+    monkeypatch.setattr(otp, "fetch_otp_fetch_details_via_url", fake_fetch)
+    monkeypatch.setattr(fetcher, "_wait_interval", lambda: True)
+
+    fetcher.prime_row(row)
+    assert fetcher.poll_row(row) == ""
+    assert len(calls) == 2
+
+
+def test_otp_poll_accepts_new_code_after_prime(monkeypatch):
+    responses = iter(
+        [
+            otp.OtpFetchDetails(code="111111", signature="old-envelope", backend="json", status_code=200),
+            otp.OtpFetchDetails(code="222222", signature="new-envelope-new-code", backend="json", status_code=200),
+        ]
+    )
+
+    def fake_fetch(email, source, **kwargs):  # noqa: ANN001, ARG001
+        return next(responses)
+
+    row = AccountRow(
+        line_no=1,
+        login_email="probe@example.com",
+        password="pass",
+        otp_source="https://otp.local/latest?email={email}",
+    )
+    fetcher = otp.OtpFetcher(timeout=30, interval=30)
+    monkeypatch.setattr(otp, "fetch_otp_fetch_details_via_url", fake_fetch)
+
+    fetcher.prime_row(row)
+    assert fetcher.poll_row(row) == "222222"
+
+
 def test_otp_poll_source_cancel_wakes_interval(monkeypatch):
     cancel_event = threading.Event()
     fetcher = otp.OtpFetcher(timeout=30, interval=30, cancel_event=cancel_event)
