@@ -62,149 +62,149 @@ def draw_pill(draw: ImageDraw.ImageDraw, xy: tuple[int, int], text: str, fill: s
 
 
 def create_hero() -> None:
+    """Generate the README hero as a premium product banner.
+
+    Keep this deterministic and code-native so the project front page can be
+    refreshed without relying on a stale AI mockup.
+    """
+
     version = project_version()
     width, height = 1983, 793
-    img = vertical_gradient((width, height), (9, 16, 38), (51, 35, 116)).convert("RGBA")
+
+    img = Image.new("RGB", (width, height), "#050816")
+    pixels = img.load()
+    for y in range(height):
+        for x in range(width):
+            nx = x / width
+            ny = y / height
+            c1 = (5, 8, 22)
+            c2 = (21, 28, 68)
+            c3 = (41, 23, 92)
+            t = min(1, max(0, nx * 0.58 + ny * 0.42))
+            mid = tuple(int(c1[i] * (1 - t) + c2[i] * t) for i in range(3))
+            glow = max(0, 1 - ((nx - 0.78) ** 2 / 0.16 + (ny - 0.55) ** 2 / 0.38))
+            pixels[x, y] = tuple(min(255, int(mid[i] * (1 - glow * 0.55) + c3[i] * glow * 0.55)) for i in range(3))
+    img = img.convert("RGBA")
     draw = ImageDraw.Draw(img)
 
-    # Soft aurora blobs.
-    for cx, cy, r, color in [
-        (1740, 130, 390, (59, 130, 246, 90)),
-        (1390, 650, 460, (124, 58, 237, 110)),
-        (520, 710, 360, (20, 184, 166, 70)),
-    ]:
-        blob = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-        ImageDraw.Draw(blob).ellipse((cx - r, cy - r, cx + r, cy + r), fill=color)
-        img.alpha_composite(blob.filter(ImageFilter.GaussianBlur(80)))
+    def add_blur_ellipse(box: tuple[int, int, int, int], color: tuple[int, int, int, int], blur: int) -> None:
+        layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        ImageDraw.Draw(layer).ellipse(box, fill=color)
+        img.alpha_composite(layer.filter(ImageFilter.GaussianBlur(blur)))
 
-    # Fine grid.
-    grid = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    g = ImageDraw.Draw(grid)
-    for x in range(0, width, 56):
-        g.line((x, 0, x, height), fill=(255, 255, 255, 12), width=1)
-    for y in range(0, height, 56):
-        g.line((0, y, width, y), fill=(255, 255, 255, 10), width=1)
-    img.alpha_composite(grid)
+    add_blur_ellipse((1040, -250, 2100, 760), (37, 99, 235, 72), 90)
+    add_blur_ellipse((780, 290, 1900, 1050), (124, 58, 237, 86), 115)
+    add_blur_ellipse((-220, 510, 780, 1120), (6, 182, 212, 48), 120)
+    add_blur_ellipse((210, -170, 970, 520), (30, 64, 175, 50), 95)
 
-    # Logo chip.
+    mesh = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    mesh_draw = ImageDraw.Draw(mesh)
+    for i in range(-12, 42):
+        points = []
+        for x in range(0, width + 1, 18):
+            y = 470 + math.sin(x / 130 + i * 0.52) * 24 + i * 22 - x * 0.05
+            points.append((x, y))
+        mesh_draw.line(points, fill=(148, 163, 255, 13), width=1)
+    for i in range(9):
+        x0 = 1120 + i * 82
+        mesh_draw.line((x0, 120, x0 + 260, 705), fill=(255, 255, 255, 10), width=1)
+    img.alpha_composite(mesh)
+
+    frame = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    frame_draw = ImageDraw.Draw(frame)
+    frame_draw.rounded_rectangle((76, 72, width - 76, height - 72), 56, fill=(255, 255, 255, 14), outline=(255, 255, 255, 34), width=1)
+    frame_draw.rounded_rectangle((96, 92, width - 96, height - 92), 44, outline=(255, 255, 255, 12), width=1)
+    img.alpha_composite(frame)
+
     icon_path = ROOT / "gpt2json" / "assets" / "gpt2json_icon_light.png"
     if icon_path.exists():
-        icon = Image.open(icon_path).convert("RGBA").resize((92, 92), Image.Resampling.LANCZOS)
-        mask = Image.new("L", (92, 92), 0)
-        ImageDraw.Draw(mask).rounded_rectangle((0, 0, 92, 92), 24, fill=255)
+        icon = Image.open(icon_path).convert("RGBA").resize((112, 112), Image.Resampling.LANCZOS)
+        mask = Image.new("L", (112, 112), 0)
+        ImageDraw.Draw(mask).rounded_rectangle((0, 0, 111, 111), 28, fill=255)
         icon.putalpha(mask)
-        img.alpha_composite(icon, (142, 126))
-    draw.rounded_rectangle((260, 137, 510, 207), 35, fill=(255, 255, 255, 18), outline=(255, 255, 255, 45), width=1)
-    draw.text((290, 151), f"v{version} ready", font=font(30, bold=True), fill="#DDEBFF")
+        shadow = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        shadow.alpha_composite(icon, (144, 132))
+        img.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(18)))
+        img.alpha_composite(icon, (144, 132))
 
-    draw.text((142, 250), "GPT2JSON", font=font(108, bold=True), fill="#FFFFFF")
-    draw.text((146, 378), "Sub2API / CPA JSON 导出工具", font=font(46, bold=True), fill="#DBEAFE")
-    draw.text((148, 444), "协议优先 · 中文桌面体验 · 每次导出唯一批次目录", font=font(32), fill="#B7C7E8")
+    draw.rounded_rectangle((286, 150, 424, 194), 22, fill=(96, 165, 250, 30), outline=(147, 197, 253, 82), width=1)
+    draw.text((316, 157), f"v{version}", font=font(24, bold=True), fill="#DCEBFF")
+    draw.text((144, 280), "GPT2JSON", font=font(112, bold=True), fill="#FFFFFF")
+    draw.text((149, 405), "Sub2API / CPA JSON 导出工具", font=font(43, bold=True), fill="#DBEAFE")
+    draw.text((151, 468), "协议优先 · 本地生成 · 中文桌面体验 · 批次隔离", font=font(30), fill="#AFC4EA")
 
-    x = 148
-    for label, color in [
-        ("粘贴 / 文件输入", "#2563EB"),
-        ("自动并发", "#7C3AED"),
-        ("OTP 免登录取码", "#0891B2"),
-        ("Sub2API + CPA", "#059669"),
-    ]:
-        draw_pill(draw, (x, 548), label, color)
-        x += draw.textbbox((0, 0), label, font=font(25, bold=True))[2] + 78
+    # Minimal capability row: fine separators instead of heavy badges.
+    cap_layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    cap_draw = ImageDraw.Draw(cap_layer)
+    cap_specs = [(151, "OAuth", "#60A5FA"), (292, "OTP", "#22D3EE"), (408, "Sub2API", "#A78BFA"), (584, "CPA", "#34D399"), (694, "Batch JSON", "#93C5FD")]
+    for index, (x, label, color) in enumerate(cap_specs):
+        cap_draw.ellipse((x, 584, x + 10, 594), fill=color)
+        cap_draw.text((x + 19, 574), label, font=font(22, bold=True), fill=(226, 239, 255, 218))
+        if index < len(cap_specs) - 1:
+            next_x = cap_specs[index + 1][0]
+            cap_draw.line((next_x - 24, 578, next_x - 24, 602), fill=(255, 255, 255, 42), width=1)
+    img.alpha_composite(cap_layer)
 
-    # Right product cards.
-    card_layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    cd = ImageDraw.Draw(card_layer)
-    cards = [
-        ((1110, 140, 1760, 310), "#FFFFFF", "输入", "GPT邮箱----GPT密码----OTP取码源", "#2563EB"),
-        ((1030, 350, 1835, 530), "#F8FAFC", "处理", "OAuth → 按需取码 → Callback 换 JSON", "#7C3AED"),
-        ((1160, 570, 1785, 705), "#FFFFFF", "输出", "GPT2JSON_时间戳_编码 / JSON", "#059669"),
-    ]
-    for box, fill, title, body, accent in cards:
-        card_layer.alpha_composite(rounded_rect_layer((width, height), box, 36, fill, shadow=(0, 18, 40, (0, 0, 0, 70))))
-        cd.rounded_rectangle((box[0] + 34, box[1] + 34, box[0] + 98, box[1] + 98), 18, fill=accent)
-        cd.text((box[0] + 124, box[1] + 34), title, font=font(34, bold=True), fill="#0F172A")
-        cd.text((box[0] + 124, box[1] + 84), body, font=font(26), fill="#475569")
-        for i in range(3):
-            y = box[1] + 120 + i * 18
-            cd.rounded_rectangle((box[0] + 124, y, box[2] - 52 - i * 34, y + 8), 4, fill=(148, 163, 184, 95))
-    card_layer = card_layer.rotate(-4, resample=Image.Resampling.BICUBIC, center=(1450, 420))
-    img.alpha_composite(card_layer)
+    shadow = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    shadow_draw = ImageDraw.Draw(shadow)
+    shadow_draw.rounded_rectangle((1010, 124, 1818, 658), 42, fill=(0, 0, 0, 86))
+    img.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(18)))
 
+    panel = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    panel_draw = ImageDraw.Draw(panel)
+    panel_draw.rounded_rectangle((990, 104, 1798, 638), 42, fill=(9, 16, 37, 185), outline=(186, 210, 255, 44), width=1)
+    panel_draw.rounded_rectangle((1018, 132, 1770, 610), 28, fill=(255, 255, 255, 9), outline=(255, 255, 255, 18), width=1)
+
+    for i, (label, color) in enumerate([("INPUT", "#60A5FA"), ("OAUTH", "#A78BFA"), ("OTP", "#22D3EE"), ("JSON", "#34D399")]):
+        y = 170 + i * 88
+        panel_draw.rounded_rectangle((1056, y, 1185, y + 42), 20, fill=(255, 255, 255, 13), outline=(255, 255, 255, 20))
+        panel_draw.ellipse((1074, y + 13, 1090, y + 29), fill=color)
+        panel_draw.text((1102, y + 9), label, font=font(18, bold=True), fill="#DDEAFF")
+
+    for i in range(11):
+        y = 170 + i * 31
+        x = 1235 + (i % 3) * 12
+        line_width = [400, 455, 335, 480, 392][i % 5]
+        fill = [(96, 165, 250, 95), (167, 139, 250, 92), (45, 212, 191, 84), (255, 255, 255, 58)][i % 4]
+        panel_draw.rounded_rectangle((x, y, x + line_width, y + 9), 5, fill=fill)
+
+    panel_draw.rounded_rectangle((1056, 515, 1728, 574), 22, fill=(37, 99, 235, 44), outline=(96, 165, 250, 90), width=1)
+    panel_draw.text((1084, 532), "output/GPT2JSON_20260429_043512_a1b2c3/", font=font(21, bold=True), fill="#EAF2FF")
+    panel_draw.rounded_rectangle((1556, 526, 1700, 563), 18, fill=(16, 185, 129, 180))
+    panel_draw.text((1584, 533), "READY", font=font(18, bold=True), fill="#FFFFFF")
+
+    reflection = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(reflection).polygon([(1190, 104), (1350, 104), (1110, 638), (950, 638)], fill=(255, 255, 255, 14))
+    panel.alpha_composite(reflection)
+    img.alpha_composite(panel)
+
+    arcs = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    arc_draw = ImageDraw.Draw(arcs)
+    for radius, opacity in [(440, 28), (520, 18), (610, 12)]:
+        arc_draw.arc((1430 - radius, 374 - radius, 1430 + radius, 374 + radius), 200, 330, fill=(191, 219, 254, opacity), width=2)
+    img.alpha_composite(arcs)
+
+    draw.text((146, 681), "Local-first exporter  /  JSON pool preparation  /  Safe masked logs", font=font(21), fill="#7890BA")
     ASSET_DIR.mkdir(parents=True, exist_ok=True)
-    img.convert("RGB").save(ASSET_DIR / "hero.png", quality=95)
-
+    img.convert("RGB").save(ASSET_DIR / "hero.png", quality=96)
 
 def create_installer_preview() -> None:
-    version = project_version()
-    width, height = 1400, 840
-    img = vertical_gradient((width, height), (239, 246, 255), (245, 243, 255)).convert("RGBA")
-    draw = ImageDraw.Draw(img)
+    """Preserve the real installer screenshot used by README.
 
-    # Floating organic shell.
-    shell = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    sd = ImageDraw.Draw(shell)
-    sd.rounded_rectangle((108, 92, 1292, 748), 58, fill="#FFFFFF")
-    sd.ellipse((34, 190, 290, 550), fill="#FFFFFF")
-    sd.ellipse((1120, 122, 1350, 410), fill="#FFFFFF")
-    shell = shell.filter(ImageFilter.GaussianBlur(0.2))
-    shadow = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    ImageDraw.Draw(shadow).rounded_rectangle((128, 118, 1282, 768), 58, fill=(30, 41, 59, 55))
-    img.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(34)))
-    img.alpha_composite(shell)
+    The installer is a transparent WPF shell, so a faithful preview is captured
+    from the running installer and then sanitized to remove the local username
+    from the install path.  Do not regenerate it as a synthetic mockup here.
+    """
 
-    # Left curved visual panel.
-    left = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    ld = ImageDraw.Draw(left)
-    ld.rounded_rectangle((100, 92, 602, 748), 58, fill="#0B1026")
-    ld.ellipse((430, 230, 790, 610), fill=(255, 255, 255, 0))
-    for i in range(5):
-        pts = []
-        for t in range(0, 220):
-            y = 690 - t * 2.6
-            x = 190 + i * 54 + math.sin(t / 24 + i) * 44 + t * 1.1
-            pts.append((x, y))
-        ld.line(pts, fill=(96, 165, 250, 70 + i * 18), width=6)
-    ld.ellipse((268, 250, 458, 440), outline=(255, 255, 255, 70), width=2)
-    ld.rounded_rectangle((258, 280, 468, 470), 42, fill=(37, 99, 235, 210))
-    ld.text((318, 318), "GJ", font=font(62, bold=True), fill="#FFFFFF")
-    ld.text((174, 560), "GPT2JSON", font=font(48, bold=True), fill="#FFFFFF")
-    ld.text((176, 620), "协议优先 · 本地导出 · 中文体验", font=font(24), fill="#CBD5E1")
-    img.alpha_composite(left)
-
-    # Elliptic cut-out visual cue.
-    cut = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    ImageDraw.Draw(cut).ellipse((500, 330, 700, 520), fill=(239, 246, 255, 255))
-    img.alpha_composite(cut.filter(ImageFilter.GaussianBlur(0.3)))
-    draw.ellipse((514, 344, 686, 506), outline="#D8B4FE", width=3)
-
-    # Right install content.
-    draw.text((730, 150), "安装", font=font(64, bold=True), fill="#111827")
-    draw.rounded_rectangle((844, 164, 964, 204), 20, fill="#EEF2FF")
-    draw.text((872, 170), f"v{version}", font=font(22, bold=True), fill="#4F46E5")
-    draw.text((732, 232), "选择安装位置后会自动创建 GPT2JSON 文件夹。", font=font(28), fill="#64748B")
-
-    draw.text((732, 310), "安装位置", font=font(24, bold=True), fill="#334155")
-    draw.rounded_rectangle((732, 348, 1168, 410), 18, fill="#F8FAFC", outline="#E2E8F0", width=2)
-    draw.text((758, 365), r"C:\Users\...\Programs\GPT2JSON", font=font(23), fill="#475569")
-    draw.rounded_rectangle((1186, 348, 1260, 410), 18, fill="#EEF2FF")
-    draw.text((1208, 365), "浏览", font=font(22, bold=True), fill="#4F46E5")
-
-    draw.text((732, 470), "安装进度", font=font(24, bold=True), fill="#334155")
-    draw.rounded_rectangle((732, 510, 1260, 528), 9, fill="#E2E8F0")
-    draw.rounded_rectangle((732, 510, 1118, 528), 9, fill="#2563EB")
-    draw.ellipse((1108, 501, 1138, 537), fill="#60A5FA")
-
-    for x, text, fill, fg in [
-        (732, "开始", "#2563EB", "#FFFFFF"),
-        (900, "取消", "#F1F5F9", "#334155"),
-    ]:
-        draw.rounded_rectangle((x, 610, x + 132, 666), 20, fill=fill, outline="#E2E8F0")
-        draw.text((x + 42, 624), text, font=font(24, bold=True), fill=fg)
-    draw.text((732, 700), "不会写入 GUI 偏好到注册表；卸载入口使用同风格外壳。", font=font(23), fill="#64748B")
-
-    ASSET_DIR.mkdir(parents=True, exist_ok=True)
-    img.convert("RGB").save(ASSET_DIR / "installer-preview.png", quality=95)
-
+    preview = ASSET_DIR / "installer-preview.png"
+    if preview.exists():
+        print(f"Preserved real installer screenshot: {preview}")
+        return
+    raise FileNotFoundError(
+        "installer-preview.png is intentionally a sanitized real screenshot. "
+        "Build the installer, capture it locally, sanitize the install path, "
+        "then save it to docs/assets/installer-preview.png."
+    )
 
 def capture_gui_previews() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
