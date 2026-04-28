@@ -471,45 +471,53 @@ namespace GPT2JSON.ArtUninstall
             public double Speed;
         }
 
+        private static readonly Point LogoCenter = new Point(184, 188);
+        private const double LogoRadiusX = 124;
+        private const double LogoRadiusY = 112;
         private readonly Curve[] _curves;
         private readonly DispatcherTimer _timer;
         private double _phase;
 
         public CurveFlowLayer()
         {
+            // Coordinates are in the 1040x560 shell coordinate system.  The
+            // curves intentionally follow the left artwork's existing S-shaped
+            // light trails and move from bottom to top, rather than drifting as
+            // straight ribbons.  End points stay inside the safe art island so
+            // the transparent window edge does not hard-clip the glow.
             _curves = new[]
             {
                 new Curve
                 {
-                    P0 = new Point(82, 78), P1 = new Point(38, 188), P2 = new Point(45, 315), P3 = new Point(112, 444),
-                    Core = Color.FromRgb(38, 220, 255), Halo = Color.FromRgb(73, 100, 255), Width = 2.8, Offset = 0.00, Speed = 0.78
+                    P0 = new Point(74, 468), P1 = new Point(24, 400), P2 = new Point(70, 308), P3 = new Point(54, 216),
+                    Core = Color.FromRgb(43, 219, 255), Halo = Color.FromRgb(62, 104, 255), Width = 2.4, Offset = 0.02, Speed = 0.76
                 },
                 new Curve
                 {
-                    P0 = new Point(286, 62), P1 = new Point(166, 160), P2 = new Point(184, 310), P3 = new Point(300, 462),
-                    Core = Color.FromRgb(183, 69, 255), Halo = Color.FromRgb(38, 185, 255), Width = 3.2, Offset = 0.25, Speed = 0.68
+                    P0 = new Point(292, 462), P1 = new Point(174, 386), P2 = new Point(226, 282), P3 = new Point(304, 76),
+                    Core = Color.FromRgb(188, 70, 255), Halo = Color.FromRgb(42, 204, 255), Width = 3.0, Offset = 0.24, Speed = 0.62
                 },
                 new Curve
                 {
-                    P0 = new Point(94, 464), P1 = new Point(172, 524), P2 = new Point(338, 476), P3 = new Point(506, 510),
-                    Core = Color.FromRgb(46, 206, 255), Halo = Color.FromRgb(188, 77, 255), Width = 2.4, Offset = 0.48, Speed = 0.58
+                    P0 = new Point(214, 452), P1 = new Point(158, 392), P2 = new Point(202, 330), P3 = new Point(270, 254),
+                    Core = Color.FromRgb(38, 196, 255), Halo = Color.FromRgb(170, 72, 255), Width = 1.9, Offset = 0.46, Speed = 0.70
                 },
                 new Curve
                 {
-                    P0 = new Point(104, 32), P1 = new Point(202, 12), P2 = new Point(250, 94), P3 = new Point(374, 56),
-                    Core = Color.FromRgb(154, 83, 255), Halo = Color.FromRgb(39, 206, 255), Width = 2.1, Offset = 0.64, Speed = 0.52
+                    P0 = new Point(252, 336), P1 = new Point(326, 258), P2 = new Point(274, 168), P3 = new Point(324, 78),
+                    Core = Color.FromRgb(158, 88, 255), Halo = Color.FromRgb(46, 203, 255), Width = 2.1, Offset = 0.66, Speed = 0.56
                 },
                 new Curve
                 {
-                    P0 = new Point(208, 92), P1 = new Point(242, 170), P2 = new Point(160, 238), P3 = new Point(214, 326),
-                    Core = Color.FromRgb(37, 191, 255), Halo = Color.FromRgb(182, 69, 255), Width = 1.8, Offset = 0.82, Speed = 0.74
+                    P0 = new Point(120, 486), P1 = new Point(178, 522), P2 = new Point(314, 482), P3 = new Point(476, 506),
+                    Core = Color.FromRgb(48, 214, 255), Halo = Color.FromRgb(184, 79, 255), Width = 1.8, Offset = 0.84, Speed = 0.44
                 }
             };
 
             _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(24) };
             _timer.Tick += delegate
             {
-                _phase += 0.0065;
+                _phase += 0.0068;
                 if (_phase > 1) _phase -= 1;
                 InvalidateVisual();
             };
@@ -530,30 +538,34 @@ namespace GPT2JSON.ArtUninstall
 
         private void DrawBaseCurve(DrawingContext dc, Curve curve)
         {
-            var geometry = new StreamGeometry();
-            using (var ctx = geometry.Open())
+            const int segments = 92;
+            for (int i = 0; i < segments; i++)
             {
-                ctx.BeginFigure(curve.P0, false, false);
-                ctx.BezierTo(curve.P1, curve.P2, curve.P3, true, true);
+                double t1 = (double)i / segments;
+                double t2 = (double)(i + 1) / segments;
+                Point a = Sample(curve, t1);
+                Point b = Sample(curve, t2);
+                if (IsLogoProtected(Mid(a, b))) continue;
+
+                var haloPen = new Pen(new SolidColorBrush(Color.FromArgb(18, curve.Halo.R, curve.Halo.G, curve.Halo.B)), curve.Width + 4.6);
+                haloPen.StartLineCap = PenLineCap.Round;
+                haloPen.EndLineCap = PenLineCap.Round;
+                dc.DrawLine(haloPen, a, b);
+
+                var corePen = new Pen(new SolidColorBrush(Color.FromArgb(34, curve.Core.R, curve.Core.G, curve.Core.B)), curve.Width);
+                corePen.StartLineCap = PenLineCap.Round;
+                corePen.EndLineCap = PenLineCap.Round;
+                dc.DrawLine(corePen, a, b);
             }
-            geometry.Freeze();
-
-            var haloPen = new Pen(new SolidColorBrush(Color.FromArgb(22, curve.Halo.R, curve.Halo.G, curve.Halo.B)), curve.Width + 5);
-            haloPen.StartLineCap = PenLineCap.Round;
-            haloPen.EndLineCap = PenLineCap.Round;
-            dc.DrawGeometry(null, haloPen, geometry);
-
-            var corePen = new Pen(new SolidColorBrush(Color.FromArgb(42, curve.Core.R, curve.Core.G, curve.Core.B)), curve.Width);
-            corePen.StartLineCap = PenLineCap.Round;
-            corePen.EndLineCap = PenLineCap.Round;
-            dc.DrawGeometry(null, corePen, geometry);
         }
 
         private void DrawComet(DrawingContext dc, Curve curve)
         {
+            // Curves are defined from bottom to top.  Increasing t therefore
+            // makes the head climb along the same direction as the source art.
             double head = Wrap(_phase * curve.Speed + curve.Offset);
-            const int segments = 24;
-            const double step = 0.009;
+            const int segments = 26;
+            const double step = 0.0085;
 
             for (int i = segments; i >= 1; i--)
             {
@@ -563,25 +575,40 @@ namespace GPT2JSON.ArtUninstall
 
                 Point a = Sample(curve, t1);
                 Point b = Sample(curve, t2);
-                double fade = 1.0 - (double)i / segments;
-                byte haloAlpha = (byte)(18 + 92 * fade);
-                byte coreAlpha = (byte)(32 + 170 * fade);
+                if (IsLogoProtected(Mid(a, b))) continue;
 
-                var haloPen = new Pen(new SolidColorBrush(Color.FromArgb(haloAlpha, curve.Halo.R, curve.Halo.G, curve.Halo.B)), curve.Width + 7 * fade);
+                double fade = 1.0 - (double)i / segments;
+                byte haloAlpha = (byte)(18 + 100 * fade);
+                byte coreAlpha = (byte)(36 + 180 * fade);
+
+                var haloPen = new Pen(new SolidColorBrush(Color.FromArgb(haloAlpha, curve.Halo.R, curve.Halo.G, curve.Halo.B)), curve.Width + 7.5 * fade);
                 haloPen.StartLineCap = PenLineCap.Round;
                 haloPen.EndLineCap = PenLineCap.Round;
                 dc.DrawLine(haloPen, a, b);
 
-                var corePen = new Pen(new SolidColorBrush(Color.FromArgb(coreAlpha, curve.Core.R, curve.Core.G, curve.Core.B)), curve.Width + 1.6 * fade);
+                var corePen = new Pen(new SolidColorBrush(Color.FromArgb(coreAlpha, curve.Core.R, curve.Core.G, curve.Core.B)), curve.Width + 1.5 * fade);
                 corePen.StartLineCap = PenLineCap.Round;
                 corePen.EndLineCap = PenLineCap.Round;
                 dc.DrawLine(corePen, a, b);
             }
 
             Point p = Sample(curve, head);
-            dc.DrawEllipse(new SolidColorBrush(Color.FromArgb(65, curve.Halo.R, curve.Halo.G, curve.Halo.B)), null, p, curve.Width + 8, curve.Width + 8);
-            dc.DrawEllipse(new SolidColorBrush(Color.FromArgb(230, 255, 255, 255)), null, p, curve.Width + 1.4, curve.Width + 1.4);
-            dc.DrawEllipse(new SolidColorBrush(Color.FromArgb(240, curve.Core.R, curve.Core.G, curve.Core.B)), null, p, curve.Width, curve.Width);
+            if (IsLogoProtected(p)) return;
+            dc.DrawEllipse(new SolidColorBrush(Color.FromArgb(58, curve.Halo.R, curve.Halo.G, curve.Halo.B)), null, p, curve.Width + 7.0, curve.Width + 7.0);
+            dc.DrawEllipse(new SolidColorBrush(Color.FromArgb(220, 255, 255, 255)), null, p, curve.Width + 1.2, curve.Width + 1.2);
+            dc.DrawEllipse(new SolidColorBrush(Color.FromArgb(236, curve.Core.R, curve.Core.G, curve.Core.B)), null, p, curve.Width, curve.Width);
+        }
+
+        private static bool IsLogoProtected(Point p)
+        {
+            double dx = (p.X - LogoCenter.X) / LogoRadiusX;
+            double dy = (p.Y - LogoCenter.Y) / LogoRadiusY;
+            return dx * dx + dy * dy < 1.0;
+        }
+
+        private static Point Mid(Point a, Point b)
+        {
+            return new Point((a.X + b.X) / 2.0, (a.Y + b.Y) / 2.0);
         }
 
         private static Point Sample(Curve curve, double t)
