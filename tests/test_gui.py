@@ -37,6 +37,17 @@ def _clear_settings():
     settings.sync()
 
 
+def _wait_until(app, predicate, *, timeout_ms: int = 2500, interval_ms: int = 50) -> bool:
+    deadline = QtCore.QDeadlineTimer(timeout_ms)
+    while not deadline.hasExpired():
+        app.processEvents()
+        if predicate():
+            return True
+        QtTest.QTest.qWait(interval_ms)
+    app.processEvents()
+    return bool(predicate())
+
+
 def _icon_average_brightness(icon) -> float:
     image = icon.pixmap(18, 18).toImage()
     total = 0.0
@@ -80,8 +91,7 @@ def test_gui_enables_run_only_after_valid_preflight(tmp_path):
     assert not window.run_btn.isEnabled()
 
     window.paste_edit.setPlainText("ok@example.com----pass----https://otp.test/{email}")
-    QtTest.QTest.qWait(350)
-    app.processEvents()
+    assert _wait_until(app, lambda: window._last_preflight_count == 1 and window.run_btn.isEnabled())
 
     assert window._input_mode == "paste"
     assert window._last_preflight_count == 1
@@ -120,8 +130,7 @@ def test_gui_input_mode_switch_and_clear(tmp_path):
     app.processEvents()
 
     window.file_drop.set_path(str(input_file))
-    QtTest.QTest.qWait(350)
-    app.processEvents()
+    assert _wait_until(app, lambda: window._last_preflight_count == 1)
 
     assert window._input_mode == "file"
     assert window.input_stack.currentIndex() == 1
@@ -162,22 +171,19 @@ def test_gui_switching_input_mode_does_not_reuse_stale_preflight(tmp_path):
     app.processEvents()
 
     window.paste_edit.setPlainText("这不是有效账号")
-    QtTest.QTest.qWait(350)
-    app.processEvents()
+    assert _wait_until(app, lambda: not window._preflight_running)
     assert window._input_mode == "paste"
     assert window._last_preflight_count == 0
     assert not window.run_btn.isEnabled()
 
     window.file_drop.set_path(str(input_file))
-    QtTest.QTest.qWait(350)
-    app.processEvents()
+    assert _wait_until(app, lambda: window._last_preflight_count == 1 and window.run_btn.isEnabled())
     assert window._input_mode == "file"
     assert window._last_preflight_count == 1
     assert window.run_btn.isEnabled()
 
     window.paste_tab.click()
-    QtTest.QTest.qWait(350)
-    app.processEvents()
+    assert _wait_until(app, lambda: not window._preflight_running)
     assert window._input_mode == "paste"
     assert window._last_preflight_count == 0
     assert not window.run_btn.isEnabled()
@@ -206,8 +212,7 @@ def test_gui_clear_input_preserves_current_tab_and_theme_toggle(tmp_path):
     assert window.styleSheet() != light_stylesheet
 
     window.paste_edit.setPlainText("ok@example.com----pass----https://otp.test/{email}")
-    QtTest.QTest.qWait(350)
-    app.processEvents()
+    assert _wait_until(app, lambda: window._input_mode == "paste" and window.run_btn.isEnabled())
     assert window._input_mode == "paste"
     assert window.run_btn.isEnabled()
 
@@ -263,19 +268,16 @@ def test_gui_async_preflight_discards_stale_file_result(tmp_path, monkeypatch):
     app.processEvents()
 
     window.file_drop.set_path(str(slow_file))
-    QtTest.QTest.qWait(330)
-    app.processEvents()
+    assert _wait_until(app, lambda: window._input_mode == "file", timeout_ms=1200)
     assert window._input_mode == "file"
 
     window.file_drop.set_path(str(fast_file))
-    QtTest.QTest.qWait(420)
-    app.processEvents()
+    assert _wait_until(app, lambda: window._last_preflight_count == 1 and window.run_btn.isEnabled())
     assert window._last_preflight_count == 1
     assert window.run_btn.isEnabled()
 
     release_slow.set()
-    QtTest.QTest.qWait(200)
-    app.processEvents()
+    assert _wait_until(app, lambda: not window._preflight_running, timeout_ms=1200)
     assert window._last_preflight_count == 1
 
     window.close()
