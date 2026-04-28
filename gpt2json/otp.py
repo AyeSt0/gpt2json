@@ -342,16 +342,16 @@ class OtpFetcher:
         return False
 
     def prime_row(self, row: AccountRow, proxies: Any = None) -> None:
-        self.prime_source(row.otp_source, proxies=proxies)
+        self.prime_source(row.otp_source, fallback_email=row.login_email, proxies=proxies)
 
-    def prime_source(self, source: str, proxies: Any = None) -> None:
+    def prime_source(self, source: str, fallback_email: str = "", proxies: Any = None) -> None:
         if not is_url_source(source):
             return
         source_key = secret_hash(source)
         seen = self._seen_by_source.setdefault(source_key, set())
         try:
             details = fetch_otp_fetch_details_via_url(
-                "",
+                fallback_email,
                 source,
                 impersonate=self.impersonate,
                 verify=self.verify,

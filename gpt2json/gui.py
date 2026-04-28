@@ -785,7 +785,7 @@ class MainWindow(QMainWindow):
         self.output_hint_label.setWordWrap(True)
         output_layout.addWidget(self.output_hint_label)
         self.sub2api_row = FileOutputRow("sub2api_accounts.secret.json", "Sub2API")
-        self.cpa_row = FileOutputRow("CPA/（每账号一个 JSON）", "CPA")
+        self.cpa_row = FileOutputRow("cpa_tokens_*.zip + CPA/", "CPA")
         self.sub2api_row.setVisible(False)
         self.cpa_row.setVisible(False)
         output_layout.addWidget(self.sub2api_row)
@@ -1072,6 +1072,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("timeout", int(self.timeout_spin.value()))
         self.settings.setValue("otp_timeout", int(self.otp_timeout_spin.value()))
         self.settings.setValue("otp_interval", int(self.otp_interval_spin.value()))
+        self.settings.sync()
 
     def _schedule_preflight(self) -> None:
         if self._is_running:
@@ -1195,6 +1196,10 @@ class MainWindow(QMainWindow):
         self.run_btn.setEnabled(can_start)
         self.preflight_btn.setEnabled((not self._is_running) and has_input)
         self.clear_input_btn.setEnabled(not self._is_running and (bool(self._paste_text()) or bool(self._input_path())))
+        if hasattr(self, "clear_log_btn"):
+            self.clear_log_btn.setEnabled(not self._is_running)
+        if hasattr(self, "copy_log_btn"):
+            self.copy_log_btn.setEnabled(True)
         for widget in (
             self.paste_tab,
             self.file_tab,
@@ -1226,15 +1231,14 @@ class MainWindow(QMainWindow):
         try:
             if create:
                 path.mkdir(parents=True, exist_ok=True)
-            else:
-                parent = path if path.exists() else path.parent
-                if parent and not parent.exists():
-                    parent.mkdir(parents=True, exist_ok=True)
-                probe_dir = path if path.exists() else parent
-                if probe_dir and probe_dir.exists():
-                    probe = probe_dir / ".gpt2json_write_test"
-                    probe.write_text("ok", encoding="utf-8")
-                    probe.unlink(missing_ok=True)
+            parent = path if path.exists() else path.parent
+            if parent and not parent.exists():
+                parent.mkdir(parents=True, exist_ok=True)
+            probe_dir = path if path.exists() else parent
+            if probe_dir and probe_dir.exists():
+                probe = probe_dir / ".gpt2json_write_test"
+                probe.write_text("ok", encoding="utf-8")
+                probe.unlink(missing_ok=True)
         except Exception as exc:
             return False, f"输出目录不可写：{type(exc).__name__}: {exc}"
         return True, ""
@@ -1390,8 +1394,11 @@ class MainWindow(QMainWindow):
         if self._log_waiting:
             self.log_edit.clear()
             self._log_waiting = False
+        scroll_bar = self.log_edit.verticalScrollBar()
+        should_follow = scroll_bar.value() >= scroll_bar.maximum() - 24
         self.log_edit.appendPlainText(text)
-        self.log_edit.verticalScrollBar().setValue(self.log_edit.verticalScrollBar().maximum())
+        if should_follow:
+            scroll_bar.setValue(scroll_bar.maximum())
 
     def pick_input(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "选择账号文件", str(Path.cwd()), "文本文件 (*.txt);;所有文件 (*)")
@@ -1605,6 +1612,9 @@ class MainWindow(QMainWindow):
             "email_otp_validate": "验证码提交",
             "finalize": "Callback 换票",
             "callback": "JSON 回调",
+            "runtime_exception": "单账号异常",
+            "worker_future": "任务线程",
+            "export_prepare": "JSON 整理",
             "password_error": "密码验证",
             "bad_password": "密码验证",
         }
@@ -1646,6 +1656,10 @@ class MainWindow(QMainWindow):
             return f"🎫 {email} 开始换取最终 JSON，准备把票据装箱。"
         if stage == "callback":
             return f"📦 {email} Callback 完成，JSON 已落袋。"
+        if stage == "runtime_exception":
+            return f"🧯 {email} 这条任务内部异常，已隔离，不影响其它账号继续跑。"
+        if stage == "export_prepare":
+            return f"🧹 {email} JSON 整理时发现格式异常，已跳过这条。"
         return ""
 
     def on_event(self, event: dict[str, Any]) -> None:
@@ -1700,7 +1714,9 @@ class MainWindow(QMainWindow):
         self.running_stat.set_value(0)
         self._update_progress()
         sub2api_path = str(summary.get("sub2api_export") or "")
-        cpa_path = str(summary.get("cpa_dir") or summary.get("cpa_manifest") or "")
+        cpa_zip = str(summary.get("cpa_zip") or "")
+        cpa_dir = str(summary.get("cpa_dir") or "")
+        cpa_path = cpa_zip or cpa_dir or str(summary.get("cpa_manifest") or "")
         self.sub2api_row.set_path(sub2api_path)
         self.cpa_row.set_path(cpa_path)
         self._refresh_output_format_state()
@@ -1709,7 +1725,10 @@ class MainWindow(QMainWindow):
         if sub2api_path:
             self.append_log(f"🧰 Sub2API 文件已写好：{sub2api_path}")
         if cpa_path:
-            self.append_log(f"📘 CPA 单账号 JSON 已写好：{cpa_path}")
+            if cpa_zip:
+                self.append_log(f"📘 CPA 打包 ZIP 已写好：{cpa_zip}")
+            if cpa_dir:
+                self.append_log(f"📚 CPA 单账号 JSON 目录：{cpa_dir}")
         self.append_log("🍻 可以打开输出目录验货了。")
         QMessageBox.information(self, "完成", f"导出完成\n成功：{success_count}\n失败：{failure_count}")
 

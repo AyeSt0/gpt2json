@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import shutil
 import threading
 import time
+import zipfile
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -12,7 +14,7 @@ from typing import Any
 from .formats import build_cpa_token_json, build_export, convert_current_token_to_sub, write_json
 from .models import AttemptResult, utc_now_iso
 from .otp import OtpFetcher
-from .parsing import mask_email, mask_source, parse_by_format, read_account_file, secret_hash, slug_email
+from .parsing import mask_email, mask_source, parse_by_format, read_account_file, secret_hash
 from .protocol import DEFAULT_IMPERSONATE, ProtocolLoginClient
 
 Logger = Callable[[str], None]
@@ -65,11 +67,58 @@ def _append_jsonl(path: Path, payload: Any) -> None:
         handle.write(_compact_json(payload) + "\n")
 
 
-def _prepare_token_data(token_json: str, *, pool: str, token_type: str) -> dict[str, Any]:
+def _reset_generated_artifacts(out_dir: Path) -> None:
+    """Make each export run produce a clean, self-consistent result set.
+
+    The GUI exposes the selected output directory as "the current export".
+    Without cleanup, re-running into the same directory can leave stale CPA
+    files or stale JSONL rows next to the new summary, which is easy to import
+    by mistake.  Only known GPT2JSON-generated children are removed.
+    """
+
+    resolved_out = out_dir.resolve()
+    generated_files = (
+        "sub2api_accounts.secret.json",
+        "cpa_manifest.json",
+        "summary.json",
+        "progress.json",
+        "results.safe.jsonl",
+    )
+    generated_globs = ("cpa_tokens_*.zip",)
+    generated_dirs = ("CPA", "sub_accounts")
+    for name in generated_files:
+        target = (out_dir / name).resolve()
+        if target.parent == resolved_out and target.exists() and target.is_file():
+            target.unlink()
+    for pattern in generated_globs:
+        for child in out_dir.glob(pattern):
+            target = child.resolve()
+            if target.parent == resolved_out and target.exists() and target.is_file():
+                target.unlink()
+    for name in generated_dirs:
+        target = (out_dir / name).resolve()
+        if target.parent == resolved_out and target.exists() and target.is_dir():
+            shutil.rmtree(target)
+
+
+def _exception_result(row: Any, *, status: str, stage: str, exc: BaseException) -> AttemptResult:
+    reason = f"{type(exc).__name__}: {str(exc)[:240]}"
+    return AttemptResult(
+        row=row,
+        status=status,
+        stage=stage,
+        reason=reason,
+        events=[{"stage": stage, "reason": reason}],
+    )
+
+
+def _prepare_token_data(token_json: str, *, pool: str, token_type: str, fallback_email: str = "") -> dict[str, Any]:
     data = json.loads(token_json)
     if not isinstance(data, dict):
         raise ValueError("token_json top-level is not an object")
     data.setdefault("source", "gpt2json")
+    if fallback_email and not str(data.get("email") or "").strip():
+        data["email"] = fallback_email
     if pool:
         data.setdefault("pool", pool)
     if token_type:
@@ -83,6 +132,10 @@ def _build_sub_account(token_payload: dict[str, Any], *, pool: str, index: int) 
     if pool and email:
         account["name"] = f"{pool}-{email}"
     return account
+
+
+def _run_timestamp() -> str:
+    return time.strftime("%Y%m%d_%H%M%S")
 
 
 def _safe_result_row(result: AttemptResult) -> dict[str, Any]:
@@ -117,6 +170,7 @@ def run_export(
     export_cpa = bool(config.export_cpa)
     if not (export_sub2api or export_cpa):
         raise ValueError("at least one export format must be selected")
+    _reset_generated_artifacts(out_dir)
     concurrency = resolve_concurrency(config.concurrency, len(rows))
     summary: dict[str, Any] = {
         "started_at": utc_now_iso(),
@@ -152,6 +206,7 @@ def run_export(
     lock = threading.Lock()
     results: list[AttemptResult] = []
     successes: list[dict[str, Any]] = []
+    run_stamp = _run_timestamp()
 
     def run_one(row: Any) -> AttemptResult:
         emit({"type": "row_start", "line_no": row.line_no, "email_masked": mask_email(row.login_email)})
@@ -165,37 +220,61 @@ def run_export(
             payload.update(event)
             emit(payload)
 
-        client = (
-            client_factory()
-            if client_factory is not None
-            else ProtocolLoginClient(
-                impersonate=config.impersonate,
-                verify_ssl=config.verify_ssl,
-                timeout=config.timeout,
-                event_callback=emit_stage,
+        try:
+            client = (
+                client_factory()
+                if client_factory is not None
+                else ProtocolLoginClient(
+                    impersonate=config.impersonate,
+                    verify_ssl=config.verify_ssl,
+                    timeout=config.timeout,
+                    event_callback=emit_stage,
+                )
             )
-        )
-        otp_fetcher = OtpFetcher(
-            mode=config.otp_mode,
-            command=config.otp_command,
-            timeout=config.otp_timeout,
-            interval=config.otp_interval,
-            impersonate=config.impersonate,
-            verify=config.verify_ssl,
-        )
-        return client.login_and_exchange(row, otp_fetcher=otp_fetcher)
+            otp_fetcher = OtpFetcher(
+                mode=config.otp_mode,
+                command=config.otp_command,
+                timeout=config.otp_timeout,
+                interval=config.otp_interval,
+                impersonate=config.impersonate,
+                verify=config.verify_ssl,
+            )
+            result = client.login_and_exchange(row, otp_fetcher=otp_fetcher)
+            if not isinstance(result, AttemptResult):
+                raise TypeError(f"client returned {type(result).__name__}, expected AttemptResult")
+            return result
+        except Exception as exc:
+            emit_stage({"stage": "runtime_exception", "reason": f"{type(exc).__name__}: {str(exc)[:180]}"})
+            return _exception_result(row, status="runtime_error", stage="runtime_exception", exc=exc)
 
     log(f"[+] loaded rows: {len(rows)} | concurrency={concurrency} ({summary['concurrency_mode']})")
     with ThreadPoolExecutor(max_workers=concurrency) as executor:
         future_map = {executor.submit(run_one, row): row for row in rows}
         for future in as_completed(future_map):
-            result = future.result()
+            row = future_map[future]
+            try:
+                result = future.result()
+            except Exception as exc:
+                result = _exception_result(row, status="worker_crash", stage="worker_future", exc=exc)
             with lock:
+                if result.ok:
+                    try:
+                        token_payload = _prepare_token_data(
+                            result.token_json,
+                            pool=config.pool,
+                            token_type=config.token_type,
+                            fallback_email=result.row.login_email,
+                        )
+                    except Exception as exc:
+                        result.status = "export_prepare_error"
+                        result.stage = "export_prepare"
+                        result.reason = f"{type(exc).__name__}: {str(exc)[:240]}"
+                        result.token_json = ""
+                        result.events.append({"stage": "export_prepare", "reason": result.reason})
+                    else:
+                        successes.append(token_payload)
                 results.append(result)
                 _append_jsonl(out_dir / "results.safe.jsonl", _safe_result_row(result))
-                if result.ok:
-                    token_payload = _prepare_token_data(result.token_json, pool=config.pool, token_type=config.token_type)
-                    successes.append(token_payload)
             status_line = f"[{result.status}] {mask_email(result.row.login_email)}"
             if result.reason:
                 status_line += f" | {result.reason}"
@@ -220,14 +299,11 @@ def run_export(
     sub_accounts: list[dict[str, Any]] = []
     cpa_files: list[dict[str, Any]] = []
     cpa_dir = out_dir / "CPA"
-    sub_dir = out_dir / "sub_accounts"
     for index, token_payload in enumerate(successes, 1):
         email = str(token_payload.get("email") or "").strip()
-        slug = slug_email(email)
-        suffix = f"{int(time.time())}_{index:03d}"
         if export_cpa:
             cpa_payload = build_cpa_token_json(token_payload)
-            cpa_filename = f"{email}.json" if email else f"token_{suffix}.json"
+            cpa_filename = f"{email}.json" if email else f"token_{run_stamp}_{index:03d}.json"
             cpa_path = cpa_dir / cpa_filename
             write_json(cpa_path, cpa_payload)
             cpa_files.append(
@@ -241,9 +317,13 @@ def run_export(
         if export_sub2api:
             sub_account = _build_sub_account(token_payload, pool=config.pool, index=index)
             sub_accounts.append(sub_account)
-            write_json(sub_dir / f"sub_{slug}_{suffix}.json", sub_account)
 
+    cpa_zip_path = out_dir / f"cpa_tokens_{run_stamp}.zip"
     if successes and export_cpa:
+        with zipfile.ZipFile(cpa_zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for item in cpa_files:
+                file_path = out_dir / str(item["file"])
+                archive.write(file_path, arcname=file_path.name)
         write_json(
             out_dir / "cpa_manifest.json",
             {
@@ -251,6 +331,7 @@ def run_export(
                 "count": len(successes),
                 "format": "cpa-per-account-json",
                 "directory": "CPA",
+                "zip": cpa_zip_path.name,
                 "files": cpa_files,
             },
         )
@@ -263,6 +344,7 @@ def run_export(
     summary["success_emails"] = sorted(str(item.get("email") or "") for item in successes if str(item.get("email") or "").strip())
     summary["sub2api_export"] = str(out_dir / "sub2api_accounts.secret.json") if successes and export_sub2api else ""
     summary["cpa_dir"] = str(cpa_dir) if successes and export_cpa else ""
+    summary["cpa_zip"] = str(cpa_zip_path) if successes and export_cpa else ""
     summary["cpa_manifest"] = str(out_dir / "cpa_manifest.json") if successes and export_cpa else ""
     write_json(out_dir / "summary.json", summary)
     write_json(out_dir / "progress.json", summary)

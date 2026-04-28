@@ -1,5 +1,8 @@
 import json
+import zipfile
 from pathlib import Path
+
+import pytest
 
 from gpt2json.engine import ExportConfig, resolve_concurrency, run_export
 from gpt2json.models import AttemptResult
@@ -28,6 +31,37 @@ class FakeClient(ProtocolLoginClient):
         return AttemptResult(row=row, status="bad_password", stage="password_verify", reason="bad_password")
 
 
+class RaisingClient(ProtocolLoginClient):
+    def login_and_exchange(self, row, *, otp_fetcher, proxies=None):
+        del otp_fetcher, proxies
+        if "raise" in row.login_email:
+            raise RuntimeError("boom")
+        token_json = json.dumps(
+            {
+                "access_token": "a.b.c",
+                "refresh_token": "refresh",
+                "account_id": f"acc-{row.line_no}",
+                "email": row.login_email,
+                "expired": "2026-04-27T00:00:00Z",
+            },
+            ensure_ascii=False,
+        )
+        return AttemptResult(row=row, status="success", stage="callback", token_json=token_json)
+
+
+class MalformedTokenClient(ProtocolLoginClient):
+    def login_and_exchange(self, row, *, otp_fetcher, proxies=None):
+        del otp_fetcher, proxies
+        if "badjson" in row.login_email:
+            return AttemptResult(row=row, status="success", stage="callback", token_json="{not-json")
+        return AttemptResult(
+            row=row,
+            status="success",
+            stage="callback",
+            token_json=json.dumps({"access_token": "a.b.c", "refresh_token": "refresh", "expired": "2026-04-27T00:00:00Z"}),
+        )
+
+
 def account_text() -> str:
     return "\n".join(
         [
@@ -53,6 +87,11 @@ def test_run_export_writes_cpa_and_sub2api(tmp_path: Path):
     cpa_files = sorted((out_dir / "CPA").glob("*.json"))
     assert len(cpa_files) == 2
     assert {item.name for item in cpa_files} == {"ok1@example.com.json", "ok2@example.com.json"}
+    assert summary["cpa_zip"]
+    cpa_zip = Path(summary["cpa_zip"])
+    assert cpa_zip.exists()
+    with zipfile.ZipFile(cpa_zip) as archive:
+        assert sorted(archive.namelist()) == ["ok1@example.com.json", "ok2@example.com.json"]
     assert json.loads(cpa_files[0].read_text(encoding="utf-8"))["access_token"] == "a.b.c"
     assert json.loads(cpa_files[0].read_text(encoding="utf-8"))["type"] == "codex"
     sub_payload = json.loads((out_dir / "sub2api_accounts.secret.json").read_text(encoding="utf-8"))
@@ -93,8 +132,10 @@ def test_run_export_cpa_only(tmp_path: Path):
     assert summary["sub2api_export"] == ""
     assert summary["cpa_dir"]
     assert summary["cpa_manifest"]
+    assert summary["cpa_zip"]
     assert len(list((out_dir / "CPA").glob("*.json"))) == 2
     assert (out_dir / "cpa_manifest.json").exists()
+    assert Path(summary["cpa_zip"]).exists()
     assert not (out_dir / "sub2api_accounts.secret.json").exists()
 
 
@@ -112,10 +153,88 @@ def test_run_export_sub2api_only(tmp_path: Path):
     )
     assert summary["cpa_dir"] == ""
     assert summary["cpa_manifest"] == ""
+    assert summary["cpa_zip"] == ""
     assert summary["sub2api_export"]
     assert not (out_dir / "CPA").exists()
     assert (out_dir / "sub2api_accounts.secret.json").exists()
     assert not (out_dir / "cpa_manifest.json").exists()
+
+
+def test_run_export_isolates_single_account_runtime_errors(tmp_path: Path):
+    out_dir = tmp_path / "out"
+    text = "\n".join(
+        [
+            "ok@example.com----pass----https://otp.local/1",
+            "raise@example.com----pass----https://otp.local/2",
+            "ok2@example.com----pass----https://otp.local/3",
+        ]
+    )
+    summary = run_export(
+        ExportConfig(input_path="missing.txt", out_dir=str(out_dir), input_text=text, concurrency=3),
+        client_factory=lambda: RaisingClient(),
+    )
+
+    assert summary["success_count"] == 2
+    assert summary["failure_count"] == 1
+    safe_rows = [json.loads(line) for line in (out_dir / "results.safe.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert sorted(row["status"] for row in safe_rows) == ["runtime_error", "success", "success"]
+    assert (out_dir / "sub2api_accounts.secret.json").exists()
+
+
+def test_run_export_marks_malformed_success_token_as_failure(tmp_path: Path):
+    out_dir = tmp_path / "out"
+    text = "\n".join(
+        [
+            "ok@example.com----pass----https://otp.local/1",
+            "badjson@example.com----pass----https://otp.local/2",
+        ]
+    )
+    summary = run_export(
+        ExportConfig(input_path="missing.txt", out_dir=str(out_dir), input_text=text, concurrency=2),
+        client_factory=lambda: MalformedTokenClient(),
+    )
+
+    assert summary["success_count"] == 1
+    assert summary["failure_count"] == 1
+    safe_rows = [json.loads(line) for line in (out_dir / "results.safe.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert {row["status"] for row in safe_rows} == {"success", "export_prepare_error"}
+    assert len(list((out_dir / "CPA").glob("*.json"))) == 1
+
+
+def test_run_export_cleans_previous_generated_artifacts(tmp_path: Path):
+    out_dir = tmp_path / "out"
+    (out_dir / "CPA").mkdir(parents=True)
+    (out_dir / "CPA" / "stale@example.com.json").write_text("{}", encoding="utf-8")
+    (out_dir / "sub_accounts").mkdir(parents=True)
+    (out_dir / "sub_accounts" / "sub_stale.json").write_text("{}", encoding="utf-8")
+    (out_dir / "cpa_tokens_stale.zip").write_text("old", encoding="utf-8")
+    (out_dir / "results.safe.jsonl").write_text('{"status":"old"}\n', encoding="utf-8")
+    (out_dir / "summary.json").write_text("{}", encoding="utf-8")
+
+    summary = run_export(
+        ExportConfig(input_path="missing.txt", out_dir=str(out_dir), input_text=account_text(), concurrency=3),
+        client_factory=lambda: FakeClient(),
+    )
+
+    assert summary["success_count"] == 2
+    assert not (out_dir / "CPA" / "stale@example.com.json").exists()
+    assert not (out_dir / "sub_accounts").exists()
+    assert not (out_dir / "cpa_tokens_stale.zip").exists()
+    safe_rows = (out_dir / "results.safe.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(safe_rows) == 3
+    assert all("old" not in row for row in safe_rows)
+
+
+def test_run_export_keeps_previous_artifacts_when_input_load_fails(tmp_path: Path):
+    out_dir = tmp_path / "out"
+    (out_dir / "CPA").mkdir(parents=True)
+    stale = out_dir / "CPA" / "stale@example.com.json"
+    stale.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(FileNotFoundError):
+        run_export(ExportConfig(input_path=str(tmp_path / "missing.txt"), out_dir=str(out_dir)))
+
+    assert stale.exists()
 
 
 def test_resolve_concurrency_auto_caps_at_eight():

@@ -1,6 +1,7 @@
 import json
 
 from gpt2json import otp
+from gpt2json.models import AccountRow
 
 
 class FakeResponse:
@@ -58,3 +59,23 @@ def test_fetch_otp_discovers_no_login_html_api(monkeypatch):
     assert details.backend == "html_api_json"
     assert len(calls) == 2
 
+
+def test_otp_prime_row_renders_email_placeholder(monkeypatch):
+    calls = []
+
+    def fake_get(url, **kwargs):
+        calls.append((url, kwargs))
+        return FakeResponse(url=url, payload={"success": True, "latest_code": "654321"})
+
+    monkeypatch.setattr(otp.requests, "get", fake_get)
+
+    row = AccountRow(
+        line_no=1,
+        login_email="probe@example.com",
+        password="pass",
+        otp_source="https://otp.local/latest?email={email}",
+    )
+    fetcher = otp.OtpFetcher(timeout=5, interval=1)
+    fetcher.prime_row(row)
+
+    assert calls[0][0] == "https://otp.local/latest?email=probe%40example.com"
