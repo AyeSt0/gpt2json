@@ -95,7 +95,7 @@ def create_app_settings() -> QSettings:
     path.parent.mkdir(parents=True, exist_ok=True)
     return QSettings(str(path), QSettings.Format.IniFormat)
 
-READY_LOG = "🧭 等你投喂账号文本或账号文件。\n✨ 当前支持：自动识别 / LDXP Plus7 三段式 OTP。\n📮 验证码获取：按输入里的取码源自动处理。"
+READY_LOG = "等待开始：请粘贴账号文本，或导入账号文件。\n当前支持：自动识别 / LDXP Plus7 三段式 OTP。\n说明：程序会优先尝试账密登录；只有服务端要求验证码时，才会访问输入里的取码源。"
 _UI_FONT_FAMILY = ""
 
 LIGHT_THEME = {
@@ -1012,7 +1012,7 @@ class MainWindow(QMainWindow):
         self._update_check_running = True
         self.version_badge.setEnabled(False)
         self.version_badge.setText("检查中")
-        self.append_log("🛰️ 正在查询 GitHub Release：只检查版本，不会自动替换本地程序。")
+        self.append_log("更新检查：正在查询 GitHub Release；只检查版本，不会自动替换本地程序。")
 
         def worker() -> None:
             info = check_latest_release(__version__)
@@ -1028,13 +1028,13 @@ class MainWindow(QMainWindow):
         error = str(info.get("error") or "").strip()
         html_url = str(info.get("html_url") or RELEASES_PAGE_URL)
         if error:
-            self.append_log(f"ℹ️ 更新检查完成：{error}")
+            self.append_log(f"更新检查：{error}")
             QMessageBox.information(self, "检查更新", f"{error}\n\n如果还没发布正式版，可以继续使用当前构建。")
             return
 
         latest = str(info.get("tag_name") or info.get("latest_version") or "").strip()
         if bool(info.get("update_available")):
-            self.append_log(f"✨ 发现新版本 {latest}，可前往 GitHub Release 下载。")
+            self.append_log(f"更新检查：发现新版本 {latest}，可前往 GitHub Release 下载。")
             answer = QMessageBox.question(
                 self,
                 "发现新版本",
@@ -1046,7 +1046,7 @@ class MainWindow(QMainWindow):
                 QDesktopServices.openUrl(QUrl(html_url))
             return
 
-        self.append_log(f"✅ 当前已经是最新发布版：{latest or APP_VERSION}。")
+        self.append_log(f"更新检查：当前已经是最新发布版 {latest or APP_VERSION}。")
         QMessageBox.information(self, "检查更新", f"当前已经是最新发布版：{latest or APP_VERSION}")
 
     def _restore_settings(self) -> None:
@@ -1258,7 +1258,7 @@ class MainWindow(QMainWindow):
         if not self._is_cancelling:
             self._is_cancelling = True
             self._set_status("取消中", "warning")
-            self.append_log("🛑 已发送取消请求：不再推进新账号，正在等待当前账号到安全点收尾。")
+            self.append_log("取消请求：已发送。不会再推进新账号，正在等待运行中的账号到安全点收尾。")
         self._refresh_controls_state()
 
     def _validate_output_dir(self, *, create: bool = False) -> tuple[bool, str]:
@@ -1646,7 +1646,7 @@ class MainWindow(QMainWindow):
             outputs = self._selected_output_labels() or "未选择"
             input_format_label = self._input_format_label()
             skipped = max(0, raw_count - row_count)
-            self.append_log(f"🧪 预检查完成：识别到 {self._total} 个账号，跳过 {skipped} 行；输入格式={input_format_label}；输出={outputs}。")
+            self.append_log(f"预检查完成：识别到 {self._total} 个有效账号，跳过 {skipped} 行；输入格式：{input_format_label}；导出：{outputs}。")
             QMessageBox.information(self, "预检查完成", f"有效行数：{self._total}\n跳过行数：{skipped}\n输入格式：{input_format_label}\n输出：{outputs}")
 
     def start_run(self) -> None:
@@ -1677,11 +1677,11 @@ class MainWindow(QMainWindow):
         self.log_edit.clear()
         self._log_waiting = False
         self._set_status("运行中", "running")
-        self.append_log("🚀 配置确认完毕，开始按协议批量获取 JSON。")
-        self.append_log(f"🧩 输入格式：{self._input_format_label()} · 导出：{self._selected_output_labels()} · 并发：{'自动' if int(self.concurrency_spin.value()) == 0 else self.concurrency_spin.value()}")
-        self.append_log("🧭 链路：OAuth 开门 → 账号密码 → 可选邮箱取码 → Callback 换 JSON。")
-        self.append_log("🔎 策略：优先账密登录；遇到验证码才启用验证码获取，不拉浏览器。")
-        self.append_log(f"📁 输出目录：{Path(output_dir).resolve()}")
+        self.append_log("开始导出：配置已确认，正在按协议获取 JSON。")
+        self.append_log(f"运行配置：输入格式={self._input_format_label()}；导出={self._selected_output_labels()}；并发={'自动' if int(self.concurrency_spin.value()) == 0 else self.concurrency_spin.value()}。")
+        self.append_log("执行流程：OAuth 初始化 → 账号密码验证 → 按需获取邮箱验证码 → Callback 换取 JSON。")
+        self.append_log("登录策略：优先账密登录；只有出现验证码页面时才启用取码源；全程不拉起浏览器。")
+        self.append_log(f"输出目录：{Path(output_dir).resolve()}")
         self._cancel_event = threading.Event()
         self._is_cancelling = False
         self._set_running(True)
@@ -1767,49 +1767,78 @@ class MainWindow(QMainWindow):
         key = str(value or "").strip()
         return mapping.get(key, key or "未知阶段")
 
+    def _reason_display(self, value: Any) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        lowered = raw.lower()
+        mapping = {
+            "wrong_email_otp_code": "验证码不正确或已过期，通常是取码源返回了旧码。",
+            "otp_timeout": "在等待时间内没有获取到新的验证码。",
+            "callback_error": "没有拿到 OAuth Callback，可能是跳转链路未完成。",
+            "finalize_unresolved": "登录已推进到收尾阶段，但最终 Callback 没有解析成功。",
+            "workspace_select_error": "工作区选择接口返回异常。",
+            "workspace_select_continue_missing": "工作区选择完成后没有返回下一步地址。",
+            "user_cancelled": "用户取消了本次任务。",
+            "no_valid_rows": "没有识别到有效账号行。",
+        }
+        if raw in mapping:
+            return mapping[raw]
+        if lowered.startswith("timeout:"):
+            return "请求超时：目标服务响应较慢或网络不稳定，可稍后重试，或在高级选项里调高 HTTP 请求超时。"
+        if lowered.startswith("runtimeerror: token exchange failed"):
+            return "Token 交换失败：Callback 已拿到，但换取 JSON token 时服务端返回异常。"
+        if lowered.startswith("valueerror: token_json"):
+            return "返回的 token JSON 格式不符合预期。"
+        if raw.startswith("http_"):
+            return f"接口返回 {raw.replace('http_', 'HTTP ')}。"
+        if len(raw) > 180:
+            return raw[:180] + "…"
+        return raw
+
     def _friendly_stage_message(self, event: dict[str, Any]) -> str:
         email = str(event.get("email_masked") or "账号")
         stage = str(event.get("stage") or "").strip()
         status = self._status_code_label(event.get("status_code"))
         page_type = str(event.get("page_type") or "").strip()
         if stage == "oauth_start":
-            return f"🧭 {email} 正在打开 OAuth 通道：先敲门，不开浏览器。"
+            return f"账号 {email}：开始 OAuth 初始化，创建授权会话。"
         if stage == "entry":
-            return f"🚪 {email} 授权入口已响应（{status}），拿会话饼干中。"
+            return f"账号 {email}：授权入口已响应（{status}），正在保存会话状态。"
         if stage == "sentinel":
-            return f"🛡️ {email} 会话已建立，正在换风控通行证。"
+            return f"账号 {email}：会话已建立，正在获取风控校验票据。"
         if stage == "authorize_continue":
-            return f"📨 {email} 邮箱已递交给认证接口（{status}），看看下一站怎么走。"
+            return f"账号 {email}：邮箱已提交到认证接口（{status}），正在确认下一步登录方式。"
         if stage == "password_verify":
             if bool(event.get("callback_url_present")):
-                return f"🪄 {email} 密码通过，服务端直接给了回调票。"
+                return f"账号 {email}：密码验证通过，已直接获得 Callback。"
             if "otp" in page_type.lower() or "verify" in page_type.lower():
-                return f"📮 {email} 密码通过，但被验证码关卡拦了一下，切取码通道。"
-            return f"🔑 {email} 密码验证完成（{status}），继续向 JSON 票据推进。"
+                return f"账号 {email}：密码验证通过，服务端要求邮箱验证码，准备访问取码源。"
+            return f"账号 {email}：密码验证完成（{status}），继续推进授权流程。"
         if stage == "otp_backend_plan":
             primary = self._backend_display(event.get("primary_backend"))
             display_name = str(event.get("display_name") or "").strip()
             suffix = f" · {display_name}" if display_name and display_name != primary else ""
-            return f"📫 {email} 取码方案选定：{primary}{suffix}，开始等新验证码。"
+            return f"账号 {email}：取码方式已确定为 {primary}{suffix}，正在等待新的邮箱验证码。"
         if stage == "otp_fetch":
             backend = self._backend_display(event.get("backend"))
             if bool(event.get("code_present")):
-                return f"📬 {email} 验证码已抓到（来源：{backend}，{status}），马上提交。"
-            return f"⌛ {email} 取码源暂时没吐码（来源：{backend}，{status}），这条先标记超时。"
+                return f"账号 {email}：已获取验证码（来源：{backend}，{status}），准备提交验证。"
+            return f"账号 {email}：暂未获取到新验证码（来源：{backend}，{status}），将继续等待或按超时处理。"
         if stage == "email_otp_validate":
             if bool(event.get("callback_url_present")):
-                return f"🧾 {email} 验证码提交成功（{status}），回调票已到手。"
-            return f"🧾 {email} 验证码已提交（{status}），继续收尾。"
+                return f"账号 {email}：验证码提交成功（{status}），已获得 Callback。"
+            return f"账号 {email}：验证码已提交（{status}），正在进入收尾流程。"
         if stage == "finalize":
-            return f"🎫 {email} 开始换取最终 JSON，准备把票据装箱。"
+            return f"账号 {email}：正在完成 Callback 跳转并换取最终 JSON。"
         if stage == "callback":
-            return f"📦 {email} Callback 完成，JSON 已落袋。"
+            return f"账号 {email}：Callback 完成，JSON 已获取。"
         if stage == "runtime_exception":
-            return f"🧯 {email} 这条任务内部异常，已隔离，不影响其它账号继续跑。"
+            return f"账号 {email}：当前账号发生异常，已隔离处理，不影响其它账号继续运行。"
         if stage == "export_prepare":
-            return f"🧹 {email} JSON 整理时发现格式异常，已跳过这条。"
+            return f"账号 {email}：JSON 整理时发现格式异常，已跳过当前账号。"
         if stage == "cancelled":
-            return f"🛑 {email} 收到取消信号，这条不再继续推进。"
+            return f"账号 {email}：收到取消信号，当前账号不再继续推进。"
         return ""
 
     def on_event(self, event: dict[str, Any]) -> None:
@@ -1819,12 +1848,12 @@ class MainWindow(QMainWindow):
             self.total_stat.set_value(self._total)
             self._update_progress()
             concurrency = event.get("concurrency") or "自动"
-            self.append_log(f"📦 已装载 {self._total} 个账号，并发={concurrency}。账号小队出发。")
+            self.append_log(f"任务已启动：共 {self._total} 个账号，并发={concurrency}。")
         elif event_type == "row_start":
             self._running += 1
             self.running_stat.set_value(self._running)
             email = str(event.get("email_masked") or "")
-            self.append_log(f"🧑‍💻 {email} 进入执行队列：准备跑协议链路。")
+            self.append_log(f"账号 {email}：进入执行队列，准备开始登录流程。")
         elif event_type == "row_stage":
             message = self._friendly_stage_message(event)
             if message:
@@ -1839,18 +1868,18 @@ class MainWindow(QMainWindow):
             email = str(event.get("email_masked") or "")
             if event.get("ok"):
                 self._success += 1
-                suffix = "，验证码关卡也过了" if event.get("otp_required") else ""
-                self.append_log(f"✅ {email} 已拿到 JSON{suffix}，等统一写入导出文件。")
+                suffix = "；本次经过邮箱验证码验证" if event.get("otp_required") else ""
+                self.append_log(f"成功：账号 {email} 已获取 JSON{suffix}，稍后统一写入导出文件。")
             else:
                 self._failure += 1
                 status = str(event.get("status") or "failed")
                 reason = str(event.get("reason") or "").strip()
                 stage = str(event.get("stage") or "").strip()
                 if status == "cancelled":
-                    self.append_log(f"🛑 {email} 已取消，等其它运行中的账号安全收尾。")
+                    self.append_log(f"取消：账号 {email} 已停止，等待其它运行中的账号收尾。")
                 else:
-                    detail = f"：{reason}" if reason else ""
-                    self.append_log(f"⚠️ {email} 暂时没过，停在「{self._stage_display(stage or status)}」{detail}。")
+                    detail = f"；原因：{self._reason_display(reason)}" if reason else ""
+                    self.append_log(f"失败：账号 {email} 停在「{self._stage_display(stage or status)}」{detail}。")
             self.success_stat.set_value(self._success)
             self.failed_stat.set_value(self._failure)
             self.running_stat.set_value(self._running)
@@ -1883,17 +1912,17 @@ class MainWindow(QMainWindow):
         self._refresh_output_format_state()
         self.append_log("")
         if cancelled:
-            self.append_log(f"🛑 已按请求取消：成功 {success_count} 个，未完成/失败 {failure_count} 个，其中取消 {cancelled_count} 个。")
+            self.append_log(f"任务已取消：成功 {success_count} 个，未完成/失败 {failure_count} 个，其中取消 {cancelled_count} 个。")
         else:
-            self.append_log(f"🎉 收工汇总：成功 {success_count} 个，失败 {failure_count} 个。")
+            self.append_log(f"任务完成：成功 {success_count} 个，失败 {failure_count} 个。")
         if sub2api_path:
-            self.append_log(f"🧰 Sub2API 文件已写好：{sub2api_path}")
+            self.append_log(f"Sub2API 输出：{sub2api_path}")
         if cpa_path:
             if cpa_zip:
-                self.append_log(f"📘 CPA 打包 ZIP 已写好：{cpa_zip}")
+                self.append_log(f"CPA ZIP 输出：{cpa_zip}")
             if cpa_dir:
-                self.append_log(f"📚 CPA 单账号 JSON 目录：{cpa_dir}")
-        self.append_log("🍻 可以打开输出目录验货了。")
+                self.append_log(f"CPA 单账号 JSON 目录：{cpa_dir}")
+        self.append_log("提示：可以打开输出目录检查文件，确认后再导入目标系统。")
         if cancelled:
             QMessageBox.information(self, "已取消", f"导出已取消\n成功：{success_count}\n失败/未完成：{failure_count}\n取消：{cancelled_count}")
         else:
@@ -1905,7 +1934,7 @@ class MainWindow(QMainWindow):
         self.running_stat.set_value(0)
         self._refresh_output_format_state()
         self._set_status("失败", "failed")
-        self.append_log(f"💥 主流程异常：{message}")
+        self.append_log(f"主流程异常：{message}")
         QMessageBox.critical(self, "运行失败", message)
 
 
