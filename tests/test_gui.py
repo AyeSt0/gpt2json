@@ -55,7 +55,7 @@ def test_gui_enables_run_only_after_valid_preflight(tmp_path):
     window.cpa_check.setChecked(True)
     window.concurrency_spin.setEditText("128")
     assert window.concurrency_spin.value() == 128
-    assert window.max_attempts_spin.value() == 2
+    assert window.max_attempts_spin.value() == 3
     window.max_attempts_spin.setValue(3)
     assert window.max_attempts_spin.value() == 3
     window.output_edit.setText("output")

@@ -90,6 +90,33 @@ class FlakyFinalizeClient(ProtocolLoginClient):
         return AttemptResult(row=row, status="success", stage="callback", token_json=token_json)
 
 
+class FlakyOtpClient(ProtocolLoginClient):
+    attempts_by_email: dict[str, int] = {}
+
+    def login_and_exchange(self, row, *, otp_fetcher, proxies=None):
+        del otp_fetcher, proxies
+        attempt = self.attempts_by_email.get(row.login_email, 0) + 1
+        self.attempts_by_email[row.login_email] = attempt
+        if attempt == 1:
+            return AttemptResult(
+                row=row,
+                status="email_otp_validate_error",
+                stage="email_verification",
+                reason="wrong_email_otp_code",
+            )
+        token_json = json.dumps(
+            {
+                "access_token": "a.b.c",
+                "refresh_token": "refresh",
+                "account_id": f"acc-{row.line_no}",
+                "email": row.login_email,
+                "expired": "2026-04-27T00:00:00Z",
+            },
+            ensure_ascii=False,
+        )
+        return AttemptResult(row=row, status="success", stage="callback", token_json=token_json)
+
+
 def account_text() -> str:
     return "\n".join(
         [
@@ -257,6 +284,34 @@ def test_run_export_retries_transient_finalize_timeout(tmp_path: Path):
     assert any(event.get("type") == "row_retry" for event in events)
     safe_rows = [json.loads(line) for line in (out_dir / "results.safe.jsonl").read_text(encoding="utf-8").splitlines()]
     assert safe_rows[0]["status"] == "success"
+    assert safe_rows[0]["attempt"] == 2
+    assert summary["retry_count"] == 1
+    assert summary["failure_report"] == ""
+
+
+def test_run_export_retries_recoverable_stale_otp(tmp_path: Path):
+    out_dir = tmp_path / "out"
+    FlakyOtpClient.attempts_by_email = {}
+    events = []
+    summary = run_export(
+        ExportConfig(
+            input_path="missing.txt",
+            out_dir=str(out_dir),
+            input_text="ok@example.com----pass----https://otp.local/1",
+            concurrency=1,
+            max_attempts=3,
+        ),
+        client_factory=lambda: FlakyOtpClient(),
+        on_event=events.append,
+    )
+
+    assert summary["success_count"] == 1
+    assert summary["failure_count"] == 0
+    assert FlakyOtpClient.attempts_by_email["ok@example.com"] == 2
+    retry = [event for event in events if event.get("type") == "row_retry"]
+    assert len(retry) == 1
+    assert retry[0]["reason"] == "wrong_email_otp_code"
+    safe_rows = [json.loads(line) for line in (out_dir / "results.safe.jsonl").read_text(encoding="utf-8").splitlines()]
     assert safe_rows[0]["attempt"] == 2
     assert summary["retry_count"] == 1
     assert summary["failure_report"] == ""

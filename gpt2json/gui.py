@@ -817,7 +817,7 @@ class MainWindow(QMainWindow):
         self.timeout_spin = self._spin(10, 600, 30)
         self.otp_timeout_spin = self._spin(10, 600, 180)
         self.otp_interval_spin = self._spin(1, 60, 3)
-        self.max_attempts_spin = self._spin(1, 5, 2)
+        self.max_attempts_spin = self._spin(1, 5, 3)
         for spin in (self.timeout_spin, self.otp_timeout_spin, self.otp_interval_spin, self.max_attempts_spin):
             spin.setVisible(False)
         layout.addStretch(1)
@@ -1170,7 +1170,7 @@ class MainWindow(QMainWindow):
         self.timeout_spin.setValue(int_setting("timeout", 30, 10, 600))
         self.otp_timeout_spin.setValue(int_setting("otp_timeout", 180, 10, 600))
         self.otp_interval_spin.setValue(int_setting("otp_interval", 3, 1, 60))
-        self.max_attempts_spin.setValue(int_setting("max_attempts", 2, 1, 5))
+        self.max_attempts_spin.setValue(int_setting("max_attempts", 3, 1, 5))
         self.advanced_btn.setText("高级选项（弹窗配置）  ›")
 
     def _save_settings(self) -> None:
@@ -1498,7 +1498,7 @@ class MainWindow(QMainWindow):
         add_row(0, "HTTP 请求超时（秒）", "登录、OAuth、接口请求的单次等待时间。", http_spin)
         add_row(1, "验证码等待超时（秒）", "触发邮箱验证码后，最多轮询取码源多久。", otp_spin)
         add_row(2, "验证码轮询间隔（秒）", "两次取码请求之间的间隔，过低可能触发限流。", interval_spin)
-        add_row(3, "自动重试次数", "单账号遇到瞬时超时/网络抖动时最多尝试几次，默认 2。", attempts_spin)
+        add_row(3, "自动重试次数", "单账号遇到可恢复失败时最多尝试几次，默认 3。", attempts_spin)
         grid.setColumnStretch(0, 1)
         layout.addLayout(grid)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)

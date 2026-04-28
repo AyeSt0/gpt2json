@@ -39,7 +39,7 @@ class ExportConfig:
     verify_ssl: bool = True
     impersonate: str = DEFAULT_IMPERSONATE
     input_format: str = "auto"
-    max_attempts: int = 2
+    max_attempts: int = 3
 
 
 def resolve_concurrency(requested: int, row_count: int) -> int:
@@ -132,12 +132,20 @@ def _cancelled_result(row: Any, *, row_index: int = 0, max_attempts: int = 1) ->
     return result
 
 
-def _is_transient_retryable(result: AttemptResult) -> bool:
+def _is_recoverable_retryable(result: AttemptResult) -> bool:
     if result.ok or result.status == "cancelled":
         return False
     status = str(result.status or "").strip()
     stage = str(result.stage or "").strip()
     reason = str(result.reason or "").strip().lower()
+    # These failures are often recoverable by re-running the whole account flow:
+    # a new login attempt sends a fresh email OTP and rebuilds the OAuth session.
+    if status in {"otp_timeout", "email_otp_validate_error"}:
+        return True
+    if reason in {"otp_timeout", "wrong_email_otp_code", "email_otp_expired"}:
+        return True
+    if stage == "email_verification" and ("otp" in reason or "code" in reason or "验证码" in reason):
+        return True
     transient_markers = (
         "timeout",
         "timed out",
@@ -367,7 +375,7 @@ def run_export(
                 result.reason = "user_cancelled"
                 result.events.append({"stage": "cancelled", "reason": "user_cancelled"})
                 return result
-            if result.ok or attempt >= max_attempts or not _is_transient_retryable(result):
+            if result.ok or attempt >= max_attempts or not _is_recoverable_retryable(result):
                 return result
             emit(
                 {

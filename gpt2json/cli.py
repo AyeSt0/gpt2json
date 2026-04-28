@@ -29,7 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--otp-timeout", type=int, default=180, help="OTP 等待超时秒数")
     parser.add_argument("--otp-interval", type=int, default=3, help="OTP 轮询间隔秒数")
     parser.add_argument("--timeout", type=int, default=30, help="HTTP 超时秒数")
-    parser.add_argument("--max-attempts", type=int, default=2, help="单账号瞬时失败自动重试次数，1 表示不重试")
+    parser.add_argument("--max-attempts", type=int, default=3, help="单账号可恢复失败自动重试次数，1 表示不重试")
     parser.add_argument("--impersonate", default=DEFAULT_IMPERSONATE, help="curl-cffi impersonate 指纹")
     parser.add_argument("--insecure", action="store_true", help="关闭 TLS 证书校验")
     return parser
