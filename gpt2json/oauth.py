@@ -160,6 +160,7 @@ def submit_callback_url(
     code_verifier: str,
     redirect_uri: str = DEFAULT_REDIRECT_URI,
     verify: bool = True,
+    timeout: int = 30,
 ) -> str:
     cb = parse_callback_url(callback_url)
     if cb["error"]:
@@ -181,6 +182,7 @@ def submit_callback_url(
             "code_verifier": code_verifier,
         },
         verify=verify,
+        timeout=timeout,
     )
     access_token = str(token_resp.get("access_token") or "").strip()
     refresh_token = str(token_resp.get("refresh_token") or "").strip()
@@ -204,4 +206,3 @@ def submit_callback_url(
         "expired": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now + max(expires_in, 0))),
     }
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-

@@ -4,6 +4,7 @@ import json
 import os
 import re
 import subprocess
+import threading
 import time
 import urllib.parse
 from dataclasses import dataclass
@@ -299,6 +300,7 @@ class OtpFetcher:
         interval: int = 3,
         impersonate: str = "chrome136",
         verify: bool = True,
+        cancel_event: threading.Event | None = None,
     ) -> None:
         self.mode = str(mode or "auto").strip().lower()
         self.command = str(command or "").strip()
@@ -306,9 +308,30 @@ class OtpFetcher:
         self.interval = max(1, int(interval or 3))
         self.impersonate = str(impersonate or "chrome136").strip() or "chrome136"
         self.verify = bool(verify)
+        self.cancel_event = cancel_event
         self._seen_by_source: dict[str, set[str]] = {}
         self._primed_code_by_source: dict[str, tuple[str, str]] = {}
         self._last_details_by_source: dict[str, OtpFetchDetails] = {}
+
+    @staticmethod
+    def _code_marker(code: str) -> str:
+        return f"code:{str(code or '').strip()}"
+
+    def _remember_seen_code(self, source_key: str, code: str, marker: str = "") -> None:
+        seen = self._seen_by_source.setdefault(source_key, set())
+        if marker:
+            seen.add(marker)
+        if code:
+            seen.add(self._code_marker(code))
+
+    def is_cancelled(self) -> bool:
+        return bool(self.cancel_event is not None and self.cancel_event.is_set())
+
+    def _wait_interval(self) -> bool:
+        if self.cancel_event is not None:
+            return bool(self.cancel_event.wait(self.interval))
+        time.sleep(self.interval)
+        return False
 
     def has_backend_for_source(self, source: str) -> bool:
         text = str(source or "").strip()
@@ -365,6 +388,11 @@ class OtpFetcher:
         if marker:
             seen.add(marker)
         if code:
+            # Some no-login OTP pages include timestamps/counters in their JSON.
+            # In that case the response signature can change while the visible
+            # six-digit code is still the stale pre-login code.  Track the code
+            # itself as a separate marker so stale codes are not submitted.
+            self._remember_seen_code(source_key, code, marker)
             self._primed_code_by_source[source_key] = (code, marker or code)
 
     def fetch_source_once(self, source: str, fallback_email: str, proxies: Any = None) -> str:
@@ -384,9 +412,10 @@ class OtpFetcher:
                 return ""
             seen = self._seen_by_source.setdefault(source_key, set())
             marker = signature or code
-            if marker in seen:
+            code_marker = self._code_marker(code)
+            if marker in seen or code_marker in seen:
                 return ""
-            seen.add(marker)
+            self._remember_seen_code(source_key, code, marker)
             return code
         if self.command and self.mode in {"auto", "command"}:
             return fetch_otp_via_command(normalize_email(fallback_email), self.command)
@@ -408,16 +437,21 @@ class OtpFetcher:
         source_key = secret_hash(source)
         primed_deadline = time.time() + min(45, max(10, self.timeout // 3))
         while time.time() < deadline:
+            if self.is_cancelled():
+                return ""
             code = self.fetch_source_once(source, fallback_email, proxies=proxies)
             if code:
                 return code
             if is_url_source(source) and time.time() >= primed_deadline:
+                # Never submit the code observed during priming.  Priming is
+                # only a stale-code baseline taken before OpenAI asks for a new
+                # email OTP.  Returning it here turns an expected wait into a
+                # hard wrong_email_otp_code failure.
                 primed = self._primed_code_by_source.pop(source_key, None)
                 if primed and primed[0]:
-                    seen = self._seen_by_source.setdefault(source_key, set())
-                    seen.add(primed[1] or primed[0])
-                    return primed[0]
-            time.sleep(self.interval)
+                    self._remember_seen_code(source_key, primed[0], primed[1] or primed[0])
+            if self._wait_interval():
+                return ""
         return ""
 
     def poll_row(self, row: AccountRow, proxies: Any = None) -> str:
@@ -428,8 +462,11 @@ class OtpFetcher:
             return ""
         deadline = time.time() + self.timeout
         while time.time() < deadline:
+            if self.is_cancelled():
+                return ""
             code = self.fetch_row_once(row, proxies=proxies)
             if code:
                 return code
-            time.sleep(self.interval)
+            if self._wait_interval():
+                return ""
         return ""

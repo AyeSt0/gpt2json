@@ -1,6 +1,6 @@
-﻿#define MyAppName "GPT2JSON"
+#define MyAppName "GPT2JSON"
 #ifndef MyAppVersion
-#define MyAppVersion "0.1.1"
+#define MyAppVersion "0.1.2"
 #endif
 #define MyAppPublisher "GPT2JSON Contributors"
 #define MyAppURL "https://github.com/AyeSt0/gpt2json"
@@ -23,11 +23,12 @@ VersionInfoProductVersion={#MyAppVersion}
 DefaultDirName={localappdata}\Programs\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-OutputDir=release
-OutputBaseFilename=GPT2JSON-Setup-v{#MyAppVersion}
+OutputDir=packaging\windows\build
+OutputBaseFilename=GPT2JSON-CoreSetup-v{#MyAppVersion}
 SourceDir=..\..
 SetupIconFile=gpt2json\assets\gpt2json_icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
+UninstallFilesDir={app}\.uninstall
 WizardImageFile=packaging\windows\assets\installer-side.bmp
 WizardSmallImageFile=packaging\windows\assets\installer-small.bmp
 WizardStyle=modern
@@ -93,9 +94,17 @@ chinesesimp.RunAfterInstall=启动 GPT2JSON
 [Tasks]
 Name: "desktopicon"; Description: "{cm:TaskDesktopIcon}"; GroupDescription: "附加快捷方式："; Flags: unchecked
 
+[Dirs]
+Name: "{app}\.uninstall"; Attribs: hidden
+
+[InstallDelete]
+Type: files; Name: "{app}\GPT2JSON-ArtUninstall.exe"
+Type: files; Name: "{app}\unins*.exe"
+Type: files; Name: "{app}\unins*.dat"
+
 [Files]
 Source: "dist\GPT2JSON\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "packaging\windows\build\GPT2JSON-ArtUninstall.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "packaging\windows\build\GPT2JSON-Uninstall.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
@@ -134,21 +143,18 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   UninstallKey: String;
-  ArtUninstaller: String;
-  QuotedArtUninstaller: String;
+  WrapperUninstaller: String;
+  QuotedWrapperUninstaller: String;
 begin
   if CurStep = ssPostInstall then
   begin
     UninstallKey := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{F3E03F2D-1CB1-4A63-98D1-0E19E1E20321}_is1';
-    ArtUninstaller := ExpandConstant('{app}\GPT2JSON-ArtUninstall.exe');
-    QuotedArtUninstaller := '"' + ArtUninstaller + '"';
-    if FileExists(ArtUninstaller) then
+    WrapperUninstaller := ExpandConstant('{app}\GPT2JSON-Uninstall.exe');
+    QuotedWrapperUninstaller := '"' + WrapperUninstaller + '"';
+    if FileExists(WrapperUninstaller) then
     begin
-      RegWriteStringValue(HKCU, UninstallKey, 'UninstallString', QuotedArtUninstaller);
-      RegWriteStringValue(HKCU, UninstallKey, 'QuietUninstallString', QuotedArtUninstaller + ' /silent');
+      RegWriteStringValue(HKCU, UninstallKey, 'UninstallString', QuotedWrapperUninstaller);
+      RegWriteStringValue(HKCU, UninstallKey, 'QuietUninstallString', QuotedWrapperUninstaller + ' /silent');
     end;
   end;
 end;
-
-
-

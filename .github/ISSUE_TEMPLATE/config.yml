@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用排查文档
+    url: https://github.com/AyeSt0/gpt2json/blob/main/docs/troubleshooting.md
+    about: 先查看常见问题、验证码超时和输出目录说明。
+  - name: 安全问题
+    url: https://github.com/AyeSt0/gpt2json/security/policy
+    about: 请不要在公开 issue 中粘贴真实凭据或导出 JSON。

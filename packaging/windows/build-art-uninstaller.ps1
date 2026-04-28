@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $source = Join-Path $root "packaging\windows\artsetup\ArtUninstall.cs"
 $outDir = Join-Path $root "packaging\windows\build"
-$out = Join-Path $outDir "GPT2JSON-ArtUninstall.exe"
+$out = Join-Path $outDir "GPT2JSON-Uninstall.exe"
 $icon = Join-Path $root "gpt2json\assets\gpt2json_icon.ico"
 $iconPng = Join-Path $root "gpt2json\assets\gpt2json_icon.png"
 $shellArtPng = Join-Path $root "packaging\windows\assets\installer-art-shell-transparent.png"
@@ -23,10 +23,10 @@ function Get-ProjectVersion {
 }
 
 $requiredFiles = @(
-    @{ Path = $source; Label = "艺术卸载器源码" },
+    @{ Path = $source; Label = "卸载器源码" },
     @{ Path = $icon; Label = "卸载器图标 ICO" },
     @{ Path = $iconPng; Label = "卸载器图标 PNG" },
-    @{ Path = $shellArtPng; Label = "透明 Shell 艺术图" }
+    @{ Path = $shellArtPng; Label = "透明 Shell 图" }
 )
 foreach ($file in $requiredFiles) {
     if (-not (Test-Path -LiteralPath $file.Path)) { throw "缺少$($file.Label)：$($file.Path)" }
@@ -57,9 +57,9 @@ New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 $appVersion = Get-ProjectVersion
 Write-Host "使用版本: $appVersion"
 Write-Host "使用 C# 编译器: $csc"
-Write-Host "输出艺术卸载器: $out"
+Write-Host "输出卸载器: $out"
 
-$generatedSourceDir = Join-Path ([System.IO.Path]::GetTempPath()) ("GPT2JSON-ArtUninstall-Build-" + [guid]::NewGuid().ToString("N"))
+$generatedSourceDir = Join-Path ([System.IO.Path]::GetTempPath()) ("GPT2JSON-Uninstall-Build-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force -Path $generatedSourceDir | Out-Null
 $generatedSource = Join-Path $generatedSourceDir "ArtUninstall.generated.cs"
 $sourceText = Get-Content -LiteralPath $source -Raw
@@ -78,7 +78,7 @@ $args += $generatedSource
 
 try {
     & $csc @args
-    if ($LASTEXITCODE -ne 0) { throw "艺术卸载器编译失败。" }
+    if ($LASTEXITCODE -ne 0) { throw "卸载器编译失败。" }
     Get-Item $out | Select-Object FullName, Length, LastWriteTime
 }
 finally {

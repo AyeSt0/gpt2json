@@ -1,14 +1,42 @@
 from __future__ import annotations
 
+import hashlib
 import os
+import subprocess
 import sys
 import threading
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QObject, QSettings, QSize, QStandardPaths, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QFont, QFontDatabase, QIcon, QPixmap
+from PySide6.QtCore import (
+    QEvent,
+    QIdentityProxyModel,
+    QLibraryInfo,
+    QObject,
+    QSettings,
+    QSize,
+    QStandardPaths,
+    Qt,
+    QTimer,
+    QTranslator,
+    QUrl,
+    Signal,
+)
+from PySide6.QtGui import (
+    QColor,
+    QDesktopServices,
+    QFont,
+    QFontDatabase,
+    QIcon,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+    QSyntaxHighlighter,
+    QTextCharFormat,
+)
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QButtonGroup,
     QComboBox,
@@ -19,9 +47,12 @@ from PySide6.QtWidgets import (
     QGraphicsDropShadowEffect,
     QGridLayout,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
+    QListView,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
@@ -29,8 +60,11 @@ from PySide6.QtWidgets import (
     QSizeGrip,
     QSizePolicy,
     QSpinBox,
+    QSplitter,
     QStackedWidget,
+    QStyle,
     QToolButton,
+    QTreeView,
     QVBoxLayout,
     QWidget,
 )
@@ -94,8 +128,53 @@ def create_app_settings() -> QSettings:
     path.parent.mkdir(parents=True, exist_ok=True)
     return QSettings(str(path), QSettings.Format.IniFormat)
 
-READY_LOG = "🧭 等你投喂账号文本或账号文件。\n✨ 当前支持：自动识别 / LDXP Plus7 三段式 OTP。\n📮 验证码获取：按输入里的取码源自动处理。"
+
+def install_qt_translations(app: QApplication | None) -> None:
+    """Load Qt's Simplified Chinese translations for built-in dialogs.
+
+    GPT2JSON's own widgets are handwritten in Chinese, but Qt built-ins such as
+    QFileDialog provide tooltips and detail-view headers from qtbase_*.qm.  Keep
+    the translator objects alive at module scope; otherwise Qt silently falls
+    back to English after garbage collection.
+    """
+
+    global _QT_TRANSLATIONS_INSTALLED
+    if app is None or _QT_TRANSLATIONS_INSTALLED:
+        return
+
+    filenames = ("qtbase_zh_CN.qm", "qt_zh_CN.qm")
+    translation_roots = [
+        Path(QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)),
+        Path(__file__).resolve().parent / "assets" / "translations",
+    ]
+    if hasattr(sys, "_MEIPASS"):
+        bundle_root = Path(sys._MEIPASS)
+        translation_roots.extend(
+            [
+                bundle_root / "PySide6" / "translations",
+                bundle_root / "PySide6" / "Qt" / "translations",
+            ]
+        )
+
+    installed = False
+    for filename in filenames:
+        for root in translation_roots:
+            path = root / filename
+            if not path.exists():
+                continue
+            translator = QTranslator(app)
+            if translator.load(str(path)):
+                app.installTranslator(translator)
+                _QT_TRANSLATORS.append(translator)
+                installed = True
+                break
+    _QT_TRANSLATIONS_INSTALLED = installed
+
+
+READY_LOG = "🟢 等待开始：请粘贴账号文本，或导入账号文件。\n📄 当前支持：自动识别 / LDXP Plus7 三段式 OTP。\n📮 说明：程序会优先尝试账密登录；只有服务端要求验证码时，才会访问输入里的取码源。"
 _UI_FONT_FAMILY = ""
+_QT_TRANSLATORS: list[QTranslator] = []
+_QT_TRANSLATIONS_INSTALLED = False
 
 LIGHT_THEME = {
     "shell": "#F6F8FC",
@@ -133,6 +212,149 @@ DARK_THEME = {
     "status_bd": "#1F6B43",
 }
 
+LIGHT_LOG_COLORS = {
+    "default": "#475569",
+    "info": "#2563EB",
+    "start": "#7C3AED",
+    "account": "#334155",
+    "otp": "#B45309",
+    "output": "#0F766E",
+    "success": "#15803D",
+    "warning": "#B45309",
+    "error": "#DC2626",
+    "cancel": "#EA580C",
+}
+
+DARK_LOG_COLORS = {
+    "default": "#CBD5E1",
+    "info": "#93C5FD",
+    "start": "#C4B5FD",
+    "account": "#E2E8F0",
+    "otp": "#FCD34D",
+    "output": "#5EEAD4",
+    "success": "#86EFAC",
+    "warning": "#FBBF24",
+    "error": "#FCA5A5",
+    "cancel": "#FDBA74",
+}
+
+
+def classify_log_line(text: str) -> str:
+    line = str(text or "").strip()
+    if not line:
+        return "default"
+    if line.startswith(("✅", "🎉")) or line.startswith("成功：") or "任务完成：" in line:
+        return "success"
+    if line.startswith(("⚠️", "💥")) or line.startswith(("失败：", "主流程异常：")):
+        return "error"
+    if line.startswith("🛑") or line.startswith("取消"):
+        return "cancel"
+    if line.startswith("🔁"):
+        return "warning"
+    if line.startswith(("🚀", "🧩", "📦 任务")) or line.startswith(("开始导出：", "运行配置：")):
+        return "start"
+    if line.startswith(("👤", "🚪", "🛡️", "📨", "🔑", "🎫", "📦")):
+        return "account"
+    if line.startswith(("🧭", "🔎", "🧪", "🔄", "ℹ️", "✨", "👀", "🟢", "📄")):
+        return "info"
+    if line.startswith("🧾 失败诊断报告"):
+        return "output"
+    if line.startswith(("📮", "📫", "📬", "🧾", "⌛")) or "验证码" in line:
+        return "otp"
+    if line.startswith(("📁", "🗂️", "🧰", "📘", "📚")) or "输出：" in line or "输出目录：" in line or "输出根目录：" in line:
+        return "output"
+    return "default"
+
+
+class LogHighlighter(QSyntaxHighlighter):
+    def __init__(self, document: Any, *, theme: str = "light") -> None:
+        super().__init__(document)
+        self.theme = theme
+
+    def set_theme(self, theme: str) -> None:
+        self.theme = theme
+        self.rehighlight()
+
+    def highlightBlock(self, text: str) -> None:  # noqa: N802
+        colors = DARK_LOG_COLORS if self.theme == "dark" else LIGHT_LOG_COLORS
+        kind = classify_log_line(text)
+        fmt = QTextCharFormat()
+        fmt.setForeground(QColor(colors.get(kind, colors["default"])))
+        if kind in {"success", "error", "cancel", "start"}:
+            fmt.setFontWeight(QFont.Weight.DemiBold)
+        self.setFormat(0, len(text), fmt)
+
+        account_start = text.find("账号 #")
+        if account_start >= 0:
+            account_end = text.find("：", account_start)
+            if account_end < 0:
+                account_end = text.find(":", account_start)
+            if account_end < 0:
+                account_end = len(text)
+            account_fmt = QTextCharFormat(fmt)
+            account_fmt.setFontWeight(QFont.Weight.Bold)
+            self.setFormat(account_start, max(0, account_end - account_start), account_fmt)
+
+
+class LocalizedFileDialogProxyModel(QIdentityProxyModel):
+    HEADER_LABELS = ("名称", "大小", "类型", "修改时间")
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole) -> Any:  # noqa: N802
+        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal and section < len(self.HEADER_LABELS):
+            return self.HEADER_LABELS[section]
+        return super().headerData(section, orientation, role)
+
+
+def rounded_pixmap(source: QPixmap, size: int, radius: float) -> QPixmap:
+    scaled = source.scaled(
+        size,
+        size,
+        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+    if scaled.width() != size or scaled.height() != size:
+        x = max(0, (scaled.width() - size) // 2)
+        y = max(0, (scaled.height() - size) // 2)
+        scaled = scaled.copy(x, y, size, size)
+
+    output = QPixmap(size, size)
+    output.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(output)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    path = QPainterPath()
+    path.addRoundedRect(0, 0, size, size, radius, radius)
+    painter.setClipPath(path)
+    painter.drawPixmap(0, 0, scaled)
+    painter.end()
+    return output
+
+
+class DialogDragFilter(QObject):
+    def __init__(self, dialog: QDialog) -> None:
+        super().__init__(dialog)
+        self.dialog = dialog
+        self._drag_offset: Any = None
+
+    def eventFilter(self, obj: QObject, event: Any) -> bool:  # noqa: N802
+        event_type = event.type()
+        if event_type == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+            self._drag_offset = self._global_point(event) - self.dialog.frameGeometry().topLeft()
+            event.accept()
+            return True
+        if event_type == QEvent.Type.MouseMove and self._drag_offset is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            self.dialog.move(self._global_point(event) - self._drag_offset)
+            event.accept()
+            return True
+        if event_type == QEvent.Type.MouseButtonRelease:
+            self._drag_offset = None
+        return super().eventFilter(obj, event)
+
+    @staticmethod
+    def _global_point(event: Any) -> Any:
+        if hasattr(event, "globalPosition"):
+            return event.globalPosition().toPoint()
+        return event.globalPos()
+
 
 def load_ui_font() -> str:
     global _UI_FONT_FAMILY
@@ -156,6 +378,377 @@ class WorkerBridge(QObject):
     done = Signal(dict)
     failed = Signal(str)
     update_checked = Signal(dict)
+    preflight_done = Signal(dict)
+
+
+def _text_widget_has_selection(widget: Any) -> bool:
+    if isinstance(widget, QLineEdit):
+        return bool(widget.hasSelectedText())
+    if isinstance(widget, QPlainTextEdit):
+        return bool(widget.textCursor().hasSelection())
+    return False
+
+
+def _text_widget_delete_selection(widget: Any) -> None:
+    if isinstance(widget, QLineEdit):
+        if not widget.hasSelectedText():
+            return
+        text = widget.text()
+        start = max(0, int(widget.selectionStart()))
+        selected = widget.selectedText()
+        widget.setText(text[:start] + text[start + len(selected) :])
+        widget.setCursorPosition(start)
+        return
+    if isinstance(widget, QPlainTextEdit):
+        cursor = widget.textCursor()
+        if cursor.hasSelection():
+            cursor.removeSelectedText()
+            widget.setTextCursor(cursor)
+
+
+def _context_menu_palette(widget: Any) -> dict[str, str]:
+    window = widget.window() if hasattr(widget, "window") else None
+    if window is not None and hasattr(window, "_theme") and callable(getattr(window, "palette", None)):
+        palette = window.palette()
+        if isinstance(palette, dict):
+            return palette
+    return DARK_THEME if bool(getattr(window, "_theme", "") == "dark") else LIGHT_THEME
+
+
+def _style_text_context_menu(menu: QMenu, widget: Any) -> None:
+    p = _context_menu_palette(widget)
+    menu.setObjectName("TextContextMenu")
+    menu.setStyleSheet(
+        f"""
+        QMenu#TextContextMenu {{
+            background:{p['card']};
+            color:{p['text']};
+            border:1px solid {p['border']};
+            border-radius:10px;
+            padding:6px;
+            font-size:13px;
+            font-weight:700;
+        }}
+        QMenu#TextContextMenu::item {{
+            min-width:118px;
+            min-height:28px;
+            padding:5px 24px 5px 14px;
+            border-radius:7px;
+            background:transparent;
+        }}
+        QMenu#TextContextMenu::item:selected {{
+            color:white;
+            background:#2563EB;
+        }}
+        QMenu#TextContextMenu::item:disabled {{
+            color:{p['muted2']};
+            background:transparent;
+        }}
+        QMenu#TextContextMenu::separator {{
+            height:1px;
+            margin:6px 8px;
+            background:{p['border']};
+        }}
+        """
+    )
+
+
+def build_unified_file_dialog_stylesheet(p: dict[str, str]) -> str:
+    """Return the GPT2JSON themed stylesheet for non-native file dialogs."""
+
+    return f"""
+        QFileDialog#UnifiedFileDialog {{
+            background:{p['card']};
+            color:{p['text']};
+            border:1px solid {p['border']};
+            border-radius:14px;
+        }}
+        #FileDialogTitleBar {{
+            min-height:42px;
+            max-height:42px;
+            border:none;
+            border-bottom:1px solid {p['border']};
+            background:transparent;
+        }}
+        #FileDialogTitleIcon {{
+            min-width:22px;
+            max-width:22px;
+            min-height:22px;
+            max-height:22px;
+        }}
+        #FileDialogTitle {{
+            color:{p['text']};
+            font-size:14px;
+            font-weight:900;
+        }}
+        #FileDialogCloseButton {{
+            min-width:32px;
+            max-width:32px;
+            min-height:32px;
+            max-height:32px;
+            border:none;
+            border-radius:8px;
+            color:{p['text']};
+            background:transparent;
+            font-size:18px;
+            padding:0;
+        }}
+        #FileDialogCloseButton:hover {{
+            color:white;
+            background:#EF4444;
+        }}
+        #ToolbarLocationLabel {{
+            color:{p['muted']};
+            font-size:12px;
+            font-weight:800;
+        }}
+        QFileDialog#UnifiedFileDialog QLabel {{
+            color:{p['muted']};
+            font-size:12px;
+            font-weight:700;
+        }}
+        QFileDialog#UnifiedFileDialog QLineEdit,
+        QFileDialog#UnifiedFileDialog QComboBox {{
+            min-height:34px;
+            border-radius:9px;
+            padding-left:10px;
+            padding-right:8px;
+            color:{p['text']};
+            background:{p['input']};
+            border:1px solid {p['border']};
+            font-size:12px;
+            font-weight:600;
+        }}
+        QFileDialog#UnifiedFileDialog QLineEdit:focus,
+        QFileDialog#UnifiedFileDialog QComboBox:focus {{
+            border:1px solid #60A5FA;
+        }}
+        QFileDialog#UnifiedFileDialog QComboBox::drop-down {{
+            width:24px;
+            border:none;
+            background:transparent;
+        }}
+        QFileDialog#UnifiedFileDialog QListView,
+        QFileDialog#UnifiedFileDialog QTreeView {{
+            outline:0;
+            color:{p['text']};
+            background:{p['input']};
+            border:1px solid {p['border']};
+            border-radius:9px;
+            padding:4px;
+            alternate-background-color:{p['soft']};
+            selection-background-color:#2563EB;
+            selection-color:white;
+        }}
+        QFileDialog#UnifiedFileDialog QListView#sidebar {{
+            min-width:96px;
+            max-width:112px;
+            color:{p['text']};
+            background:{p['soft']};
+            border:1px solid {p['border']};
+            border-radius:9px;
+            padding:4px;
+            font-size:11px;
+            font-weight:700;
+        }}
+        QFileDialog#UnifiedFileDialog QListView::item,
+        QFileDialog#UnifiedFileDialog QTreeView::item {{
+            min-height:22px;
+            padding:2px 6px;
+            border-radius:6px;
+        }}
+        QFileDialog#UnifiedFileDialog QListView#sidebar::item {{
+            min-height:23px;
+            padding:2px 5px;
+            border-radius:7px;
+        }}
+        QFileDialog#UnifiedFileDialog QListView::item:hover,
+        QFileDialog#UnifiedFileDialog QTreeView::item:hover {{
+            color:#2563EB;
+            background:{p['soft']};
+        }}
+        QFileDialog#UnifiedFileDialog QListView#sidebar::item:hover {{
+            color:#2563EB;
+            background:{p['input']};
+        }}
+        QFileDialog#UnifiedFileDialog QListView::item:selected,
+        QFileDialog#UnifiedFileDialog QTreeView::item:selected {{
+            color:white;
+            background:#2563EB;
+        }}
+        QFileDialog#UnifiedFileDialog QListView#sidebar::item:selected {{
+            color:white;
+            background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #1677FF,stop:1 #7C3AED);
+        }}
+        QFileDialog#UnifiedFileDialog QHeaderView::section {{
+            min-height:26px;
+            color:{p['muted']};
+            background:{p['soft']};
+            border:none;
+            border-bottom:1px solid {p['border']};
+            padding:5px 8px;
+            font-size:12px;
+            font-weight:800;
+        }}
+        QFileDialog#UnifiedFileDialog QToolButton {{
+            min-width:28px;
+            max-width:30px;
+            min-height:28px;
+            max-height:30px;
+            border-radius:5px;
+            color:{p['text']};
+            background:transparent;
+            border:1px solid transparent;
+            padding:3px;
+        }}
+        QFileDialog#UnifiedFileDialog QToolButton:hover {{
+            border-color:{p['border']};
+            color:#2563EB;
+            background:{p['soft']};
+        }}
+        QFileDialog#UnifiedFileDialog QToolButton:pressed,
+        QFileDialog#UnifiedFileDialog QToolButton:checked {{
+            border-color:#93C5FD;
+            color:#2563EB;
+            background:{p['input']};
+        }}
+        QFileDialog#UnifiedFileDialog QPushButton {{
+            min-height:34px;
+            min-width:82px;
+            border-radius:9px;
+            color:{p['text']};
+            background:{p['soft']};
+            border:1px solid {p['border']};
+            font-size:12px;
+            font-weight:800;
+            padding:0 13px;
+        }}
+        QFileDialog#UnifiedFileDialog QPushButton:hover {{
+            border-color:#3B82F6;
+            color:#2563EB;
+            background:{p['input']};
+        }}
+        QFileDialog#UnifiedFileDialog QPushButton#DialogPrimaryButton {{
+            color:white;
+            border:1px solid #2563EB;
+            background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #1677FF,stop:1 #7C3AED);
+        }}
+        QFileDialog#UnifiedFileDialog QPushButton#DialogPrimaryButton:hover {{
+            color:white;
+            background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #0F63D6,stop:1 #6D28D9);
+        }}
+        QFileDialog#UnifiedFileDialog QSplitter::handle {{
+            background:transparent;
+        }}
+        QFileDialog#UnifiedFileDialog QSplitter::handle:horizontal {{
+            width:8px;
+            margin:0 2px;
+        }}
+        QFileDialog#UnifiedFileDialog QSplitter::handle:horizontal:hover {{
+            background:{p['border']};
+            border-radius:4px;
+        }}
+        QFileDialog#UnifiedFileDialog QScrollBar:vertical {{
+            width:10px;
+            background:transparent;
+            margin:2px;
+        }}
+        QFileDialog#UnifiedFileDialog QScrollBar::handle:vertical {{
+            min-height:28px;
+            border-radius:5px;
+            background:{p['border2']};
+        }}
+        QFileDialog#UnifiedFileDialog QScrollBar::add-page:vertical,
+        QFileDialog#UnifiedFileDialog QScrollBar::sub-page:vertical {{
+            background:transparent;
+        }}
+        QFileDialog#UnifiedFileDialog QScrollBar::add-line:vertical,
+        QFileDialog#UnifiedFileDialog QScrollBar::sub-line:vertical {{
+            height:0;
+            background:transparent;
+        }}
+        QFileDialog#UnifiedFileDialog QScrollBar:horizontal {{
+            height:10px;
+            background:transparent;
+            margin:2px;
+        }}
+        QFileDialog#UnifiedFileDialog QScrollBar::handle:horizontal {{
+            min-width:28px;
+            border-radius:5px;
+            background:{p['border2']};
+        }}
+        QFileDialog#UnifiedFileDialog QScrollBar::add-page:horizontal,
+        QFileDialog#UnifiedFileDialog QScrollBar::sub-page:horizontal {{
+            background:transparent;
+        }}
+        QFileDialog#UnifiedFileDialog QScrollBar::add-line:horizontal,
+        QFileDialog#UnifiedFileDialog QScrollBar::sub-line:horizontal {{
+            width:0;
+            background:transparent;
+        }}
+        QFileDialog#UnifiedFileDialog QAbstractScrollArea::corner {{
+            background:transparent;
+            border:none;
+        }}
+    """
+
+
+def build_chinese_text_context_menu(widget: Any) -> QMenu:
+    menu = QMenu(widget)
+    _style_text_context_menu(menu, widget)
+    read_only = bool(getattr(widget, "isReadOnly", lambda: False)())
+    has_selection = _text_widget_has_selection(widget)
+    clipboard_data = QApplication.clipboard().mimeData()
+    clipboard_has_text = bool(clipboard_data is not None and clipboard_data.hasText())
+
+    undo_available = bool(getattr(widget, "isUndoAvailable", lambda: False)())
+    redo_available = bool(getattr(widget, "isRedoAvailable", lambda: False)())
+    if isinstance(widget, QPlainTextEdit):
+        undo_available = bool(widget.document().isUndoAvailable())
+        redo_available = bool(widget.document().isRedoAvailable())
+
+    undo_action = menu.addAction("撤销")
+    undo_action.setEnabled(not read_only and undo_available)
+    undo_action.triggered.connect(widget.undo)
+    redo_action = menu.addAction("重做")
+    redo_action.setEnabled(not read_only and redo_available)
+    redo_action.triggered.connect(widget.redo)
+    menu.addSeparator()
+
+    cut_action = menu.addAction("剪切")
+    cut_action.setEnabled(not read_only and has_selection)
+    cut_action.triggered.connect(widget.cut)
+    copy_action = menu.addAction("复制")
+    copy_action.setEnabled(has_selection)
+    copy_action.triggered.connect(widget.copy)
+    paste_action = menu.addAction("粘贴")
+    paste_action.setEnabled(not read_only and clipboard_has_text)
+    paste_action.triggered.connect(widget.paste)
+    delete_action = menu.addAction("删除")
+    delete_action.setEnabled(not read_only and has_selection)
+    delete_action.triggered.connect(lambda _checked=False, w=widget: _text_widget_delete_selection(w))
+    menu.addSeparator()
+
+    select_all_action = menu.addAction("全选")
+    if isinstance(widget, QLineEdit):
+        has_text = bool(widget.text())
+    elif isinstance(widget, QPlainTextEdit):
+        has_text = bool(widget.toPlainText())
+    else:
+        has_text = True
+    select_all_action.setEnabled(has_text)
+    select_all_action.triggered.connect(widget.selectAll)
+    return menu
+
+
+def install_chinese_text_context_menu(widget: Any) -> None:
+    widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+
+    def show_menu(pos: Any, target: Any = widget) -> None:
+        menu = build_chinese_text_context_menu(target)
+        menu.exec(target.mapToGlobal(pos))
+
+    widget.customContextMenuRequested.connect(show_menu)
 
 
 class DropLineEdit(QLineEdit):
@@ -165,6 +758,7 @@ class DropLineEdit(QLineEdit):
         super().__init__()
         self.directory = directory
         self.setAcceptDrops(True)
+        install_chinese_text_context_menu(self)
 
     def dragEnterEvent(self, event) -> None:  # type: ignore[override]
         if event.mimeData().hasUrls() or event.mimeData().hasText():
@@ -334,35 +928,29 @@ class FileOutputRow(QFrame):
         self.name_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.open_btn = QToolButton()
         self.open_btn.setObjectName("CopyButton")
-        self.open_btn.setText("打开")
-        self.open_btn.setToolTip("打开文件")
+        self.open_btn.setText("所在位置")
+        self.open_btn.setToolTip("打开所在文件夹")
         self.open_btn.setEnabled(False)
-        self.open_btn.clicked.connect(self.open_path)
-        self.copy_btn = QToolButton()
-        self.copy_btn.setObjectName("CopyButton")
-        self.copy_btn.setText("复制")
-        self.copy_btn.setToolTip("复制路径")
-        self.copy_btn.setEnabled(False)
-        self.copy_btn.clicked.connect(self.copy_path)
+        self.open_btn.clicked.connect(self.reveal_in_folder)
         layout.addWidget(badge_label)
         layout.addWidget(self.name_label, 1)
         layout.addWidget(self.open_btn)
-        layout.addWidget(self.copy_btn)
 
     def set_path(self, path: str) -> None:
         self.path = path
         self.name_label.setText(Path(path).name if path else self.default_filename)
         self.open_btn.setEnabled(bool(path))
-        self.copy_btn.setEnabled(bool(path))
         self.setToolTip(path)
 
-    def open_path(self) -> None:
-        if self.path:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(self.path).resolve())))
-
-    def copy_path(self) -> None:
-        if self.path:
-            QApplication.clipboard().setText(self.path)
+    def reveal_in_folder(self) -> None:
+        if not self.path:
+            return
+        target = Path(self.path).resolve()
+        if sys.platform.startswith("win") and target.is_file():
+            subprocess.Popen(["explorer.exe", f"/select,{target}"])  # noqa: S603,S607
+            return
+        folder = target if target.is_dir() else target.parent
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
 
 class FormatCombo(QComboBox):
@@ -417,6 +1005,7 @@ class PresetNumberCombo(QComboBox):
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
+        install_qt_translations(QApplication.instance())
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
         self.setMinimumSize(980, 640)
         self.resize(1180, 740)
@@ -431,13 +1020,17 @@ class MainWindow(QMainWindow):
         self.bridge.done.connect(self.on_done)
         self.bridge.failed.connect(self.on_failed)
         self.bridge.update_checked.connect(self.on_update_checked)
+        self.bridge.preflight_done.connect(self.on_preflight_done)
         self._worker_thread: threading.Thread | None = None
+        self._preflight_thread: threading.Thread | None = None
         self._drag_start: Any = None
         self._theme = "light"
         self._update_check_running = False
         self._input_mode = "paste"
         self._clearing_input = False
         self._is_running = False
+        self._is_cancelling = False
+        self._cancel_event: threading.Event | None = None
         self._status_text = "就绪"
         self._status_mode = "ready"
         self._total = 0
@@ -449,6 +1042,10 @@ class MainWindow(QMainWindow):
         self._last_preflight_raw_count = 0
         self._last_preflight_error = ""
         self._last_preflight_source = ""
+        self._last_preflight_snapshot_key = ""
+        self._last_result_dir = ""
+        self._preflight_seq = 0
+        self._preflight_running = False
         self._log_waiting = True
         self._preflight_timer = QTimer(self)
         self._preflight_timer.setSingleShot(True)
@@ -471,8 +1068,13 @@ class MainWindow(QMainWindow):
         self.shell = QFrame()
         self.shell.setObjectName("Shell")
         self.shadow = QGraphicsDropShadowEffect(self.shell)
-        self.shadow.setBlurRadius(28)
-        self.shadow.setOffset(0, 10)
+        # Disable the drop-shadow effect: on some Windows scaling / GPU
+        # combinations QGraphicsDropShadowEffect shows a sharp rectangular
+        # halo around the rounded frameless window.  The shell border now
+        # carries the window edge, avoiding the “硬方框阴影” artifact.
+        self.shadow.setEnabled(False)
+        self.shadow.setBlurRadius(0)
+        self.shadow.setOffset(0, 0)
         self.shell.setGraphicsEffect(self.shadow)
         outer_layout.addWidget(self.shell)
 
@@ -617,6 +1219,7 @@ class MainWindow(QMainWindow):
         self.paste_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.paste_edit.setPlaceholderText("自动识别账号格式\n当前支持：GPT邮箱----GPT密码----OTP取码源\n每行一个账号，以当前选中的输入来源为准。")
         self.paste_edit.textChanged.connect(self._on_paste_changed)
+        install_chinese_text_context_menu(self.paste_edit)
         self.input_stack.addWidget(self.paste_edit)
 
         file_page = QWidget()
@@ -716,7 +1319,8 @@ class MainWindow(QMainWindow):
         self.timeout_spin = self._spin(10, 600, 30)
         self.otp_timeout_spin = self._spin(10, 600, 180)
         self.otp_interval_spin = self._spin(1, 60, 3)
-        for spin in (self.timeout_spin, self.otp_timeout_spin, self.otp_interval_spin):
+        self.max_attempts_spin = self._spin(1, 5, 3)
+        for spin in (self.timeout_spin, self.otp_timeout_spin, self.otp_interval_spin, self.max_attempts_spin):
             spin.setVisible(False)
         layout.addStretch(1)
         return card
@@ -759,11 +1363,16 @@ class MainWindow(QMainWindow):
         self.run_btn = QPushButton("开始导出")
         self.run_btn.setObjectName("PrimaryButton")
         self.run_btn.clicked.connect(self.start_run)
+        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn.setObjectName("SecondaryButton")
+        self.cancel_btn.setToolTip("请求取消当前导出；已在执行的账号会在安全点收尾。")
+        self.cancel_btn.clicked.connect(self.cancel_run)
         self.open_out_btn = QPushButton("打开输出目录")
         self.open_out_btn.setObjectName("SecondaryButton")
         self.open_out_btn.clicked.connect(self.open_output_dir)
         buttons.addWidget(self.preflight_btn, 1)
         buttons.addWidget(self.run_btn, 2)
+        buttons.addWidget(self.cancel_btn, 1)
         buttons.addWidget(self.open_out_btn, 1)
         layout.addLayout(buttons)
         return card
@@ -780,7 +1389,7 @@ class MainWindow(QMainWindow):
         output_layout.setContentsMargins(16, 14, 16, 14)
         output_layout.setSpacing(12)
         output_layout.addWidget(SectionHeader(UI_OUTPUT_PATH, "导出结果"))
-        self.output_hint_label = QLabel("任务完成后显示可打开的结果；未运行时这里保持精简。")
+        self.output_hint_label = QLabel("任务完成后显示结果所在位置；未运行时这里保持精简。")
         self.output_hint_label.setObjectName("HintText")
         self.output_hint_label.setWordWrap(True)
         output_layout.addWidget(self.output_hint_label)
@@ -813,6 +1422,8 @@ class MainWindow(QMainWindow):
         self.log_edit.setObjectName("LogBox")
         self.log_edit.setReadOnly(True)
         self.log_edit.setPlainText(READY_LOG)
+        install_chinese_text_context_menu(self.log_edit)
+        self.log_highlighter = LogHighlighter(self.log_edit.document(), theme=self._theme)
         log_layout.addWidget(self.log_edit, 1)
         layout.addWidget(log_card, 1)
         return right
@@ -856,20 +1467,469 @@ class MainWindow(QMainWindow):
     def palette(self) -> dict[str, str]:
         return DARK_THEME if self._theme == "dark" else LIGHT_THEME
 
+    def _dialog_start_directory(self, path_text: str = "") -> Path:
+        raw = (path_text or "").strip()
+        path = Path(raw).expanduser() if raw else Path.cwd()
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        if path.is_file():
+            path = path.parent
+        while not path.exists() and path.parent != path:
+            path = path.parent
+        return path if path.exists() else Path.cwd()
+
+    def _file_dialog_sidebar_places(self) -> list[tuple[str, QUrl, str]]:
+        places: list[tuple[str, QUrl, str]] = []
+        seen: set[str] = set()
+
+        def add_url(label: str, url: QUrl, tooltip: str = "") -> None:
+            if not label:
+                return
+            key = url.toString().casefold()
+            if key in seen:
+                return
+            seen.add(key)
+            places.append((label, url, tooltip or url.toLocalFile() or label))
+
+        def add(label: str, value: str | Path, tooltip: str = "") -> None:
+            if not label:
+                return
+            path = Path(value).expanduser()
+            if not path.exists():
+                return
+            try:
+                key = str(path.resolve()).casefold()
+            except Exception:
+                key = str(path).casefold()
+            if key in seen:
+                return
+            seen.add(key)
+            places.append((label, QUrl.fromLocalFile(str(path)), tooltip or str(path)))
+
+        standard_locations: tuple[tuple[str, QStandardPaths.StandardLocation], ...] = (
+            ("桌面", QStandardPaths.StandardLocation.DesktopLocation),
+            ("文档", QStandardPaths.StandardLocation.DocumentsLocation),
+            ("下载", QStandardPaths.StandardLocation.DownloadLocation),
+            ("图片", QStandardPaths.StandardLocation.PicturesLocation),
+            ("音乐", QStandardPaths.StandardLocation.MusicLocation),
+            ("视频", QStandardPaths.StandardLocation.MoviesLocation),
+        )
+        for label, location in standard_locations:
+            value = QStandardPaths.writableLocation(location)
+            if value:
+                add(label, value)
+
+        # Qt's non-native QFileDialog can show a Windows-style drive overview
+        # when navigated to the empty file URL.  Put it after the high-frequency
+        # user folders so the sidebar stays short and task-oriented.
+        add_url("此电脑", QUrl("file:"), "查看所有磁盘和驱动器")
+
+        return places
+
+    def _apply_unified_file_dialog_style(self, dialog: QFileDialog, *, accept_text: str) -> None:
+        dialog.setObjectName("UnifiedFileDialog")
+        dialog.setWindowIcon(QIcon(str(APP_ICON_PATH)) if APP_ICON_PATH.exists() else self.windowIcon())
+        dialog.setWindowFlags((dialog.windowFlags() | Qt.WindowType.FramelessWindowHint) & ~Qt.WindowType.WindowContextHelpButtonHint)
+        # QFileDialog is a complex top-level widget.  Enabling translucent
+        # background here can make the native child viewport show through as a
+        # fully transparent window on Windows, especially with Direct2D / DPI
+        # scaling.  Keep it opaque; the unified title bar still provides the
+        # visual integration without turning the dialog into a see-through pane.
+        dialog.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+        dialog.setViewMode(QFileDialog.ViewMode.Detail)
+        dialog.setLabelText(QFileDialog.DialogLabel.Accept, accept_text)
+        dialog.setLabelText(QFileDialog.DialogLabel.Reject, "取消")
+        dialog.setLabelText(QFileDialog.DialogLabel.LookIn, "位置")
+        dialog.setLabelText(QFileDialog.DialogLabel.FileName, "名称")
+        dialog.setLabelText(QFileDialog.DialogLabel.FileType, "类型")
+        proxy = LocalizedFileDialogProxyModel(dialog)
+        dialog.setProxyModel(proxy)
+        dialog._localized_proxy = proxy  # type: ignore[attr-defined]
+        dialog.setStyleSheet(build_unified_file_dialog_stylesheet(self.palette()))
+        dialog.resize(760, 520)
+
+        sidebar_places = self._file_dialog_sidebar_places()
+        if sidebar_places:
+            dialog.setSidebarUrls([url for _label, url, _tooltip in sidebar_places])
+
+        self._install_file_dialog_chrome(dialog)
+        self._arrange_file_dialog_toolbar(dialog)
+        self._localize_file_dialog_widgets(dialog)
+        self._localize_file_dialog_sidebar(dialog, sidebar_places)
+        self._tune_file_dialog_views(dialog)
+        for delay_ms in (0, 50, 200):
+            QTimer.singleShot(
+                delay_ms,
+                lambda d=dialog, places=sidebar_places: (
+                    self._install_file_dialog_chrome(d),
+                    self._arrange_file_dialog_toolbar(d),
+                    self._localize_file_dialog_widgets(d),
+                    self._localize_file_dialog_sidebar(d, places),
+                    self._tune_file_dialog_views(d),
+                ),
+            )
+        normalized_accept = accept_text.replace("&", "")
+        for button in dialog.findChildren(QPushButton):
+            if button.text().replace("&", "") == normalized_accept:
+                button.setObjectName("DialogPrimaryButton")
+                button.setDefault(True)
+                break
+
+    def _install_file_dialog_chrome(self, dialog: QFileDialog) -> None:
+        if dialog.findChild(QWidget, "FileDialogTitleBar") is not None:
+            return
+        grid = dialog.layout()
+        if not isinstance(grid, QGridLayout):
+            return
+
+        existing: list[tuple[Any, tuple[int, int, int, int]]] = []
+        for index in reversed(range(grid.count())):
+            position = grid.getItemPosition(index)
+            item = grid.takeAt(index)
+            if item is not None:
+                existing.append((item, position))
+        for item, (row, column, row_span, column_span) in reversed(existing):
+            grid.addItem(item, row + 1, column, row_span, column_span)
+
+        grid.setContentsMargins(10, 8, 10, 10)
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(6)
+
+        title_bar = QFrame(dialog)
+        title_bar.setObjectName("FileDialogTitleBar")
+        title_layout = QHBoxLayout(title_bar)
+        title_layout.setContentsMargins(8, 0, 4, 0)
+        title_layout.setSpacing(8)
+
+        icon = QLabel()
+        icon.setObjectName("FileDialogTitleIcon")
+        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_path = ICON_DARK_PATH if self._theme == "dark" else ICON_LIGHT_PATH
+        if not icon_path.exists():
+            icon_path = ICON_PATH
+        if icon_path.exists():
+            icon.setPixmap(QPixmap(str(icon_path)).scaled(20, 20, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+
+        title = QLabel(dialog.windowTitle() or APP_NAME)
+        title.setObjectName("FileDialogTitle")
+
+        close_button = QToolButton()
+        close_button.setObjectName("FileDialogCloseButton")
+        close_button.setText("×")
+        close_button.setToolTip("关闭")
+        close_button.clicked.connect(dialog.reject)
+
+        title_layout.addWidget(icon)
+        title_layout.addWidget(title, 1)
+        title_layout.addWidget(close_button)
+        grid.addWidget(title_bar, 0, 0, 1, max(1, grid.columnCount()))
+
+        drag_filter = DialogDragFilter(dialog)
+        dialog._drag_filter = drag_filter  # type: ignore[attr-defined]
+        for widget in (title_bar, icon, title):
+            widget.installEventFilter(drag_filter)
+
+    def _find_layout_containing_widget(self, layout: Any, widget: QWidget) -> Any:
+        if layout is None:
+            return None
+        for index in range(layout.count()):
+            item = layout.itemAt(index)
+            if item is None:
+                continue
+            if item.widget() is widget:
+                return layout
+            child_layout = item.layout()
+            found = self._find_layout_containing_widget(child_layout, widget) if child_layout is not None else None
+            if found is not None:
+                return found
+        return None
+
+    def _file_dialog_toolbar_layout(self, dialog: QFileDialog) -> Any:
+        combo = dialog.findChild(QComboBox, "lookInCombo")
+        if combo is None:
+            return None
+        return self._find_layout_containing_widget(dialog.layout(), combo)
+
+    def _refresh_file_dialog_current_dir(self, dialog: QFileDialog) -> None:
+        current_url = dialog.directoryUrl()
+        for tree in dialog.findChildren(QTreeView):
+            model = tree.model()
+            source_model = model.sourceModel() if hasattr(model, "sourceModel") else model
+            if source_model is not None and hasattr(source_model, "setRootPath") and hasattr(source_model, "rootPath"):
+                source_model.setRootPath(source_model.rootPath())
+        if current_url.isValid():
+            dialog.setDirectoryUrl(current_url)
+        self._tune_file_dialog_views(dialog)
+
+    def _file_dialog_toolbar_icon(self, name: str, fallback: QStyle.StandardPixmap) -> tuple[QIcon, str]:
+        # Do not tint the platform icons into a single silhouette: in dark mode
+        # that made every toolbar action look like the same white blob.  These
+        # lightweight vector glyphs keep the familiar Windows/Fluent outline
+        # language while using small semantic accents for easy scanning.
+        dark = self._theme == "dark"
+        base = QColor("#E2E8F0" if dark else "#475569")
+        muted = QColor("#94A3B8" if dark else "#64748B")
+        blue = QColor("#60A5FA" if dark else "#2563EB")
+        purple = QColor("#C4B5FD" if dark else "#7C3AED")
+        green = QColor("#86EFAC" if dark else "#16A34A")
+        amber = QColor("#FCD34D" if dark else "#F59E0B")
+        amber_fill = QColor("#78350F" if dark else "#FEF3C7")
+        surface = QColor("#1E293B" if dark else "#EFF6FF")
+
+        pixmap = QPixmap(22, 22)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(QPen(base, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+
+        def line(x1: float, y1: float, x2: float, y2: float, color: QColor | None = None, width: float = 2.0) -> None:
+            painter.setPen(QPen(color or base, width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            painter.drawLine(int(x1), int(y1), int(x2), int(y2))
+
+        def rounded_rect(x: float, y: float, w: float, h: float, radius: float, stroke: QColor, fill: QColor | None = None, width: float = 1.6) -> None:
+            painter.setPen(QPen(stroke, width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            painter.setBrush(fill if fill is not None else Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(int(x), int(y), int(w), int(h), radius, radius)
+
+        if name == "backButton":
+            line(14, 5, 8, 11, blue)
+            line(8, 11, 14, 17, blue)
+            line(9, 11, 18, 11, base)
+        elif name == "forwardButton":
+            line(8, 5, 14, 11, blue)
+            line(14, 11, 8, 17, blue)
+            line(4, 11, 13, 11, base)
+        elif name == "toParentButton":
+            line(11, 5, 5, 11, purple)
+            line(11, 5, 17, 11, purple)
+            line(11, 6, 11, 18, base)
+            line(7, 18, 15, 18, muted, 1.8)
+        elif name == "refreshButton":
+            painter.setPen(QPen(green, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            painter.drawArc(5, 5, 12, 12, 35 * 16, 285 * 16)
+            line(16, 4, 17, 9, green)
+            line(16, 4, 12, 5, green)
+        elif name == "newFolderButton":
+            folder = QPainterPath()
+            folder.moveTo(3, 8)
+            folder.lineTo(8, 8)
+            folder.lineTo(10, 6)
+            folder.lineTo(14, 6)
+            folder.lineTo(16, 8)
+            folder.lineTo(19, 8)
+            folder.lineTo(19, 17)
+            folder.lineTo(3, 17)
+            folder.closeSubpath()
+            painter.setPen(QPen(amber, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            painter.setBrush(amber_fill)
+            painter.drawPath(folder)
+            line(15, 11, 15, 15, blue, 1.8)
+            line(13, 13, 17, 13, blue, 1.8)
+        elif name == "listModeButton":
+            for y, color in ((7, blue), (11, purple), (15, green)):
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(color)
+                painter.drawEllipse(4, y - 1, 2, 2)
+                line(8, y, 18, y, base, 1.7)
+        elif name == "detailModeButton":
+            colors = (blue, purple, green, muted)
+            positions = ((4, 5), (12, 5), (4, 13), (12, 13))
+            for (x, y), color in zip(positions, colors, strict=True):
+                rounded_rect(x, y, 6, 6, 1.5, color, surface, 1.4)
+        else:
+            fallback_icon = QApplication.style().standardIcon(fallback)
+            painter.end()
+            return fallback_icon, "platform"
+
+        painter.end()
+        return QIcon(pixmap), "accent"
+
+    def _arrange_file_dialog_toolbar(self, dialog: QFileDialog) -> None:
+        layout = self._file_dialog_toolbar_layout(dialog)
+        if layout is None:
+            return
+        root_layout = dialog.layout()
+        if isinstance(root_layout, QGridLayout):
+            # QFileDialog's default grid reserves column 0 for the "Look in"
+            # label and places the toolbar/address row at column 1.  Once the
+            # label is folded into our toolbar, re-span the row from column 0
+            # so navigation buttons start flush with the content margin.
+            position = None
+            for index in range(root_layout.count()):
+                item = root_layout.itemAt(index)
+                if item is not None and item.layout() is layout:
+                    position = root_layout.getItemPosition(index)
+                    break
+            if position is not None and position[1] != 0:
+                root_layout.removeItem(layout)
+                root_layout.addLayout(layout, position[0], 0, position[2], root_layout.columnCount())
+        location_label = dialog.findChild(QLabel, "lookInLabel")
+        if location_label is not None:
+            if root_layout is not None:
+                root_layout.removeWidget(location_label)
+            location_label.setText("")
+            location_label.setFixedSize(0, 0)
+            location_label.setVisible(False)
+        combo = dialog.findChild(QComboBox, "lookInCombo")
+        if combo is None:
+            return
+
+        inline_label = dialog.findChild(QLabel, "ToolbarLocationLabel")
+        if inline_label is None:
+            inline_label = QLabel("位置", dialog)
+            inline_label.setObjectName("ToolbarLocationLabel")
+            inline_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            inline_label.setMinimumWidth(28)
+
+        refresh_button = dialog.findChild(QToolButton, "refreshButton")
+        if refresh_button is None:
+            refresh_button = QToolButton(dialog)
+            refresh_button.setObjectName("refreshButton")
+            refresh_button.clicked.connect(lambda _checked=False, d=dialog: self._refresh_file_dialog_current_dir(d))
+
+        widgets: list[QWidget] = []
+        for name in ("backButton", "forwardButton", "toParentButton"):
+            button = dialog.findChild(QToolButton, name)
+            if button is not None:
+                widgets.append(button)
+        widgets.extend([refresh_button, inline_label, combo])
+        for name in ("newFolderButton", "listModeButton", "detailModeButton"):
+            button = dialog.findChild(QToolButton, name)
+            if button is not None:
+                widgets.append(button)
+
+        # QFileDialog builds this row as: address bar, then buttons.  Reorder it
+        # to the Windows-native mental model: navigation buttons first, then the
+        # location/address bar, with folder/view tools at the right.
+        for widget in widgets:
+            index = layout.indexOf(widget)
+            if index >= 0:
+                layout.takeAt(index)
+        if isinstance(layout, QHBoxLayout):
+            layout.setSpacing(4)
+        for index, widget in enumerate(widgets):
+            stretch = 1 if widget is combo else 0
+            layout.insertWidget(index, widget, stretch)
+        combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def _localize_file_dialog_widgets(self, dialog: QFileDialog) -> None:
+        # Qt translations cover these once qtbase_zh_CN.qm is loaded.  These
+        # explicit fallbacks keep packaged builds Chinese even if a translation
+        # file is missing from the runtime bundle.
+        toolbar_buttons: dict[str, tuple[str, QStyle.StandardPixmap]] = {
+            "backButton": ("后退", QStyle.StandardPixmap.SP_FileDialogBack),
+            "forwardButton": ("前进", QStyle.StandardPixmap.SP_ArrowForward),
+            "toParentButton": ("向上一级", QStyle.StandardPixmap.SP_FileDialogToParent),
+            "refreshButton": ("刷新", QStyle.StandardPixmap.SP_BrowserReload),
+            "newFolderButton": ("新建文件夹", QStyle.StandardPixmap.SP_FileDialogNewFolder),
+            "listModeButton": ("列表", QStyle.StandardPixmap.SP_FileDialogListView),
+            "detailModeButton": ("详细信息", QStyle.StandardPixmap.SP_FileDialogDetailedView),
+        }
+        for button in dialog.findChildren(QToolButton):
+            config = toolbar_buttons.get(button.objectName())
+            if not config:
+                continue
+            tooltip, pixmap = config
+            button.setText("")
+            button.setToolTip(tooltip)
+            button.setAccessibleName(tooltip)
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            button.setAutoRaise(True)
+            button.setFixedSize(30, 30)
+            button.setIconSize(QSize(18, 18))
+            icon, icon_color = self._file_dialog_toolbar_icon(button.objectName(), pixmap)
+            button.setIcon(icon)
+            button.setProperty("themeIconColor", icon_color)
+            button.setProperty("themeIconMode", self._theme)
+
+    def _localize_file_dialog_sidebar(self, dialog: QFileDialog, places: list[tuple[str, QUrl, str]]) -> None:
+        sidebar = dialog.findChild(QListView, "sidebar")
+        if sidebar is None:
+            return
+        sidebar.setMinimumWidth(96)
+        sidebar.setMaximumWidth(112)
+        sidebar.setIconSize(QSize(14, 14))
+        sidebar.setSpacing(1)
+        model = sidebar.model()
+        if model is None:
+            return
+        if not bool(getattr(model, "_gpt2json_sidebar_connected", False)):
+            model._gpt2json_sidebar_connected = True
+
+            def relabel_later(*_args: Any, d: QFileDialog = dialog, p: list[tuple[str, QUrl, str]] = places, m: Any = model) -> None:
+                if bool(getattr(m, "_gpt2json_sidebar_relabeling", False)):
+                    return
+                QTimer.singleShot(0, lambda: self._localize_file_dialog_sidebar(d, p))
+
+            model.modelReset.connect(relabel_later)
+            model.rowsInserted.connect(relabel_later)
+            model.layoutChanged.connect(relabel_later)
+            model.dataChanged.connect(relabel_later)
+        model._gpt2json_sidebar_relabeling = True
+        try:
+            for row, (label, url, tooltip) in enumerate(places):
+                if row >= model.rowCount():
+                    break
+                index = model.index(row, 0)
+                model.setData(index, label, Qt.ItemDataRole.DisplayRole)
+                model.setData(index, tooltip or url.toLocalFile(), Qt.ItemDataRole.ToolTipRole)
+        finally:
+            model._gpt2json_sidebar_relabeling = False
+
+    def _tune_file_dialog_views(self, dialog: QFileDialog) -> None:
+        # Keep QFileDialog's familiar information layout, but make the detail
+        # table denser and closer to the main UI instead of turning it into a
+        # sparse custom picker.
+        for tree in dialog.findChildren(QTreeView):
+            tree.setAlternatingRowColors(True)
+            tree.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+            tree.setUniformRowHeights(True)
+            tree.setSortingEnabled(True)
+            header = tree.header()
+            header.setHighlightSections(False)
+            header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            header.setMinimumSectionSize(72)
+            header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+            if tree.model() is not None and tree.model().columnCount() >= 4:
+                header.resizeSection(0, 280)
+                header.resizeSection(1, 86)
+                header.resizeSection(2, 116)
+                header.resizeSection(3, 150)
+        splitter = dialog.findChild(QSplitter, "splitter")
+        if splitter is not None:
+            splitter.setChildrenCollapsible(False)
+            splitter.setHandleWidth(8)
+            splitter.setSizes([104, 640])
+
+    def _create_input_file_dialog(self, start_path: str = "") -> QFileDialog:
+        dialog = QFileDialog(self, "选择账号文件", str(self._dialog_start_directory(start_path)))
+        dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptOpen)
+        dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
+        dialog.setNameFilters(["文本文件 (*.txt)", "所有文件 (*)"])
+        self._apply_unified_file_dialog_style(dialog, accept_text="选择文件")
+        return dialog
+
+    def _create_output_directory_dialog(self, start_path: str = "") -> QFileDialog:
+        start_dir = self._dialog_start_directory(start_path)
+        dialog = QFileDialog(self, "选择输出目录", str(start_dir))
+        dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptOpen)
+        dialog.setFileMode(QFileDialog.FileMode.Directory)
+        # 不启用 ShowDirsOnly：用户选输出目录时也能看到目录内文件，
+        # 信息量更接近系统默认浏览窗口；若误选文件，pick_output 会回退到父目录。
+        dialog.setOption(QFileDialog.Option.ShowDirsOnly, False)
+        self._apply_unified_file_dialog_style(dialog, accept_text="选择此目录")
+        dialog.setLabelText(QFileDialog.DialogLabel.FileName, "文件夹")
+        return dialog
+
     def _refresh_logo(self) -> None:
         icon_path = ICON_DARK_PATH if self._theme == "dark" else ICON_LIGHT_PATH
         if not icon_path.exists():
             icon_path = ICON_PATH
         if icon_path.exists():
             self.logo.setText("")
-            self.logo.setPixmap(
-                QPixmap(str(icon_path)).scaled(
-                    50,
-                    50,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-            )
+            self.logo.setPixmap(rounded_pixmap(QPixmap(str(icon_path)), 50, 14))
         else:
             self.logo.setPixmap(QPixmap())
             self.logo.setText("GJ")
@@ -878,7 +1938,7 @@ class MainWindow(QMainWindow):
         p = self.palette()
         chevron_url = UI_CHEVRON_DOWN_PATH.as_posix()
         QApplication.instance().setFont(QFont(load_ui_font(), 10))  # type: ignore[union-attr]
-        self.shadow.setColor(Qt.GlobalColor.black if self._theme == "dark" else Qt.GlobalColor.gray)
+        self.shadow.setEnabled(False)
         self._refresh_logo()
         self.theme_btn.setText("")
         icon_path = THEME_SUN_PATH if self._theme == "dark" else THEME_MOON_PATH
@@ -949,11 +2009,13 @@ class MainWindow(QMainWindow):
             #OutputRow {{ min-height:54px; background:{p['soft']}; border:1px solid {p['border']}; border-radius:9px; }}
             #OutputBadge {{ color:white; background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #2563EB,stop:1 #7C3AED); min-width:54px; max-width:54px; min-height:26px; max-height:26px; border-radius:7px; font-size:10px; font-weight:900; }}
             #OutputName {{ color:{p['text']}; font-size:12px; font-weight:700; }}
-            #CopyButton {{ border:none; background:transparent; color:{p['muted2']}; min-width:42px; max-width:42px; min-height:28px; max-height:28px; border-radius:6px; font-size:11px; font-weight:800; }}
+            #CopyButton {{ border:none; background:transparent; color:{p['muted2']}; min-width:64px; max-width:64px; min-height:28px; max-height:28px; border-radius:6px; font-size:11px; font-weight:800; }}
             #CopyButton:hover {{ color:#2563EB; background:{p['card']}; }}
             #LogBox {{ border-radius:9px; border:1px solid {p['border']}; background:{p['log']}; color:{p['muted']}; padding:11px; font-family:Consolas, 'Cascadia Mono', monospace; font-size:12px; }}
             """
         )
+        if hasattr(self, "log_highlighter"):
+            self.log_highlighter.set_theme(self._theme)
         self._apply_status_style()
 
     def _apply_status_style(self) -> None:
@@ -998,7 +2060,7 @@ class MainWindow(QMainWindow):
         self._update_check_running = True
         self.version_badge.setEnabled(False)
         self.version_badge.setText("检查中")
-        self.append_log("🛰️ 正在查询 GitHub Release：只检查版本，不会自动替换本地程序。")
+        self.append_log("🔄 更新检查：正在查询 GitHub Release；只检查版本，不会自动替换本地程序。")
 
         def worker() -> None:
             info = check_latest_release(__version__)
@@ -1014,13 +2076,13 @@ class MainWindow(QMainWindow):
         error = str(info.get("error") or "").strip()
         html_url = str(info.get("html_url") or RELEASES_PAGE_URL)
         if error:
-            self.append_log(f"ℹ️ 更新检查完成：{error}")
+            self.append_log(f"ℹ️ 更新检查：{error}")
             QMessageBox.information(self, "检查更新", f"{error}\n\n如果还没发布正式版，可以继续使用当前构建。")
             return
 
         latest = str(info.get("tag_name") or info.get("latest_version") or "").strip()
         if bool(info.get("update_available")):
-            self.append_log(f"✨ 发现新版本 {latest}，可前往 GitHub Release 下载。")
+            self.append_log(f"✨ 更新检查：发现新版本 {latest}，可前往 GitHub Release 下载。")
             answer = QMessageBox.question(
                 self,
                 "发现新版本",
@@ -1032,7 +2094,7 @@ class MainWindow(QMainWindow):
                 QDesktopServices.openUrl(QUrl(html_url))
             return
 
-        self.append_log(f"✅ 当前已经是最新发布版：{latest or APP_VERSION}。")
+        self.append_log(f"✅ 更新检查：当前已经是最新发布版 {latest or APP_VERSION}。")
         QMessageBox.information(self, "检查更新", f"当前已经是最新发布版：{latest or APP_VERSION}")
 
     def _restore_settings(self) -> None:
@@ -1060,6 +2122,7 @@ class MainWindow(QMainWindow):
         self.timeout_spin.setValue(int_setting("timeout", 30, 10, 600))
         self.otp_timeout_spin.setValue(int_setting("otp_timeout", 180, 10, 600))
         self.otp_interval_spin.setValue(int_setting("otp_interval", 3, 1, 60))
+        self.max_attempts_spin.setValue(int_setting("max_attempts", 3, 1, 5))
         self.advanced_btn.setText("高级选项（弹窗配置）  ›")
 
     def _save_settings(self) -> None:
@@ -1072,6 +2135,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("timeout", int(self.timeout_spin.value()))
         self.settings.setValue("otp_timeout", int(self.otp_timeout_spin.value()))
         self.settings.setValue("otp_interval", int(self.otp_interval_spin.value()))
+        self.settings.setValue("max_attempts", int(self.max_attempts_spin.value()))
         self.settings.sync()
 
     def _schedule_preflight(self) -> None:
@@ -1080,6 +2144,9 @@ class MainWindow(QMainWindow):
         self._last_preflight_count = 0
         self._last_preflight_raw_count = 0
         self._last_preflight_error = ""
+        self._last_preflight_snapshot_key = ""
+        self._preflight_seq += 1
+        self._preflight_running = False
         if self._has_active_input():
             self._set_status("预检查中", "running")
         self._preflight_timer.start()
@@ -1122,6 +2189,7 @@ class MainWindow(QMainWindow):
             self._last_preflight_count = 0
             self._last_preflight_raw_count = 0
             self._last_preflight_error = ""
+            self._last_preflight_snapshot_key = ""
             self._reset_counts(0)
             self._set_status("就绪", "ready")
             self._refresh_controls_state()
@@ -1144,9 +2212,9 @@ class MainWindow(QMainWindow):
             self.sub2api_row.setEnabled(has_sub2api)
             self.cpa_row.setEnabled(has_cpa)
             if self._is_running:
-                self.output_hint_label.setText("正在导出，完成后这里会自动出现文件 / 文件夹入口。")
+                self.output_hint_label.setText("正在导出，完成后这里会自动出现结果所在位置入口。")
             elif has_result:
-                self.output_hint_label.setText("已生成结果，可直接打开或复制路径。")
+                self.output_hint_label.setText("已生成结果，可直接打开所在位置。")
             elif any_selected:
                 self.output_hint_label.setText("结果区会在导出完成后显示；平时不用在这里操作。")
             else:
@@ -1167,6 +2235,7 @@ class MainWindow(QMainWindow):
         self._last_preflight_count = 0
         self._last_preflight_raw_count = 0
         self._last_preflight_error = ""
+        self._last_preflight_snapshot_key = ""
         self._refresh_input_mode()
         self._reset_counts(0)
         self._set_status("就绪", "ready")
@@ -1192,9 +2261,14 @@ class MainWindow(QMainWindow):
         has_output = bool(self.output_edit.text().strip())
         has_input = self._has_active_input()
         has_valid_rows = self._last_preflight_count > 0 and not self._last_preflight_error
-        can_start = (not self._is_running) and output_selected and has_output and has_input and has_valid_rows
+        can_start = (not self._is_running) and (not self._preflight_running) and output_selected and has_output and has_input and has_valid_rows
         self.run_btn.setEnabled(can_start)
-        self.preflight_btn.setEnabled((not self._is_running) and has_input)
+        self.run_btn.setText("取消中..." if self._is_cancelling else "开始导出")
+        self.cancel_btn.setVisible(self._is_running)
+        self.cancel_btn.setEnabled(self._is_running and not self._is_cancelling)
+        self.cancel_btn.setText("取消中..." if self._is_cancelling else "取消")
+        self.preflight_btn.setText("预检查中..." if self._preflight_running else "预检查")
+        self.preflight_btn.setEnabled((not self._is_running) and (not self._preflight_running) and has_input)
         self.clear_input_btn.setEnabled(not self._is_running and (bool(self._paste_text()) or bool(self._input_path())))
         if hasattr(self, "clear_log_btn"):
             self.clear_log_btn.setEnabled(not self._is_running)
@@ -1215,12 +2289,27 @@ class MainWindow(QMainWindow):
             self.timeout_spin,
             self.otp_timeout_spin,
             self.otp_interval_spin,
+            self.max_attempts_spin,
         ):
             widget.setEnabled(not self._is_running)
         self.open_out_btn.setEnabled(bool(has_output))
 
     def _set_running(self, running: bool) -> None:
         self._is_running = bool(running)
+        if not running:
+            self._is_cancelling = False
+            self._cancel_event = None
+        self._refresh_controls_state()
+
+    def cancel_run(self) -> None:
+        if not self._is_running:
+            return
+        if self._cancel_event is not None:
+            self._cancel_event.set()
+        if not self._is_cancelling:
+            self._is_cancelling = True
+            self._set_status("取消中", "warning")
+            self.append_log("🛑 取消请求：已发送。不会再推进新账号，正在等待运行中的账号到安全点收尾。")
         self._refresh_controls_state()
 
     def _validate_output_dir(self, *, create: bool = False) -> tuple[bool, str]:
@@ -1309,13 +2398,14 @@ class MainWindow(QMainWindow):
             answer = QMessageBox.question(
                 self,
                 "任务仍在运行",
-                "当前导出任务还在运行，关闭窗口会中断界面进程。确定要关闭吗？",
+                "当前导出任务还在运行。建议先取消并等待收尾，避免留下半成品。\n\n是否现在请求取消？",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
             )
-            if answer != QMessageBox.StandardButton.Yes:
-                event.ignore()
-                return
+            if answer == QMessageBox.StandardButton.Yes:
+                self.cancel_run()
+            event.ignore()
+            return
         self._save_settings()
         super().closeEvent(event)
 
@@ -1324,7 +2414,7 @@ class MainWindow(QMainWindow):
         dialog.setWindowTitle("高级选项")
         dialog.setModal(True)
         dialog.setObjectName("AdvancedDialog")
-        dialog.setFixedSize(460, 286)
+        dialog.setFixedSize(500, 336)
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(20, 18, 20, 16)
         layout.setSpacing(10)
@@ -1337,7 +2427,8 @@ class MainWindow(QMainWindow):
         http_spin = self._spin(10, 600, int(self.timeout_spin.value()))
         otp_spin = self._spin(10, 600, int(self.otp_timeout_spin.value()))
         interval_spin = self._spin(1, 60, int(self.otp_interval_spin.value()))
-        for spin in (http_spin, otp_spin, interval_spin):
+        attempts_spin = self._spin(1, 5, int(self.max_attempts_spin.value()))
+        for spin in (http_spin, otp_spin, interval_spin, attempts_spin):
             spin.setFixedWidth(110)
         grid = QGridLayout()
         grid.setHorizontalSpacing(14)
@@ -1359,6 +2450,7 @@ class MainWindow(QMainWindow):
         add_row(0, "HTTP 请求超时（秒）", "登录、OAuth、接口请求的单次等待时间。", http_spin)
         add_row(1, "验证码等待超时（秒）", "触发邮箱验证码后，最多轮询取码源多久。", otp_spin)
         add_row(2, "验证码轮询间隔（秒）", "两次取码请求之间的间隔，过低可能触发限流。", interval_spin)
+        add_row(3, "自动重试次数", "单账号遇到可恢复失败时最多尝试几次，默认 3。", attempts_spin)
         grid.setColumnStretch(0, 1)
         layout.addLayout(grid)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -1383,6 +2475,7 @@ class MainWindow(QMainWindow):
             self.timeout_spin.setValue(http_spin.value())
             self.otp_timeout_spin.setValue(otp_spin.value())
             self.otp_interval_spin.setValue(interval_spin.value())
+            self.max_attempts_spin.setValue(attempts_spin.value())
             self._save_settings()
 
     def _set_status(self, text: str, mode: str) -> None:
@@ -1401,25 +2494,30 @@ class MainWindow(QMainWindow):
             scroll_bar.setValue(scroll_bar.maximum())
 
     def pick_input(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "选择账号文件", str(Path.cwd()), "文本文件 (*.txt);;所有文件 (*)")
-        if path:
-            self.file_drop.set_path(path)
+        dialog = self._create_input_file_dialog(self.file_drop.path)
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selectedFiles():
+            self.file_drop.set_path(dialog.selectedFiles()[0])
             self._input_mode = "file"
             self._refresh_input_mode()
             self._schedule_preflight()
 
     def pick_output(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "选择输出目录", self.output_edit.text() or str(Path.cwd()))
-        if path:
-            self.output_edit.setText(path)
+        dialog = self._create_output_directory_dialog(self.output_edit.text())
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selectedFiles():
+            selected = Path(dialog.selectedFiles()[0])
+            if selected.is_file():
+                selected = selected.parent
+            self.output_edit.setText(str(selected))
             self._save_settings()
 
     def open_output_dir(self) -> None:
-        path = Path(self.output_edit.text().strip() or "output")
+        path = Path(self._last_result_dir or self.output_edit.text().strip() or "output")
         ok, message = self._validate_output_dir(create=True)
         if not ok:
             QMessageBox.warning(self, "输出目录不可用", message)
             return
+        if not path.exists():
+            path = Path(self.output_edit.text().strip() or "output")
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
 
     def _paste_text(self) -> str:
@@ -1447,40 +2545,143 @@ class MainWindow(QMainWindow):
             labels.append("CPA JSON")
         return " + ".join(labels)
 
-    def _preview_rows(self) -> tuple[bool, int, int]:
+    def _make_preflight_snapshot(self, *, silent: bool) -> dict[str, Any]:
         input_format = self._input_format()
-        if self._input_mode == "paste":
+        mode = self._input_mode
+        if mode == "paste":
             paste_text = self._paste_text()
-            if not paste_text:
-                self._last_preflight_source = "paste"
-                return False, 0, 0
-            lines = paste_text.splitlines()
-            rows = parse_by_format(lines, format_id=input_format)
-            self._last_preflight_source = "paste"
-            return True, len(rows), len([line for line in lines if str(line).strip()])
-        input_path = Path(self._input_path())
+            digest = hashlib.sha256(paste_text.encode("utf-8")).hexdigest()
+            return {
+                "mode": "paste",
+                "source": paste_text,
+                "source_label": "paste",
+                "format_id": input_format,
+                "key": f"paste:{input_format}:{digest}",
+                "has_input": bool(paste_text),
+                "silent": bool(silent),
+            }
+
+        raw_path = self._input_path()
+        path = Path(raw_path)
+        key = f"file:{input_format}:{raw_path}:missing"
+        source_label = "file"
+        has_input = False
+        try:
+            if raw_path and path.exists() and path.is_file():
+                stat = path.stat()
+                resolved = str(path.resolve())
+                key = f"file:{input_format}:{resolved}:{stat.st_size}:{stat.st_mtime_ns}"
+                source_label = resolved
+                has_input = True
+        except Exception:
+            pass
+        return {
+            "mode": "file",
+            "source": raw_path,
+            "source_label": source_label,
+            "format_id": input_format,
+            "key": key,
+            "has_input": has_input,
+            "silent": bool(silent),
+        }
+
+    @staticmethod
+    def _evaluate_preflight_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+        mode = str(snapshot.get("mode") or "paste")
+        source = str(snapshot.get("source") or "")
+        format_id = str(snapshot.get("format_id") or "auto")
+        if mode == "paste":
+            if not source.strip():
+                return {"has_input": False, "row_count": 0, "raw_count": 0, "source": "paste"}
+            lines = source.splitlines()
+            rows = parse_by_format(lines, format_id=format_id)
+            return {"has_input": True, "row_count": len(rows), "raw_count": len([line for line in lines if str(line).strip()]), "source": "paste"}
+
+        input_path = Path(source)
         if not input_path.exists() or not input_path.is_file():
-            self._last_preflight_source = "file"
-            return False, 0, 0
+            return {"has_input": False, "row_count": 0, "raw_count": 0, "source": "file"}
         lines = decode_text_file(input_path).splitlines()
-        rows = parse_by_format(lines, format_id=input_format)
-        self._last_preflight_source = str(input_path)
-        return True, len(rows), len([line for line in lines if str(line).strip()])
+        rows = parse_by_format(lines, format_id=format_id)
+        return {"has_input": True, "row_count": len(rows), "raw_count": len([line for line in lines if str(line).strip()]), "source": str(input_path)}
+
+    def _current_preflight_cache_valid(self) -> bool:
+        snapshot = self._make_preflight_snapshot(silent=True)
+        return (
+            bool(snapshot.get("has_input"))
+            and bool(self._last_preflight_snapshot_key)
+            and self._last_preflight_snapshot_key == snapshot.get("key")
+            and self._last_preflight_count > 0
+            and not self._last_preflight_error
+        )
 
     def preflight(self, silent: bool = False) -> bool:
         if self._is_running:
             return True
-        try:
-            has_input, row_count, raw_count = self._preview_rows()
-        except Exception as exc:
+        snapshot = self._make_preflight_snapshot(silent=silent)
+        if not snapshot.get("has_input"):
+            result = {
+                "seq": self._preflight_seq + 1,
+                "key": snapshot.get("key", ""),
+                "silent": bool(silent),
+                "has_input": False,
+                "row_count": 0,
+                "raw_count": 0,
+                "source": snapshot.get("source_label", ""),
+                "error": "",
+            }
+            self._preflight_seq = int(result["seq"])
+            self.on_preflight_done(result)
+            return False
+
+        self._preflight_seq += 1
+        seq = self._preflight_seq
+        snapshot["seq"] = seq
+        self._preflight_running = True
+        self._set_status("预检查中", "running")
+        self._refresh_controls_state()
+
+        def worker() -> None:
+            try:
+                result = self._evaluate_preflight_snapshot(snapshot)
+                result["error"] = ""
+            except Exception as exc:
+                result = {
+                    "has_input": False,
+                    "row_count": 0,
+                    "raw_count": 0,
+                    "source": snapshot.get("source_label", ""),
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            result.update({"seq": seq, "key": snapshot.get("key", ""), "silent": bool(silent)})
+            self.bridge.preflight_done.emit(result)
+
+        self._preflight_thread = threading.Thread(target=worker, name="gpt2json-preflight", daemon=True)
+        self._preflight_thread.start()
+        return self._current_preflight_cache_valid()
+
+    def on_preflight_done(self, result: dict[str, Any]) -> None:
+        if int(result.get("seq") or 0) != self._preflight_seq:
+            return
+        self._preflight_running = False
+        if self._is_running:
+            self._refresh_controls_state()
+            return
+        silent = bool(result.get("silent"))
+        error = str(result.get("error") or "")
+        has_input = bool(result.get("has_input"))
+        row_count = int(result.get("row_count") or 0)
+        raw_count = int(result.get("raw_count") or 0)
+        self._last_preflight_source = str(result.get("source") or "")
+        self._last_preflight_snapshot_key = str(result.get("key") or "") if not error and has_input else ""
+        if error:
             self._last_preflight_count = 0
             self._last_preflight_raw_count = 0
-            self._last_preflight_error = f"{type(exc).__name__}: {exc}"
+            self._last_preflight_error = error
             self._set_status("等待修正" if silent else "预检查失败", "warning" if silent else "failed")
             self._refresh_controls_state()
             if not silent:
-                QMessageBox.critical(self, "预检查失败", f"读取失败：{type(exc).__name__}: {exc}")
-            return False
+                QMessageBox.critical(self, "预检查失败", f"读取失败：{error}")
+            return
         if not has_input:
             self._last_preflight_count = 0
             self._last_preflight_raw_count = 0
@@ -1490,7 +2691,7 @@ class MainWindow(QMainWindow):
             self._refresh_controls_state()
             if not silent:
                 QMessageBox.warning(self, "缺少输入", "请粘贴账号文本，或导入账号文件。")
-            return False
+            return
         self._reset_counts(row_count)
         self._last_preflight_count = row_count
         self._last_preflight_raw_count = raw_count
@@ -1504,9 +2705,8 @@ class MainWindow(QMainWindow):
             outputs = self._selected_output_labels() or "未选择"
             input_format_label = self._input_format_label()
             skipped = max(0, raw_count - row_count)
-            self.append_log(f"🧪 预检查完成：识别到 {self._total} 个账号，跳过 {skipped} 行；输入格式={input_format_label}；输出={outputs}。")
+            self.append_log(f"🧪 预检查完成：识别到 {self._total} 个有效账号，跳过 {skipped} 行；输入格式：{input_format_label}；导出：{outputs}。")
             QMessageBox.information(self, "预检查完成", f"有效行数：{self._total}\n跳过行数：{skipped}\n输入格式：{input_format_label}\n输出：{outputs}")
-        return bool(row_count)
 
     def start_run(self) -> None:
         if self._worker_thread and self._worker_thread.is_alive():
@@ -1528,18 +2728,23 @@ class MainWindow(QMainWindow):
         if not (self.sub2api_check.isChecked() or self.cpa_check.isChecked()):
             QMessageBox.warning(self, "缺少导出格式", "请至少选择 Sub2API JSON 或 CPA JSON。")
             return
-        if not self.preflight(silent=True):
-            QMessageBox.warning(self, "没有有效账号", "输入内容中没有识别到有效行。")
+        if not self._current_preflight_cache_valid():
+            self.preflight(silent=True)
+            QMessageBox.information(self, "预检查中", "输入内容需要先完成预检查。请稍等识别完成后再开始导出。")
             return
         self._reset_counts(self._total)
         self.log_edit.clear()
         self._log_waiting = False
         self._set_status("运行中", "running")
-        self.append_log("🚀 配置确认完毕，开始按协议批量获取 JSON。")
-        self.append_log(f"🧩 输入格式：{self._input_format_label()} · 导出：{self._selected_output_labels()} · 并发：{'自动' if int(self.concurrency_spin.value()) == 0 else self.concurrency_spin.value()}")
-        self.append_log("🧭 链路：OAuth 开门 → 账号密码 → 可选邮箱取码 → Callback 换 JSON。")
-        self.append_log("🔎 策略：优先账密登录；遇到验证码才启用验证码获取，不拉浏览器。")
-        self.append_log(f"📁 输出目录：{Path(output_dir).resolve()}")
+        self.append_log("🚀 开始导出：配置已确认，正在按协议获取 JSON。")
+        self.append_log(f"🧩 运行配置：输入格式={self._input_format_label()}；导出={self._selected_output_labels()}；并发={'自动' if int(self.concurrency_spin.value()) == 0 else self.concurrency_spin.value()}。")
+        self.append_log(f"🔁 稳定性策略：瞬时网络/Callback 超时自动重试，最多 {int(self.max_attempts_spin.value())} 次。")
+        self.append_log("🧭 执行流程：OAuth 初始化 → 账号密码验证 → 按需获取邮箱验证码 → Callback 换取 JSON。")
+        self.append_log("🔎 登录策略：优先账密登录；只有出现验证码页面时才启用取码源；全程不拉起浏览器。")
+        self.append_log(f"📁 输出根目录：{Path(output_dir).resolve()}（本次会自动新建唯一批次目录，不覆盖旧文件）")
+        self._cancel_event = threading.Event()
+        self._is_cancelling = False
+        self._last_result_dir = ""
         self._set_running(True)
         self.sub2api_row.set_path("")
         self.cpa_row.set_path("")
@@ -1554,12 +2759,13 @@ class MainWindow(QMainWindow):
             otp_timeout=int(self.otp_timeout_spin.value()),
             otp_interval=int(self.otp_interval_spin.value()),
             timeout=int(self.timeout_spin.value()),
+            max_attempts=int(self.max_attempts_spin.value()),
             input_format=self._input_format(),
         )
 
         def worker() -> None:
             try:
-                summary = run_export(config, logger=lambda _text: None, on_event=self.bridge.event.emit)
+                summary = run_export(config, logger=lambda _text: None, on_event=self.bridge.event.emit, cancel_event=self._cancel_event)
                 self.bridge.done.emit(summary)
             except Exception as exc:
                 self.bridge.failed.emit(f"{type(exc).__name__}: {exc}")
@@ -1604,6 +2810,7 @@ class MainWindow(QMainWindow):
         mapping = {
             "oauth_start": "OAuth 初始化",
             "entry": "授权入口",
+            "sentinel": "风控票据",
             "authorize_continue": "账号识别",
             "password_verify": "密码验证",
             "email_verification": "邮箱验证码",
@@ -1615,51 +2822,105 @@ class MainWindow(QMainWindow):
             "runtime_exception": "单账号异常",
             "worker_future": "任务线程",
             "export_prepare": "JSON 整理",
+            "cancelled": "用户取消",
             "password_error": "密码验证",
             "bad_password": "密码验证",
         }
         key = str(value or "").strip()
         return mapping.get(key, key or "未知阶段")
 
+    def _account_label(self, event: dict[str, Any]) -> str:
+        email = str(event.get("email_masked") or "").strip()
+        try:
+            row_index = int(event.get("row_index") or event.get("account_index") or 0)
+        except (TypeError, ValueError):
+            row_index = 0
+        try:
+            line_no = int(event.get("line_no") or 0)
+        except (TypeError, ValueError):
+            line_no = 0
+        sequence = row_index or line_no
+        if sequence > 0:
+            width = max(3, len(str(max(int(self._total or 0), sequence))))
+            suffix = f" {email}" if email else ""
+            line_suffix = f"（行 {line_no}）" if row_index and line_no and line_no != row_index else ""
+            return f"账号 #{sequence:0{width}d}{suffix}{line_suffix}"
+        if email:
+            return f"账号 {email}"
+        return "账号"
+
+    def _reason_display(self, value: Any) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        lowered = raw.lower()
+        mapping = {
+            "wrong_email_otp_code": "验证码不正确或已过期，通常是取码源返回了旧码。",
+            "otp_timeout": "在等待时间内没有获取到新的验证码。",
+            "callback_error": "没有拿到 OAuth Callback，可能是跳转链路未完成。",
+            "finalize_unresolved": "登录已推进到收尾阶段，但最终 Callback 没有解析成功。",
+            "workspace_select_error": "工作区选择接口返回异常。",
+            "workspace_select_continue_missing": "工作区选择完成后没有返回下一步地址。",
+            "user_cancelled": "用户取消了本次任务。",
+            "no_valid_rows": "没有识别到有效账号行。",
+        }
+        if raw in mapping:
+            return mapping[raw]
+        if lowered.startswith("timeout:"):
+            return "请求超时：目标服务响应较慢或网络不稳定，可稍后重试，或在高级选项里调高 HTTP 请求超时。"
+        if lowered.startswith("runtimeerror: token exchange failed"):
+            return "Token 交换失败：Callback 已拿到，但换取 JSON token 时服务端返回异常。"
+        if lowered.startswith("valueerror: token_json"):
+            return "返回的 token JSON 格式不符合预期。"
+        if raw.startswith("http_"):
+            return f"接口返回 {raw.replace('http_', 'HTTP ')}。"
+        if len(raw) > 180:
+            return raw[:180] + "…"
+        return raw
+
     def _friendly_stage_message(self, event: dict[str, Any]) -> str:
-        email = str(event.get("email_masked") or "账号")
+        account = self._account_label(event)
         stage = str(event.get("stage") or "").strip()
         status = self._status_code_label(event.get("status_code"))
         page_type = str(event.get("page_type") or "").strip()
         if stage == "oauth_start":
-            return f"🧭 {email} 正在打开 OAuth 通道：先敲门，不开浏览器。"
+            return f"🧭 {account}：开始 OAuth 初始化，创建授权会话。"
         if stage == "entry":
-            return f"🚪 {email} 授权入口已响应（{status}），拿会话饼干中。"
+            return f"🚪 {account}：授权入口已响应（{status}），正在保存会话状态。"
+        if stage == "sentinel":
+            return f"🛡️ {account}：会话已建立，正在获取风控校验票据。"
         if stage == "authorize_continue":
-            return f"📨 {email} 邮箱已递交给认证接口（{status}），看看下一站怎么走。"
+            return f"📨 {account}：邮箱已提交到认证接口（{status}），正在确认下一步登录方式。"
         if stage == "password_verify":
             if bool(event.get("callback_url_present")):
-                return f"🪄 {email} 密码通过，服务端直接给了回调票。"
+                return f"✅ {account}：密码验证通过，已直接获得 Callback。"
             if "otp" in page_type.lower() or "verify" in page_type.lower():
-                return f"📮 {email} 密码通过，但被验证码关卡拦了一下，切取码通道。"
-            return f"🔑 {email} 密码验证完成（{status}），继续向 JSON 票据推进。"
+                return f"📮 {account}：密码验证通过，服务端要求邮箱验证码，准备访问取码源。"
+            return f"🔑 {account}：密码验证完成（{status}），继续推进授权流程。"
         if stage == "otp_backend_plan":
             primary = self._backend_display(event.get("primary_backend"))
             display_name = str(event.get("display_name") or "").strip()
             suffix = f" · {display_name}" if display_name and display_name != primary else ""
-            return f"📫 {email} 取码方案选定：{primary}{suffix}，开始等新验证码。"
+            return f"📫 {account}：取码方式已确定为 {primary}{suffix}，正在等待新的邮箱验证码。"
         if stage == "otp_fetch":
             backend = self._backend_display(event.get("backend"))
             if bool(event.get("code_present")):
-                return f"📬 {email} 验证码已抓到（来源：{backend}，{status}），马上提交。"
-            return f"⌛ {email} 取码源暂时没吐码（来源：{backend}，{status}），这条先标记超时。"
+                return f"📬 {account}：已获取验证码（来源：{backend}，{status}），准备提交验证。"
+            return f"⌛ {account}：暂未获取到新验证码（来源：{backend}，{status}），将继续等待或按超时处理。"
         if stage == "email_otp_validate":
             if bool(event.get("callback_url_present")):
-                return f"🧾 {email} 验证码提交成功（{status}），回调票已到手。"
-            return f"🧾 {email} 验证码已提交（{status}），继续收尾。"
+                return f"🧾 {account}：验证码提交成功（{status}），已获得 Callback。"
+            return f"🧾 {account}：验证码已提交（{status}），正在进入收尾流程。"
         if stage == "finalize":
-            return f"🎫 {email} 开始换取最终 JSON，准备把票据装箱。"
+            return f"🎫 {account}：正在完成 Callback 跳转并换取最终 JSON。"
         if stage == "callback":
-            return f"📦 {email} Callback 完成，JSON 已落袋。"
+            return f"📦 {account}：Callback 完成，JSON 已获取。"
         if stage == "runtime_exception":
-            return f"🧯 {email} 这条任务内部异常，已隔离，不影响其它账号继续跑。"
+            return f"🧯 {account}：当前账号发生异常，已隔离处理，不影响其它账号继续运行。"
         if stage == "export_prepare":
-            return f"🧹 {email} JSON 整理时发现格式异常，已跳过这条。"
+            return f"🧹 {account}：JSON 整理时发现格式异常，已跳过当前账号。"
+        if stage == "cancelled":
+            return f"🛑 {account}：收到取消信号，当前账号不再继续推进。"
         return ""
 
     def on_event(self, event: dict[str, Any]) -> None:
@@ -1669,31 +2930,51 @@ class MainWindow(QMainWindow):
             self.total_stat.set_value(self._total)
             self._update_progress()
             concurrency = event.get("concurrency") or "自动"
-            self.append_log(f"📦 已装载 {self._total} 个账号，并发={concurrency}。账号小队出发。")
+            out_dir = str(event.get("out_dir") or "").strip()
+            if out_dir:
+                self._last_result_dir = out_dir
+            self.append_log(f"📦 任务已启动：共 {self._total} 个账号，并发={concurrency}。")
+            if out_dir:
+                self.append_log(f"🗂️ 本次结果目录：{out_dir}")
         elif event_type == "row_start":
             self._running += 1
             self.running_stat.set_value(self._running)
-            email = str(event.get("email_masked") or "")
-            self.append_log(f"🧑‍💻 {email} 进入执行队列：准备跑协议链路。")
+            self.append_log(f"👤 {self._account_label(event)}：进入执行队列，准备开始登录流程。")
         elif event_type == "row_stage":
             message = self._friendly_stage_message(event)
             if message:
                 self.append_log(message)
+        elif event_type == "row_retry":
+            account = self._account_label(event)
+            stage = str(event.get("stage") or event.get("status") or "").strip()
+            reason = self._reason_display(event.get("reason"))
+            next_attempt = int(event.get("next_attempt") or 0)
+            max_attempts = int(event.get("max_attempts") or 0)
+            attempt_text = f"第 {next_attempt}/{max_attempts} 次尝试" if next_attempt and max_attempts else "下一次尝试"
+            detail = f"；原因：{reason}" if reason else ""
+            self.append_log(f"🔁 自动重试：{account} 上次停在「{self._stage_display(stage)}」{detail}，正在进行{attempt_text}。")
+        elif event_type == "cancelling":
+            self._is_cancelling = True
+            self._set_status("取消中", "warning")
+            self._refresh_controls_state()
         elif event_type == "row_done":
             self._done = int(event.get("done") or self._done + 1)
             self._running = max(0, self._running - 1)
-            email = str(event.get("email_masked") or "")
+            account = self._account_label(event)
             if event.get("ok"):
                 self._success += 1
-                suffix = "，验证码关卡也过了" if event.get("otp_required") else ""
-                self.append_log(f"✅ {email} 已拿到 JSON{suffix}，等统一写入导出文件。")
+                suffix = "；本次经过邮箱验证码验证" if event.get("otp_required") else ""
+                self.append_log(f"✅ 成功：{account} 已获取 JSON{suffix}，稍后统一写入导出文件。")
             else:
                 self._failure += 1
                 status = str(event.get("status") or "failed")
                 reason = str(event.get("reason") or "").strip()
                 stage = str(event.get("stage") or "").strip()
-                detail = f"：{reason}" if reason else ""
-                self.append_log(f"⚠️ {email} 暂时没过，停在「{self._stage_display(stage or status)}」{detail}。")
+                if status == "cancelled":
+                    self.append_log(f"🛑 取消：{account} 已停止，等待其它运行中的账号收尾。")
+                else:
+                    detail = f"；原因：{self._reason_display(reason)}" if reason else ""
+                    self.append_log(f"⚠️ 失败：{account} 停在「{self._stage_display(stage or status)}」{detail}。")
             self.success_stat.set_value(self._success)
             self.failed_stat.set_value(self._failure)
             self.running_stat.set_value(self._running)
@@ -1703,7 +2984,11 @@ class MainWindow(QMainWindow):
         self._set_running(False)
         success_count = int(summary.get("success_count", 0) or 0)
         failure_count = int(summary.get("failure_count", 0) or 0)
-        if success_count and failure_count:
+        cancelled = bool(summary.get("cancelled"))
+        cancelled_count = int(summary.get("cancelled_count", 0) or 0)
+        if cancelled:
+            self._set_status("已取消", "warning")
+        elif success_count and failure_count:
             self._set_status("部分完成", "warning")
         elif success_count:
             self._set_status("完成", "done")
@@ -1716,21 +3001,42 @@ class MainWindow(QMainWindow):
         sub2api_path = str(summary.get("sub2api_export") or "")
         cpa_zip = str(summary.get("cpa_zip") or "")
         cpa_dir = str(summary.get("cpa_dir") or "")
+        result_dir = str(summary.get("out_dir") or "")
+        failure_report = str(summary.get("failure_report") or "")
+        failure_categories = summary.get("failure_categories") if isinstance(summary.get("failure_categories"), dict) else {}
+        retry_count = int(summary.get("retry_count") or 0)
         cpa_path = cpa_zip or cpa_dir or str(summary.get("cpa_manifest") or "")
         self.sub2api_row.set_path(sub2api_path)
         self.cpa_row.set_path(cpa_path)
+        if result_dir:
+            self._last_result_dir = result_dir
         self._refresh_output_format_state()
         self.append_log("")
-        self.append_log(f"🎉 收工汇总：成功 {success_count} 个，失败 {failure_count} 个。")
+        if cancelled:
+            self.append_log(f"🛑 任务已取消：成功 {success_count} 个，未完成/失败 {failure_count} 个，其中取消 {cancelled_count} 个。")
+        else:
+            self.append_log(f"🎉 任务完成：成功 {success_count} 个，失败 {failure_count} 个。")
+        if retry_count:
+            self.append_log(f"🔁 自动恢复：本次有 {retry_count} 个账号通过自动重试完成或收敛。")
+        if failure_categories:
+            parts = [f"{name} {count} 个" for name, count in failure_categories.items()]
+            self.append_log(f"⚠️ 失败诊断：{'；'.join(parts)}。")
         if sub2api_path:
-            self.append_log(f"🧰 Sub2API 文件已写好：{sub2api_path}")
+            self.append_log(f"🧰 Sub2API 输出：{sub2api_path}")
+        if result_dir:
+            self.append_log(f"🗂️ 本次结果目录：{result_dir}")
         if cpa_path:
             if cpa_zip:
-                self.append_log(f"📘 CPA 打包 ZIP 已写好：{cpa_zip}")
+                self.append_log(f"📘 CPA ZIP 输出：{cpa_zip}")
             if cpa_dir:
                 self.append_log(f"📚 CPA 单账号 JSON 目录：{cpa_dir}")
-        self.append_log("🍻 可以打开输出目录验货了。")
-        QMessageBox.information(self, "完成", f"导出完成\n成功：{success_count}\n失败：{failure_count}")
+        if failure_report:
+            self.append_log(f"🧾 失败诊断报告：{failure_report}")
+        self.append_log("👀 提示：可以打开输出目录检查文件，确认后再导入目标系统。")
+        if cancelled:
+            QMessageBox.information(self, "已取消", f"导出已取消\n成功：{success_count}\n失败/未完成：{failure_count}\n取消：{cancelled_count}")
+        else:
+            QMessageBox.information(self, "完成", f"导出完成\n成功：{success_count}\n失败：{failure_count}")
 
     def on_failed(self, message: str) -> None:
         self._set_running(False)
@@ -1745,6 +3051,7 @@ class MainWindow(QMainWindow):
 def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
+    install_qt_translations(app)
     if APP_ICON_PATH.exists():
         app.setWindowIcon(QIcon(str(APP_ICON_PATH)))
     window = MainWindow()
