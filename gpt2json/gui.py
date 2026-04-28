@@ -180,16 +180,16 @@ def classify_log_line(text: str) -> str:
         return "error"
     if line.startswith("🛑") or line.startswith("取消"):
         return "cancel"
-    if line.startswith(("📮", "📫", "📬", "🧾", "⌛")) or "验证码" in line:
-        return "otp"
-    if line.startswith(("📁", "🧰", "📘", "📚")) or "输出：" in line or "输出目录：" in line:
-        return "output"
-    if line.startswith(("🚀", "🧩")) or line.startswith(("开始导出：", "运行配置：")):
+    if line.startswith(("🚀", "🧩", "📦 任务")) or line.startswith(("开始导出：", "运行配置：")):
         return "start"
     if line.startswith(("👤", "🚪", "🛡️", "📨", "🔑", "🎫", "📦")):
         return "account"
     if line.startswith(("🧭", "🔎", "🧪", "🔄", "ℹ️", "✨", "👀", "🟢", "📄")):
         return "info"
+    if line.startswith(("📮", "📫", "📬", "🧾", "⌛")) or "验证码" in line:
+        return "otp"
+    if line.startswith(("📁", "🧰", "📘", "📚")) or "输出：" in line or "输出目录：" in line:
+        return "output"
     return "default"
 
 
@@ -1861,13 +1861,19 @@ class MainWindow(QMainWindow):
     def _account_label(self, event: dict[str, Any]) -> str:
         email = str(event.get("email_masked") or "").strip()
         try:
+            row_index = int(event.get("row_index") or event.get("account_index") or 0)
+        except (TypeError, ValueError):
+            row_index = 0
+        try:
             line_no = int(event.get("line_no") or 0)
         except (TypeError, ValueError):
             line_no = 0
-        if line_no > 0:
-            width = max(3, len(str(max(int(self._total or 0), line_no))))
+        sequence = row_index or line_no
+        if sequence > 0:
+            width = max(3, len(str(max(int(self._total or 0), sequence))))
             suffix = f" {email}" if email else ""
-            return f"账号 #{line_no:0{width}d}{suffix}"
+            line_suffix = f"（行 {line_no}）" if row_index and line_no and line_no != row_index else ""
+            return f"账号 #{sequence:0{width}d}{suffix}{line_suffix}"
         if email:
             return f"账号 {email}"
         return "账号"

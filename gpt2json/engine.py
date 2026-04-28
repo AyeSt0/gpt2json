@@ -152,8 +152,9 @@ def _run_timestamp() -> str:
     return time.strftime("%Y%m%d_%H%M%S")
 
 
-def _safe_result_row(result: AttemptResult) -> dict[str, Any]:
+def _safe_result_row(result: AttemptResult, *, row_index: int = 0) -> dict[str, Any]:
     return {
+        "row_index": int(row_index or 0),
         "line_no": result.row.line_no,
         "email_hash": secret_hash(result.row.login_email),
         "login_masked": mask_email(result.row.login_email),
@@ -223,14 +224,15 @@ def run_export(
     successes: list[dict[str, Any]] = []
     run_stamp = _run_timestamp()
 
-    def run_one(row: Any) -> AttemptResult:
-        emit({"type": "row_start", "line_no": row.line_no, "email_masked": mask_email(row.login_email)})
+    def run_one(row: Any, row_index: int) -> AttemptResult:
+        emit({"type": "row_start", "row_index": row_index, "line_no": row.line_no, "email_masked": mask_email(row.login_email)})
         if _is_cancelled(cancel_event):
             return _cancelled_result(row)
 
         def emit_stage(event: dict[str, Any]) -> None:
             payload = {
                 "type": "row_stage",
+                "row_index": row_index,
                 "line_no": row.line_no,
                 "email_masked": mask_email(row.login_email),
             }
@@ -274,9 +276,9 @@ def run_export(
 
     log(f"[+] loaded rows: {len(rows)} | concurrency={concurrency} ({summary['concurrency_mode']})")
     with ThreadPoolExecutor(max_workers=concurrency) as executor:
-        future_map = {executor.submit(run_one, row): row for row in rows}
+        future_map = {executor.submit(run_one, row, row_index): (row, row_index) for row_index, row in enumerate(rows, 1)}
         for future in as_completed(future_map):
-            row = future_map[future]
+            row, row_index = future_map[future]
             try:
                 result = future.result()
             except Exception as exc:
@@ -299,7 +301,7 @@ def run_export(
                     else:
                         successes.append(token_payload)
                 results.append(result)
-                _append_jsonl(out_dir / "results.safe.jsonl", _safe_result_row(result))
+                _append_jsonl(out_dir / "results.safe.jsonl", _safe_result_row(result, row_index=row_index))
             status_line = f"[{result.status}] {mask_email(result.row.login_email)}"
             if result.reason:
                 status_line += f" | {result.reason}"
@@ -313,6 +315,7 @@ def run_export(
                     "status": result.status,
                     "stage": result.stage,
                     "reason": result.reason,
+                    "row_index": row_index,
                     "line_no": result.row.line_no,
                     "email_masked": mask_email(result.row.login_email),
                     "otp_required": bool(result.otp_required),

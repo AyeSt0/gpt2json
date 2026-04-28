@@ -179,6 +179,7 @@ def test_run_export_isolates_single_account_runtime_errors(tmp_path: Path):
     assert summary["failure_count"] == 1
     safe_rows = [json.loads(line) for line in (out_dir / "results.safe.jsonl").read_text(encoding="utf-8").splitlines()]
     assert sorted(row["status"] for row in safe_rows) == ["runtime_error", "success", "success"]
+    assert sorted(row["row_index"] for row in safe_rows) == [1, 2, 3]
     assert (out_dir / "sub2api_accounts.secret.json").exists()
 
 
