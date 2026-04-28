@@ -1,6 +1,5 @@
 import json
 import threading
-import zipfile
 from pathlib import Path
 
 import pytest
@@ -220,11 +219,8 @@ def test_run_export_writes_cpa_and_sub2api(tmp_path: Path):
     cpa_files = sorted((batch_dir / "CPA").glob("*.json"))
     assert len(cpa_files) == 2
     assert {item.name for item in cpa_files} == {"ok1@example.com.json", "ok2@example.com.json"}
-    assert summary["cpa_zip"]
-    cpa_zip = Path(summary["cpa_zip"])
-    assert cpa_zip.exists()
-    with zipfile.ZipFile(cpa_zip) as archive:
-        assert sorted(archive.namelist()) == ["ok1@example.com.json", "ok2@example.com.json"]
+    assert summary["cpa_zip"] == ""
+    assert not list(batch_dir.glob("cpa_tokens_*.zip"))
     assert json.loads(cpa_files[0].read_text(encoding="utf-8"))["access_token"] == "a.b.c"
     assert json.loads(cpa_files[0].read_text(encoding="utf-8"))["type"] == "codex"
     sub_payload = json.loads((batch_dir / "sub2api_accounts.secret.json").read_text(encoding="utf-8"))
@@ -265,11 +261,11 @@ def test_run_export_cpa_only(tmp_path: Path):
     assert summary["sub2api_export"] == ""
     assert summary["cpa_dir"]
     assert summary["cpa_manifest"]
-    assert summary["cpa_zip"]
+    assert summary["cpa_zip"] == ""
     batch_dir = batch_dir_from(summary)
     assert len(list((batch_dir / "CPA").glob("*.json"))) == 2
     assert (batch_dir / "cpa_manifest.json").exists()
-    assert Path(summary["cpa_zip"]).exists()
+    assert not list(batch_dir.glob("cpa_tokens_*.zip"))
     assert not (batch_dir / "sub2api_accounts.secret.json").exists()
 
 
@@ -528,8 +524,9 @@ def test_run_export_does_not_overwrite_duplicate_cpa_account_filenames(tmp_path:
 
     cpa_files = sorted((batch_dir_from(summary) / "CPA").glob("*.json"))
     assert [item.name for item in cpa_files] == ["same@example.com.json", "same@example.com_002.json"]
-    with zipfile.ZipFile(Path(summary["cpa_zip"])) as archive:
-        assert sorted(archive.namelist()) == ["same@example.com.json", "same@example.com_002.json"]
+    manifest = json.loads((batch_dir_from(summary) / "cpa_manifest.json").read_text(encoding="utf-8"))
+    assert [item["file"] for item in manifest["files"]] == ["CPA/same@example.com.json", "CPA/same@example.com_002.json"]
+    assert "zip" not in manifest
 
 
 def test_run_export_keeps_previous_artifacts_when_input_load_fails(tmp_path: Path):

@@ -241,7 +241,7 @@ def capture_gui_previews() -> None:
         window.running_stat.set_value(4)
         window._update_progress()
         window.sub2api_row.set_path(r"output\GPT2JSON_20260429_043512_a1b2c3\sub2api_accounts.secret.json")
-        window.cpa_row.set_path(r"output\GPT2JSON_20260429_043512_a1b2c3\cpa_tokens_20260429_043512_a1b2c3.zip")
+        window.cpa_row.set_path(r"output\GPT2JSON_20260429_043512_a1b2c3\CPA")
         window._refresh_output_format_state()
         window.log_edit.setPlainText(
             "🚀 开始导出：配置已确认，正在按协议获取 JSON。\n"

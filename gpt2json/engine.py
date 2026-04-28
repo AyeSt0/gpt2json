@@ -4,7 +4,6 @@ import json
 import secrets
 import threading
 import time
-import zipfile
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -525,12 +524,7 @@ def run_export(
             sub_account = _build_sub_account(token_payload, pool=config.pool, index=index)
             sub_accounts.append(sub_account)
 
-    cpa_zip_path = out_dir / f"cpa_tokens_{run_stamp}.zip"
     if successes and export_cpa:
-        with zipfile.ZipFile(cpa_zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            for item in cpa_files:
-                file_path = out_dir / str(item["file"])
-                archive.write(file_path, arcname=file_path.name)
         write_json(
             out_dir / "cpa_manifest.json",
             {
@@ -538,7 +532,6 @@ def run_export(
                 "count": len(successes),
                 "format": "cpa-per-account-json",
                 "directory": "CPA",
-                "zip": cpa_zip_path.name,
                 "files": cpa_files,
             },
         )
@@ -561,7 +554,7 @@ def run_export(
     summary["success_emails"] = sorted(str(item.get("email") or "") for item in successes if str(item.get("email") or "").strip())
     summary["sub2api_export"] = str(out_dir / "sub2api_accounts.secret.json") if successes and export_sub2api else ""
     summary["cpa_dir"] = str(cpa_dir) if successes and export_cpa else ""
-    summary["cpa_zip"] = str(cpa_zip_path) if successes and export_cpa else ""
+    summary["cpa_zip"] = ""
     summary["cpa_manifest"] = str(out_dir / "cpa_manifest.json") if successes and export_cpa else ""
     summary["retry_count"] = retry_count
     summary["auto_rerun_count"] = auto_rerun_count

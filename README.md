@@ -48,7 +48,7 @@ flowchart LR
   D -- "少数跳验证" --> E["免登录取码源 / OTP backend"]
   E --> F
   F --> G["Sub2API JSON"]
-  F --> H["CPA 单账号 JSON + ZIP"]
+  F --> H["CPA 单账号 JSON 文件夹"]
   G --> I["打开本次结果目录"]
   H --> I
 ```
@@ -63,7 +63,7 @@ flowchart LR
 | 免登录取码 URL | ✅ 已实现 | 支持 JSON / 文本 / HTML 中自动提取验证码或发现接口。 |
 | 并发与重试 | ✅ 已实现 | 默认自动并发；可恢复失败会自动重试，并追加自动重跑补救。 |
 | Sub2API 导出 | ✅ 已实现 | 生成 `sub2api_accounts.secret.json`。 |
-| CPA 导出 | ✅ 已实现 | 每个账号一个 JSON，同时生成 ZIP 包和 manifest。 |
+| CPA 导出 | ✅ 已实现 | 每个账号一个 JSON，统一放在 `CPA/` 文件夹，并生成 manifest。 |
 | 取码协议扩展 | 🧭 规划中 | IMAP / Graph / JMAP / POP3 / Provider API。 |
 
 > GPT2JSON 只负责生成 JSON 文件，不会直接写入你的 Sub2API 管理后台。这样更安全，也更适合批量交付前检查。
@@ -143,7 +143,6 @@ output/
    ├─ CPA/
    │  ├─ user01@example.test.json
    │  └─ user02@example.test.json
-   ├─ cpa_tokens_20260429_043512_a1b2c3.zip
    ├─ cpa_manifest.json
    ├─ failure_report.safe.json
    ├─ progress.json
@@ -156,8 +155,7 @@ output/
 | --- | --- |
 | `sub2api_accounts.secret.json` | Sub2API 导入用总包。 |
 | `CPA/<account-email>.json` | CPA 单账号 token 文件；一个账号一个 JSON。 |
-| `cpa_tokens_<批次ID>.zip` | CPA 多账号打包文件，便于整体搬运。 |
-| `cpa_manifest.json` | CPA 文件索引，只记录文件列表和脱敏元数据。 |
+| `cpa_manifest.json` | CPA 文件夹索引，只记录文件列表和脱敏元数据。 |
 | `failure_report.safe.json` | 失败诊断报告，不包含原始密码、token 或取码源明文。 |
 | `summary.json` | 本次统计；包含输出根目录、结果目录和批次 ID。 |
 | `results.safe.jsonl` | 脱敏过程记录，方便定位账号阶段。 |

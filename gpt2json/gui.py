@@ -1395,7 +1395,7 @@ class MainWindow(QMainWindow):
         self.output_hint_label.setWordWrap(True)
         output_layout.addWidget(self.output_hint_label)
         self.sub2api_row = FileOutputRow("sub2api_accounts.secret.json", "Sub2API")
-        self.cpa_row = FileOutputRow("cpa_tokens_*.zip + CPA/", "CPA")
+        self.cpa_row = FileOutputRow("CPA/", "CPA")
         self.sub2api_row.setVisible(False)
         self.cpa_row.setVisible(False)
         output_layout.addWidget(self.sub2api_row)
@@ -3085,14 +3085,13 @@ class MainWindow(QMainWindow):
         self.running_stat.set_value(0)
         self._update_progress()
         sub2api_path = str(summary.get("sub2api_export") or "")
-        cpa_zip = str(summary.get("cpa_zip") or "")
         cpa_dir = str(summary.get("cpa_dir") or "")
         result_dir = str(summary.get("out_dir") or "")
         failure_report = str(summary.get("failure_report") or "")
         failure_categories = summary.get("failure_categories") if isinstance(summary.get("failure_categories"), dict) else {}
         retry_count = int(summary.get("retry_count") or 0)
         auto_rerun_count = int(summary.get("auto_rerun_count") or 0)
-        cpa_path = cpa_zip or cpa_dir or str(summary.get("cpa_manifest") or "")
+        cpa_path = cpa_dir or str(summary.get("cpa_manifest") or "")
         self.sub2api_row.set_path(sub2api_path)
         self.cpa_row.set_path(cpa_path)
         if result_dir:
@@ -3119,8 +3118,6 @@ class MainWindow(QMainWindow):
         if result_dir:
             self.append_log(f"🗂️ 本次结果目录：{result_dir}")
         if cpa_path:
-            if cpa_zip:
-                self.append_log(f"📘 CPA ZIP 输出：{cpa_zip}")
             if cpa_dir:
                 self.append_log(f"📚 CPA 单账号 JSON 目录：{cpa_dir}")
         if failure_report:
