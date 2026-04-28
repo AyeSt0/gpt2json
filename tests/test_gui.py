@@ -55,6 +55,9 @@ def test_gui_enables_run_only_after_valid_preflight(tmp_path):
     window.cpa_check.setChecked(True)
     window.concurrency_spin.setEditText("128")
     assert window.concurrency_spin.value() == 128
+    assert window.max_attempts_spin.value() == 2
+    window.max_attempts_spin.setValue(3)
+    assert window.max_attempts_spin.value() == 3
     window.output_edit.setText("output")
     initial_stack_height = window.input_stack.height()
     window.resize(1400, 900)
@@ -318,6 +321,7 @@ def test_log_line_classification_for_semantic_colors():
     assert classify_log_line("🧰 Sub2API 输出：out.json") == "output"
     assert classify_log_line("🚀 开始导出：配置已确认") == "start"
     assert classify_log_line("🔁 自动重试：账号 #001 正在进行第 2/2 次尝试。") == "warning"
+    assert classify_log_line("🧾 失败诊断报告：failure_report.safe.json") == "output"
     assert classify_log_line("📦 任务已启动：共 3 个账号，并发=3。") == "start"
     assert classify_log_line("🧭 执行流程：OAuth 初始化 → 账号密码验证 → 按需获取邮箱验证码 → Callback 换取 JSON。") == "info"
     assert classify_log_line("🔎 登录策略：遇到验证码才启用取码源。") == "info"

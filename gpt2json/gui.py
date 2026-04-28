@@ -188,6 +188,8 @@ def classify_log_line(text: str) -> str:
         return "account"
     if line.startswith(("🧭", "🔎", "🧪", "🔄", "ℹ️", "✨", "👀", "🟢", "📄")):
         return "info"
+    if line.startswith("🧾 失败诊断报告"):
+        return "output"
     if line.startswith(("📮", "📫", "📬", "🧾", "⌛")) or "验证码" in line:
         return "otp"
     if line.startswith(("📁", "🧰", "📘", "📚")) or "输出：" in line or "输出目录：" in line:
@@ -815,7 +817,8 @@ class MainWindow(QMainWindow):
         self.timeout_spin = self._spin(10, 600, 30)
         self.otp_timeout_spin = self._spin(10, 600, 180)
         self.otp_interval_spin = self._spin(1, 60, 3)
-        for spin in (self.timeout_spin, self.otp_timeout_spin, self.otp_interval_spin):
+        self.max_attempts_spin = self._spin(1, 5, 2)
+        for spin in (self.timeout_spin, self.otp_timeout_spin, self.otp_interval_spin, self.max_attempts_spin):
             spin.setVisible(False)
         layout.addStretch(1)
         return card
@@ -1167,6 +1170,7 @@ class MainWindow(QMainWindow):
         self.timeout_spin.setValue(int_setting("timeout", 30, 10, 600))
         self.otp_timeout_spin.setValue(int_setting("otp_timeout", 180, 10, 600))
         self.otp_interval_spin.setValue(int_setting("otp_interval", 3, 1, 60))
+        self.max_attempts_spin.setValue(int_setting("max_attempts", 2, 1, 5))
         self.advanced_btn.setText("高级选项（弹窗配置）  ›")
 
     def _save_settings(self) -> None:
@@ -1179,6 +1183,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("timeout", int(self.timeout_spin.value()))
         self.settings.setValue("otp_timeout", int(self.otp_timeout_spin.value()))
         self.settings.setValue("otp_interval", int(self.otp_interval_spin.value()))
+        self.settings.setValue("max_attempts", int(self.max_attempts_spin.value()))
         self.settings.sync()
 
     def _schedule_preflight(self) -> None:
@@ -1332,6 +1337,7 @@ class MainWindow(QMainWindow):
             self.timeout_spin,
             self.otp_timeout_spin,
             self.otp_interval_spin,
+            self.max_attempts_spin,
         ):
             widget.setEnabled(not self._is_running)
         self.open_out_btn.setEnabled(bool(has_output))
@@ -1456,7 +1462,7 @@ class MainWindow(QMainWindow):
         dialog.setWindowTitle("高级选项")
         dialog.setModal(True)
         dialog.setObjectName("AdvancedDialog")
-        dialog.setFixedSize(460, 286)
+        dialog.setFixedSize(500, 336)
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(20, 18, 20, 16)
         layout.setSpacing(10)
@@ -1469,7 +1475,8 @@ class MainWindow(QMainWindow):
         http_spin = self._spin(10, 600, int(self.timeout_spin.value()))
         otp_spin = self._spin(10, 600, int(self.otp_timeout_spin.value()))
         interval_spin = self._spin(1, 60, int(self.otp_interval_spin.value()))
-        for spin in (http_spin, otp_spin, interval_spin):
+        attempts_spin = self._spin(1, 5, int(self.max_attempts_spin.value()))
+        for spin in (http_spin, otp_spin, interval_spin, attempts_spin):
             spin.setFixedWidth(110)
         grid = QGridLayout()
         grid.setHorizontalSpacing(14)
@@ -1491,6 +1498,7 @@ class MainWindow(QMainWindow):
         add_row(0, "HTTP 请求超时（秒）", "登录、OAuth、接口请求的单次等待时间。", http_spin)
         add_row(1, "验证码等待超时（秒）", "触发邮箱验证码后，最多轮询取码源多久。", otp_spin)
         add_row(2, "验证码轮询间隔（秒）", "两次取码请求之间的间隔，过低可能触发限流。", interval_spin)
+        add_row(3, "自动重试次数", "单账号遇到瞬时超时/网络抖动时最多尝试几次，默认 2。", attempts_spin)
         grid.setColumnStretch(0, 1)
         layout.addLayout(grid)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -1515,6 +1523,7 @@ class MainWindow(QMainWindow):
             self.timeout_spin.setValue(http_spin.value())
             self.otp_timeout_spin.setValue(otp_spin.value())
             self.otp_interval_spin.setValue(interval_spin.value())
+            self.max_attempts_spin.setValue(attempts_spin.value())
             self._save_settings()
 
     def _set_status(self, text: str, mode: str) -> None:
@@ -1772,6 +1781,7 @@ class MainWindow(QMainWindow):
         self._set_status("运行中", "running")
         self.append_log("🚀 开始导出：配置已确认，正在按协议获取 JSON。")
         self.append_log(f"🧩 运行配置：输入格式={self._input_format_label()}；导出={self._selected_output_labels()}；并发={'自动' if int(self.concurrency_spin.value()) == 0 else self.concurrency_spin.value()}。")
+        self.append_log(f"🔁 稳定性策略：瞬时网络/Callback 超时自动重试，最多 {int(self.max_attempts_spin.value())} 次。")
         self.append_log("🧭 执行流程：OAuth 初始化 → 账号密码验证 → 按需获取邮箱验证码 → Callback 换取 JSON。")
         self.append_log("🔎 登录策略：优先账密登录；只有出现验证码页面时才启用取码源；全程不拉起浏览器。")
         self.append_log(f"📁 输出目录：{Path(output_dir).resolve()}")
@@ -1791,6 +1801,7 @@ class MainWindow(QMainWindow):
             otp_timeout=int(self.otp_timeout_spin.value()),
             otp_interval=int(self.otp_interval_spin.value()),
             timeout=int(self.timeout_spin.value()),
+            max_attempts=int(self.max_attempts_spin.value()),
             input_format=self._input_format(),
         )
 
@@ -2027,6 +2038,9 @@ class MainWindow(QMainWindow):
         sub2api_path = str(summary.get("sub2api_export") or "")
         cpa_zip = str(summary.get("cpa_zip") or "")
         cpa_dir = str(summary.get("cpa_dir") or "")
+        failure_report = str(summary.get("failure_report") or "")
+        failure_categories = summary.get("failure_categories") if isinstance(summary.get("failure_categories"), dict) else {}
+        retry_count = int(summary.get("retry_count") or 0)
         cpa_path = cpa_zip or cpa_dir or str(summary.get("cpa_manifest") or "")
         self.sub2api_row.set_path(sub2api_path)
         self.cpa_row.set_path(cpa_path)
@@ -2036,6 +2050,11 @@ class MainWindow(QMainWindow):
             self.append_log(f"🛑 任务已取消：成功 {success_count} 个，未完成/失败 {failure_count} 个，其中取消 {cancelled_count} 个。")
         else:
             self.append_log(f"🎉 任务完成：成功 {success_count} 个，失败 {failure_count} 个。")
+        if retry_count:
+            self.append_log(f"🔁 自动恢复：本次有 {retry_count} 个账号通过自动重试完成或收敛。")
+        if failure_categories:
+            parts = [f"{name} {count} 个" for name, count in failure_categories.items()]
+            self.append_log(f"⚠️ 失败诊断：{'；'.join(parts)}。")
         if sub2api_path:
             self.append_log(f"🧰 Sub2API 输出：{sub2api_path}")
         if cpa_path:
@@ -2043,6 +2062,8 @@ class MainWindow(QMainWindow):
                 self.append_log(f"📘 CPA ZIP 输出：{cpa_zip}")
             if cpa_dir:
                 self.append_log(f"📚 CPA 单账号 JSON 目录：{cpa_dir}")
+        if failure_report:
+            self.append_log(f"🧾 失败诊断报告：{failure_report}")
         self.append_log("👀 提示：可以打开输出目录检查文件，确认后再导入目标系统。")
         if cancelled:
             QMessageBox.information(self, "已取消", f"导出已取消\n成功：{success_count}\n失败/未完成：{failure_count}\n取消：{cancelled_count}")

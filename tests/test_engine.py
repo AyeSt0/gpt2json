@@ -207,6 +207,11 @@ def test_run_export_isolates_single_account_runtime_errors(tmp_path: Path):
     safe_rows = [json.loads(line) for line in (out_dir / "results.safe.jsonl").read_text(encoding="utf-8").splitlines()]
     assert sorted(row["status"] for row in safe_rows) == ["runtime_error", "success", "success"]
     assert sorted(row["row_index"] for row in safe_rows) == [1, 2, 3]
+    assert summary["failure_report"]
+    report = json.loads(Path(summary["failure_report"]).read_text(encoding="utf-8"))
+    assert report["count"] == 1
+    assert report["failures"][0]["login_masked"] == "ra***@example.com"
+    assert "suggestion" in report["failures"][0]
     assert (out_dir / "sub2api_accounts.secret.json").exists()
 
 
@@ -253,6 +258,8 @@ def test_run_export_retries_transient_finalize_timeout(tmp_path: Path):
     safe_rows = [json.loads(line) for line in (out_dir / "results.safe.jsonl").read_text(encoding="utf-8").splitlines()]
     assert safe_rows[0]["status"] == "success"
     assert safe_rows[0]["attempt"] == 2
+    assert summary["retry_count"] == 1
+    assert summary["failure_report"] == ""
 
 
 def test_run_export_cleans_previous_generated_artifacts(tmp_path: Path):

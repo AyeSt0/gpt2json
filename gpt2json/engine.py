@@ -81,6 +81,7 @@ def _reset_generated_artifacts(out_dir: Path) -> None:
     generated_files = (
         "sub2api_accounts.secret.json",
         "cpa_manifest.json",
+        "failure_report.safe.json",
         "summary.json",
         "progress.json",
         "results.safe.jsonl",
@@ -117,14 +118,18 @@ def _is_cancelled(cancel_event: threading.Event | None) -> bool:
     return bool(cancel_event is not None and cancel_event.is_set())
 
 
-def _cancelled_result(row: Any) -> AttemptResult:
-    return AttemptResult(
+def _cancelled_result(row: Any, *, row_index: int = 0, max_attempts: int = 1) -> AttemptResult:
+    result = AttemptResult(
         row=row,
         status="cancelled",
         stage="cancelled",
         reason="user_cancelled",
         events=[{"stage": "cancelled", "reason": "user_cancelled"}],
     )
+    result.meta["row_index"] = int(row_index or 0)
+    result.meta["attempt"] = 1
+    result.meta["max_attempts"] = int(max_attempts or 1)
+    return result
 
 
 def _is_transient_retryable(result: AttemptResult) -> bool:
@@ -154,6 +159,55 @@ def _is_transient_retryable(result: AttemptResult) -> bool:
     if status == "finalize_error" and (reason in {"callback_error", "finalize_unresolved"} or any(marker in reason for marker in transient_markers)):
         return True
     return False
+
+
+def _diagnose_failure(result: AttemptResult) -> tuple[str, str]:
+    status = str(result.status or "").strip()
+    stage = str(result.stage or "").strip()
+    reason = str(result.reason or "").strip()
+    lowered = reason.lower()
+    if status == "cancelled":
+        return "用户取消", "任务已取消；如需继续，重新开始导出即可。"
+    if status == "bad_password":
+        return "密码验证失败", "请检查这条账号的 GPT/OpenAI 登录密码是否正确。"
+    if reason == "wrong_email_otp_code":
+        return "验证码错误或过期", "取码源可能返回了旧验证码。客户端会尽量等待新码；如果仍失败，请稍后重新运行这一条。"
+    if status == "otp_timeout" or reason == "otp_timeout":
+        return "未获取到验证码", "请确认取码源可访问，或在高级选项中适当增加验证码等待超时。"
+    if status == "email_otp_validate_error":
+        return "验证码提交失败", "验证码接口拒绝了当前验证码；通常是旧码、过期码或取码源延迟。"
+    if stage == "finalize" or status == "finalize_error":
+        if "timeout" in lowered or "timed out" in lowered or "curl: (28)" in lowered:
+            return "Callback 换 JSON 超时", "客户端已自动重试瞬时超时；如果仍失败，建议稍后重跑失败账号或调高 HTTP 请求超时。"
+        return "Callback 换 JSON 未完成", "登录和验证码已通过，但最后换取 JSON 未完成；建议稍后重跑失败账号。"
+    if "timeout" in lowered or "timed out" in lowered or "curl: (28)" in lowered:
+        return "网络请求超时", "客户端已自动重试可恢复超时；如果仍失败，请稍后重跑或调高 HTTP 请求超时。"
+    if reason.startswith("http_"):
+        return "接口返回异常", f"服务端返回 {reason.replace('http_', 'HTTP ')}；建议稍后重试。"
+    if status == "export_prepare_error":
+        return "JSON 整理失败", "登录返回的数据格式不符合预期，当前账号已跳过。"
+    if status == "runtime_error":
+        return "运行异常", "当前账号发生非预期异常，已隔离；可重跑失败账号或查看安全日志。"
+    return "未分类失败", "请复制安全日志或失败报告用于排查。"
+
+
+def _failure_report_row(result: AttemptResult) -> dict[str, Any]:
+    category, suggestion = _diagnose_failure(result)
+    return {
+        "row_index": int((result.meta or {}).get("row_index") or 0),
+        "line_no": result.row.line_no,
+        "email_hash": secret_hash(result.row.login_email),
+        "login_masked": mask_email(result.row.login_email),
+        "otp_source_masked": mask_source(result.row.otp_source),
+        "status": result.status,
+        "stage": result.stage,
+        "reason": result.reason,
+        "category": category,
+        "suggestion": suggestion,
+        "attempt": int((result.meta or {}).get("attempt") or 1),
+        "max_attempts": int((result.meta or {}).get("max_attempts") or 1),
+        "otp_required": bool(result.otp_required),
+    }
 
 
 def _prepare_token_data(token_json: str, *, pool: str, token_type: str, fallback_email: str = "") -> dict[str, Any]:
@@ -261,7 +315,7 @@ def run_export(
     def run_one(row: Any, row_index: int) -> AttemptResult:
         emit({"type": "row_start", "row_index": row_index, "line_no": row.line_no, "email_masked": mask_email(row.login_email)})
         if _is_cancelled(cancel_event):
-            return _cancelled_result(row)
+            return _cancelled_result(row, row_index=row_index, max_attempts=max_attempts)
 
         def emit_stage(event: dict[str, Any]) -> None:
             payload = {
@@ -296,7 +350,7 @@ def run_export(
                     cancel_event=cancel_event,
                 )
                 if _is_cancelled(cancel_event):
-                    return _cancelled_result(row)
+                    return _cancelled_result(row, row_index=row_index, max_attempts=max_attempts)
                 result = client.login_and_exchange(row, otp_fetcher=otp_fetcher)
                 if not isinstance(result, AttemptResult):
                     raise TypeError(f"client returned {type(result).__name__}, expected AttemptResult")
@@ -306,6 +360,7 @@ def run_export(
 
             result.meta["attempt"] = attempt
             result.meta["max_attempts"] = max_attempts
+            result.meta["row_index"] = row_index
             if _is_cancelled(cancel_event) and not result.ok:
                 result.status = "cancelled"
                 result.stage = "cancelled"
@@ -330,11 +385,11 @@ def run_export(
             )
             if cancel_event is not None:
                 if cancel_event.wait(min(6, 1 + attempt * 2)):
-                    return _cancelled_result(row)
+                    return _cancelled_result(row, row_index=row_index, max_attempts=max_attempts)
             else:
                 time.sleep(min(6, 1 + attempt * 2))
 
-        return result or _cancelled_result(row)
+        return result or _cancelled_result(row, row_index=row_index, max_attempts=max_attempts)
 
     log(f"[+] loaded rows: {len(rows)} | concurrency={concurrency} ({summary['concurrency_mode']})")
     with ThreadPoolExecutor(max_workers=concurrency) as executor:
@@ -435,11 +490,35 @@ def run_export(
     summary["failure_count"] = len(rows) - len(successes)
     summary["cancelled"] = _is_cancelled(cancel_event)
     summary["cancelled_count"] = len([result for result in results if result.status == "cancelled"])
+    retry_count = len([result for result in results if int((result.meta or {}).get("attempt") or 1) > 1])
+    failed_results = [result for result in results if not result.ok]
+    failure_rows = [_failure_report_row(result) for result in failed_results]
+    failure_categories: dict[str, int] = {}
+    for item in failure_rows:
+        category = str(item.get("category") or "未分类失败")
+        failure_categories[category] = failure_categories.get(category, 0) + 1
     summary["success_emails"] = sorted(str(item.get("email") or "") for item in successes if str(item.get("email") or "").strip())
     summary["sub2api_export"] = str(out_dir / "sub2api_accounts.secret.json") if successes and export_sub2api else ""
     summary["cpa_dir"] = str(cpa_dir) if successes and export_cpa else ""
     summary["cpa_zip"] = str(cpa_zip_path) if successes and export_cpa else ""
     summary["cpa_manifest"] = str(out_dir / "cpa_manifest.json") if successes and export_cpa else ""
+    summary["retry_count"] = retry_count
+    summary["failure_categories"] = failure_categories
+    if failure_rows:
+        failure_report_path = out_dir / "failure_report.safe.json"
+        write_json(
+            failure_report_path,
+            {
+                "exported_at": utc_now_iso(),
+                "count": len(failure_rows),
+                "note": "Safe report only: credentials and raw OTP sources are not included.",
+                "categories": failure_categories,
+                "failures": failure_rows,
+            },
+        )
+        summary["failure_report"] = str(failure_report_path)
+    else:
+        summary["failure_report"] = ""
     write_json(out_dir / "summary.json", summary)
     write_json(out_dir / "progress.json", summary)
     if summary["cancelled"]:
