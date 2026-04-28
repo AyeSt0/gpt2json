@@ -17,7 +17,7 @@ using MessageBox = System.Windows.MessageBox;
 using TextBox = System.Windows.Controls.TextBox;
 using WpfApplication = System.Windows.Application;
 
-namespace GPT2JSON.ArtSetup
+namespace GPT2JSON.Setup
 {
     internal static class Program
     {
@@ -577,9 +577,9 @@ namespace GPT2JSON.ArtSetup
 
         private string ExtractInstaller()
         {
-            string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "GPT2JSON-ArtSetup", Guid.NewGuid().ToString("N"));
+            string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "GPT2JSON-Setup", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(dir);
-            string path = System.IO.Path.Combine(dir, "GPT2JSON-Setup-" + Version + ".exe");
+            string path = System.IO.Path.Combine(dir, "GPT2JSON-CoreSetup-" + Version + ".exe");
             using (var input = Assembly.GetExecutingAssembly().GetManifestResourceStream("GPT2JSON.Setup.exe"))
             {
                 if (input == null) throw new FileNotFoundException("未找到内嵌安装核心。", "GPT2JSON.Setup.exe");

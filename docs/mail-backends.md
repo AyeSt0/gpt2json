@@ -50,3 +50,7 @@ GPT2JSON 的 OTP 获取是 **backend-first**。核心抽象是 IMAP、Graph、JM
 4. JMAP：适合 JMAP 能力更完整的邮箱。
 5. POP3：作为简单兜底。
 6. API：接入 service-specific token/cookie 格式。
+
+## UI 命名约定
+
+界面和文档优先展示协议 / backend 名称，例如 IMAP、Graph、JMAP、POP3、API；具体 provider（outlook、hotmail、gmail、atomicmail、fastmail、icloud、qq、163、luckmail 等）只作为自动排序 hint 或输入格式说明出现，避免把产品能力绑定到某一家服务商。

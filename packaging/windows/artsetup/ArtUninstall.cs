@@ -17,7 +17,7 @@ using Button = System.Windows.Controls.Button;
 using TextBox = System.Windows.Controls.TextBox;
 using WpfApplication = System.Windows.Application;
 
-namespace GPT2JSON.ArtUninstall
+namespace GPT2JSON.Uninstall
 {
     internal static class Program
     {
@@ -62,9 +62,9 @@ namespace GPT2JSON.ArtUninstall
         {
             try
             {
-                string tempDir = Path.Combine(Path.GetTempPath(), "GPT2JSON-ArtUninstall", Guid.NewGuid().ToString("N"));
+                string tempDir = Path.Combine(Path.GetTempPath(), "GPT2JSON-Uninstall", Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(tempDir);
-                string target = Path.Combine(tempDir, "GPT2JSON-ArtUninstall.exe");
+                string target = Path.Combine(tempDir, "GPT2JSON-Uninstall.exe");
                 File.Copy(Assembly.GetExecutingAssembly().Location, target, true);
                 string args = "--run \"" + appDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + "\"";
                 if (silent) args += " /silent";
@@ -103,8 +103,16 @@ namespace GPT2JSON.ArtUninstall
         internal static string FindInnoUninstaller(string appDir)
         {
             if (string.IsNullOrWhiteSpace(appDir) || !Directory.Exists(appDir)) return string.Empty;
-            string preferred = Path.Combine(appDir, "unins000.exe");
+            string preferred = Path.Combine(appDir, ".uninstall", "unins000.exe");
             if (File.Exists(preferred)) return preferred;
+            preferred = Path.Combine(appDir, "unins000.exe");
+            if (File.Exists(preferred)) return preferred;
+            string privateDir = Path.Combine(appDir, ".uninstall");
+            if (Directory.Exists(privateDir))
+            {
+                string privateMatch = Directory.GetFiles(privateDir, "unins*.exe").OrderBy(p => p, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(privateMatch)) return privateMatch;
+            }
             return Directory.GetFiles(appDir, "unins*.exe").OrderBy(p => p, StringComparer.OrdinalIgnoreCase).FirstOrDefault() ?? string.Empty;
         }
     }

@@ -4,11 +4,34 @@
 
 ## [Unreleased]
 
+### Planned
+
+- IMAP / IMAP XOAUTH2、Graph、JMAP、POP3、Provider API 等邮箱取码 backend。
+- CSV / 表格列映射导入。
+- 失败账号筛选后重跑。
+
+## [0.1.2] - 2026-04-29
+
 ### Added
 
-- 开发者发版前可运行 `python scripts/check_release.py` 校验版本一致性、CHANGELOG 标题，并在 release 资产存在时输出 SHA256。
-- GUI 预检查改为后台线程执行，避免大文件读取/解析卡住主窗口，并会丢弃过期预检查结果。
-- 导出任务支持用户取消；OTP 轮询会被取消信号唤醒，GUI 会显示取消中和取消汇总。
+- 导出任务改为每次自动创建唯一批次目录：`GPT2JSON_<时间戳>_<短编码>/`，避免覆盖历史结果。
+- `summary.json` 新增 `output_root`、`out_dir`、`batch_id`，便于定位本次导出目录。
+- CPA 单账号文件名增加同批次防覆盖保护，相同邮箱会自动追加序号。
+- GUI 日志显示“输出根目录”和“本次结果目录”，完成后“打开输出目录”优先打开最新批次目录。
+- 新增文档素材生成脚本 `scripts/generate_docs_assets.py`，可复现生成 README Hero、GUI 预览和安装器预览图。
+- 新增 Windows / Python CI workflow，覆盖 Python 3.10 / 3.11 / 3.12。
+
+### Changed
+
+- README 全面重排为中文产品型结构，更新功能矩阵、输入格式、输出结构、发行包、路线图和隐私说明。
+- README 预览图替换为当前 GUI / 安装器风格，不再使用旧版截图。
+- Release workflow、发版检查和 Windows 打包说明对齐新版安装器命名和资产结构。
+- GitHub Issue / PR 模板和贡献文档补齐安全脱敏、复现信息、测试要求和文档要求。
+
+### Fixed
+
+- 修正重复导出时旧 `CPA/`、`summary.json`、`results.safe.jsonl` 等产物被清理的问题。
+- 修正用户误把输出根目录中的历史文件当作最新结果导入的风险。
 
 ## [0.1.1] - 2026-04-28
 

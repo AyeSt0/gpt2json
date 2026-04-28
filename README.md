@@ -1,134 +1,79 @@
 <p align="center">
-  <img src="docs/assets/hero.png" alt="GPT2JSON 中文介绍图" width="100%">
+  <img src="docs/assets/hero.png" alt="GPT2JSON - Sub2API / CPA JSON 导出工具" width="100%">
 </p>
 
 <h1 align="center">GPT2JSON</h1>
 
 <p align="center">
-  轻量独立的 Sub2API / CPA JSON 导出工具。面向中文环境，支持 CLI 与桌面 GUI。
+  面向中文环境的 Sub2API / CPA JSON 导出工具。协议优先、轻量桌面化、本地生成、批次隔离。
 </p>
 
 <p align="center">
-  <a href="https://github.com/AyeSt0/gpt2json/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/AyeSt0/gpt2json"></a>
-  <img alt="Python" src="https://img.shields.io/badge/python-3.10%2B-blue">
-  <img alt="Status" src="https://img.shields.io/badge/status-alpha-purple">
-  <img alt="GUI-PySide6" src="https://img.shields.io/badge/GUI-PySide6-7C3AED">
+  <a href="https://github.com/AyeSt0/gpt2json/releases"><img alt="Latest Release" src="https://img.shields.io/github/v/release/AyeSt0/gpt2json?style=for-the-badge&label=release&color=2563EB"></a>
+  <a href="https://github.com/AyeSt0/gpt2json/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/AyeSt0/gpt2json/ci.yml?branch=main&style=for-the-badge&label=tests"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/AyeSt0/gpt2json?style=for-the-badge"></a>
+  <img alt="Python" src="https://img.shields.io/badge/python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white">
+  <img alt="GUI" src="https://img.shields.io/badge/gui-PySide6-7C3AED?style=for-the-badge">
+</p>
+
+<p align="center">
+  <a href="#-它解决什么问题">解决的问题</a> ·
+  <a href="#-快速开始">快速开始</a> ·
+  <a href="#-输入格式">输入格式</a> ·
+  <a href="#-输出结构">输出结构</a> ·
+  <a href="#-发行包">发行包</a> ·
+  <a href="#-路线图">路线图</a>
 </p>
 
 ---
 
-## 简介
+## ✨ 它解决什么问题
 
-GPT2JSON 是一个小型独立工具，用于把账号文本批量处理成 **Sub2API JSON** 和 / 或 **CPA 单账号 JSON**。
+GPT2JSON 把账号文本批量转换为可导入的 **Sub2API JSON** 和 / 或 **CPA 单账号 JSON**。它只在本地生成文件，不会直接写入 Sub2API 后台，适合“先生成、再检查、最后导入”的交付流程。
 
-它只负责生成本地 JSON 文件，不会直接连接或写入 Sub2API 后台，适合先批量生成、检查后再手动导入。
-
-## 输入格式
-
-GPT2JSON 的输入解析由格式映射驱动，桌面版和 CLI 都保留了 `自动识别` / `--input-format` 入口，后续可以继续增加其它来源的账号格式。桌面版下拉栏会展示部分预制格式；未实现的格式会置灰展示，暂时不可选择。
-
-当前版本内置并优先适配 **LDXP Plus7** 的账号格式：
-
-> 账号来源：<https://pay.ldxp.cn/shop/plus7>
-
-内置 parser 接收三段式文本：
-
-```text
-GPT邮箱----GPT密码----OTP取码源
-```
-
-示例：
-
-```text
-user@example.test----example-gpt-password----https://otp-service.test/latest?mail={email}
-```
-
-字段说明：
-
-| 字段 | 含义 |
-| --- | --- |
-| `GPT邮箱` | GPT/OpenAI 账号登录邮箱。 |
-| `GPT密码` | GPT/OpenAI 登录密码，不是邮箱密码。 |
-| `OTP取码源` | 免登录验证码 URL、取码邮箱或其它取码源。 |
-
-其它来源 / 其它邮箱凭据格式后续会作为新的 input format 接入；当前暂时请先选择 `自动识别`，或整理成上面的三段格式。
-
-## 主要功能
-
-- **文件或粘贴输入**：桌面版支持导入账号文件，也支持直接粘贴多行账号。
-- **协议优先**：默认走 HTTP/OAuth 流程，不依赖浏览器自动化。
-- **自动并发**：并发数默认 `自动`，也可以手动指定。
-- **验证码处理**：支持免登录 URL 取码；可自动识别 JSON / 文本接口，以及前端 HTML 里暴露的取码 API。
-- **导出可选**：可单独导出 `Sub2API JSON` 或 `CPA JSON`，也可以两个都导出。
-- **脱敏日志**：运行过程展示进度和状态，尽量避免在日志中暴露敏感信息。
-
-## 协议后端规划
-
-GPT2JSON 会尽量向协议层收敛，而不是绑定某一家邮箱服务商名称。当前已接入：
-
-| 后端 | 状态 | 用途 |
+| 能力 | 当前状态 | 说明 |
 | --- | --- | --- |
-| OAuth/HTTP 登录 | 已实现 | 协议方式获取本地可导入的 JSON。 |
-| HTTP no-login URL | 已实现 | 免登录取码链接，支持 JSON、文本、HTML 内 API 自动发现。 |
-| External command | 已实现 | 通过本地命令扩展自定义取码。 |
+| 协议登录 | ✅ 已实现 | 默认走 HTTP/OAuth 流程，不拉起浏览器自动化。 |
+| 粘贴 / 文件输入 | ✅ 已实现 | 桌面端可直接粘贴多行，也可导入文本文件。 |
+| 自动并发 | ✅ 已实现 | 默认按账号数量自动选择并发，也支持手动输入。 |
+| 免登录取码 URL | ✅ 已实现 | 支持 JSON / 文本 / HTML 内 API 自动发现。 |
+| Sub2API 导出 | ✅ 已实现 | 生成 `sub2api_accounts.secret.json`。 |
+| CPA 导出 | ✅ 已实现 | 一个账号一个 JSON，同时生成 ZIP 包。 |
+| 唯一批次目录 | ✅ 已实现 | 每次导出新建 `GPT2JSON_<时间戳>_<编码>/`，不覆盖历史。 |
+| 多协议邮箱取码 | 🧭 规划中 | IMAP / Graph / JMAP / POP3 / Provider API。 |
 
-后续预留并逐步实现：
+## 🖥️ 桌面界面
 
-| 后端 | 典型用途 |
-| --- | --- |
-| IMAP / IMAP XOAUTH2 | 邮箱账密、应用密码、OAuth Token 取码。 |
-| Graph | Graph 兼容邮箱 Token 取码。 |
-| JMAP | Fastmail、LuckMail 或其它 JMAP/API 型邮箱。 |
-| POP3 | 简单邮箱协议兜底。 |
-| Provider API | AtomicMail、LuckMail 等自定义 API 型来源。 |
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/gui-zh-preview-dark.png">
+    <img src="docs/assets/gui-zh-preview.png" alt="GPT2JSON 中文桌面界面预览" width="88%">
+  </picture>
+</p>
 
-## 桌面版
+桌面版以中文用户为主：账号输入、导出格式、并发、输出位置、日志诊断都集中在一个窗口里。日志会用序号标记账号阶段，尽量把“正在登录 / 等验证码 / 自动重试 / 已输出到哪里”说清楚。
+
+## 🚀 快速开始
+
+### 桌面版
 
 ```bash
 python -m pip install -e .[gui]
 gpt2json-gui
 ```
 
-使用流程：
+使用步骤：
 
-1. 选择账号格式：默认 `自动识别`；
+1. 保持账号格式为 `自动识别（推荐）`；
 2. 粘贴账号文本，或导入账号文件；
-3. 选择输出目录；
-4. 勾选导出格式：`Sub2API JSON`、`CPA JSON`；
-5. 并发保持 `自动` 即可，必要时再手动调整；
-6. 点击 `开始导出`。
+3. 选择输出根目录；
+4. 勾选 `Sub2API JSON`、`CPA JSON`，可单选也可全选；
+5. 并发保持 `自动`，必要时再手动调整；
+6. 点击 `开始导出`，完成后打开本次结果目录。
 
-<p align="center">
-  <img src="docs/assets/gui-zh-preview.png" alt="GPT2JSON 浅色界面预览" width="80%">
-</p>
-
-<p align="center">
-  <img src="docs/assets/gui-zh-preview-dark.png" alt="GPT2JSON 深色界面预览" width="80%">
-</p>
-
-## Windows 发行包
-
-GitHub Release 提供三类 Windows 产物，普通用户优先下载艺术安装器：
-
-| 文件 | 用途 |
-| --- | --- |
-| `GPT2JSON-ArtSetup-vX.Y.Z.exe` | 推荐入口。资产化异形 WPF 外壳，内置 Inno 安装核心，视觉更接近独立桌面应用。 |
-| `GPT2JSON-Setup-vX.Y.Z.exe` | 传统安装器，适合作为兼容性备用入口。 |
-| `GPT2JSON-vX.Y.Z-windows-x64.zip` | 便携包，解压后直接运行 `GPT2JSON.exe`。 |
-
-艺术安装器会展示自定义外观并完成标准安装流程；不需要用户了解内部打包方式。预览图使用通用安装路径示例，不包含个人账号或本机隐私信息。
-
-软件运行配置使用本地 ini 文件保存到 `%LOCALAPPDATA%\GPT2JSON\settings.ini`，不会把 GUI 偏好写入 Windows 注册表。安装器版本会创建标准的 Windows 卸载项和快捷方式，并将卸载入口接到同风格艺术卸载壳；如果希望完全免安装，使用 zip 便携包即可。
-
-<p align="center">
-  <img src="docs/assets/installer-art-preview.jpg" alt="GPT2JSON 艺术安装器预览" width="80%">
-</p>
-
-## CLI 快速开始
+### CLI
 
 ```bash
-python -m pip install -e .
-
 gpt2json \
   --input accounts.txt \
   --out-dir output \
@@ -142,80 +87,150 @@ gpt2json \
 cat accounts.txt | gpt2json --stdin --out-dir output --no-cpa
 ```
 
-查看帮助：
+查看版本和帮助：
 
 ```bash
-gpt2json --help
 gpt2json --version
+gpt2json --help
 ```
 
-版本号统一来自 `gpt2json.__version__`；CLI、GUI 标题栏和 Python 包元数据会保持一致。
+## 📥 输入格式
 
-## 更新策略
+GPT2JSON 的输入解析由 parser 注册表驱动。桌面版下拉栏会展示当前格式和未来预制格式；未实现的格式会置灰，避免误选。
 
-GPT2JSON 不做真正的热更新，也不会在后台自动替换本地程序。桌面版左上角版本号可点击，会通过 GitHub Release 检查是否有新版本；发现更新后只打开下载页，由用户自行下载替换。
+当前版本优先适配 **LDXP Plus7** 的三段式账号格式：
 
-推荐发布方式：
+> 当前支持来源：[pay.ldxp.cn/shop/plus7](https://pay.ldxp.cn/shop/plus7)
 
-- 平时开发：直接运行源码版；
-- 对外分发：打 `vX.Y.Z` Git tag，由 GitHub Actions 构建并上传 Release 资产；
-- 用户更新：下载 Release 里的艺术安装器重新安装，或下载 `GPT2JSON-vX.Y.Z-windows-x64.zip` 解压覆盖旧目录。
+```text
+GPT邮箱----GPT密码----OTP取码源
+```
 
-## 输出文件
+示例：
 
-成功运行后，输出目录大致如下：
+```text
+user@example.test----example-gpt-password----https://otp-service.test/latest?mail={email}
+```
+
+| 字段 | 含义 | 注意 |
+| --- | --- | --- |
+| `GPT邮箱` | GPT/OpenAI 登录邮箱 | 仅作为 GPT 账号使用。 |
+| `GPT密码` | GPT/OpenAI 登录密码 | 不是邮箱密码。 |
+| `OTP取码源` | 免登录验证码 URL、取码邮箱或其它取码源 | 当前已实现免登录 URL；其它邮箱凭据格式后续独立接入。 |
+
+> 后续新增格式时，会明确区分 `GPT 密码`、`邮箱密码`、`邮箱 app-password`、`access token`、`refresh token` 等字段，避免把不同凭据混在一起。
+
+更多格式扩展说明见 [`docs/input-formats.md`](docs/input-formats.md)。
+
+## 📤 输出结构
+
+每次运行都会在你选择的输出根目录下创建唯一批次目录，不会覆盖旧导出。
 
 ```text
 output/
-├─ CPA/
-│  └─ <account-email>.json
-├─ cpa_tokens_<timestamp>.zip
-├─ cpa_manifest.json
-├─ progress.json
-├─ results.safe.jsonl
-├─ sub2api_accounts.secret.json
-└─ summary.json
+└─ GPT2JSON_20260429_043512_a1b2c3/
+   ├─ CPA/
+   │  └─ <account-email>.json
+   ├─ cpa_tokens_20260429_043512_a1b2c3.zip
+   ├─ cpa_manifest.json
+   ├─ failure_report.safe.json
+   ├─ progress.json
+   ├─ results.safe.jsonl
+   ├─ sub2api_accounts.secret.json
+   └─ summary.json
 ```
 
-常用文件：
-
-| 文件 | 说明 |
+| 文件 | 用途 |
 | --- | --- |
-| `sub2api_accounts.secret.json` | Sub2API 导入用总包，结构对齐 codex-console 的“导出 Sub2API 格式”。 |
-| `CPA/<account-email>.json` | CPA 单账号 token 文件；一个账号一个 JSON，结构对齐 codex-console 的“导出 CPA 格式”。 |
-| `cpa_tokens_<timestamp>.zip` | CPA 多账号打包文件，内部仍是一个账号一个 JSON，便于整体搬运。 |
-| `cpa_manifest.json` | CPA 文件索引，仅记录文件列表和脱敏元数据。 |
-| `summary.json` | 本次导出的统计结果。 |
+| `sub2api_accounts.secret.json` | Sub2API 导入用总包。 |
+| `CPA/<account-email>.json` | CPA 单账号 token 文件；一个账号一个 JSON。 |
+| `cpa_tokens_<批次ID>.zip` | CPA 多账号打包文件，便于整体搬运。 |
+| `cpa_manifest.json` | CPA 文件索引，只记录文件列表和脱敏元数据。 |
+| `failure_report.safe.json` | 失败诊断报告，不包含原始密码、token 或取码源明文。 |
+| `summary.json` | 本次导出统计；包含 `output_root`、`out_dir`、`batch_id`。 |
+| `results.safe.jsonl` | 脱敏过程记录，用于排查阶段状态。 |
 
-为避免误导入历史文件，每次开始导出时会先清理输出目录内 GPT2JSON 生成过的结果项：`CPA/`、`sub_accounts/`（旧版本内部调试目录）、`cpa_tokens_*.zip`、`sub2api_accounts.secret.json`、`cpa_manifest.json`、`summary.json`、`progress.json`、`results.safe.jsonl`。建议每次选择一个专用输出目录，不要把其它手工文件混放进去。
+## 📦 发行包
 
-## 安装开发版
+GitHub Release 提供两类 Windows 产物：
+
+| 文件 | 推荐场景 |
+| --- | --- |
+| `GPT2JSON-Setup-vX.Y.Z.exe` | 推荐给普通用户。自定义安装外壳 + 标准安装核心。 |
+| `GPT2JSON-vX.Y.Z-windows-x64.zip` | 便携使用；解压后直接运行 `GPT2JSON.exe`。 |
+
+<p align="center">
+  <img src="docs/assets/installer-preview.png" alt="GPT2JSON 安装器预览" width="82%">
+</p>
+
+运行配置保存到 `%LOCALAPPDATA%\GPT2JSON\settings.ini`。GUI 偏好不写入注册表；安装器只创建标准卸载项和快捷方式。如果希望完全免安装，使用 ZIP 便携包即可。
+
+## 🧩 协议后端规划
+
+GPT2JSON 的方向是 **backend-first**：优先沉到 IMAP / Graph / JMAP / POP3 / API 这类可复用协议层，而不是把逻辑写死在某个邮箱品牌名里。
+
+| 后端 | 状态 | 目标 |
+| --- | --- | --- |
+| HTTP no-login URL | ✅ 已实现 | 免登录取码链接。 |
+| External command | ✅ 已实现 | 本地命令扩展自定义取码。 |
+| IMAP / IMAP XOAUTH2 | 🧭 规划中 | 邮箱密码、app-password、OAuth token 取码。 |
+| Graph | 🧭 规划中 | Graph 兼容邮箱 token 取码。 |
+| JMAP | 🧭 规划中 | Fastmail、LuckMail 等 JMAP/API 型邮箱。 |
+| POP3 | 🧭 规划中 | 简单邮箱协议兜底。 |
+| Provider API | 🧭 规划中 | AtomicMail、LuckMail 等自定义 API 来源。 |
+
+详见 [`docs/mail-backends.md`](docs/mail-backends.md)。
+
+## 🔐 隐私与安全
+
+- 不要把真实账号、密码、token、cookie、导出 JSON、邮箱内容提交到 GitHub。
+- 日志、失败报告、manifest 默认只写脱敏信息。
+- `*.secret.json`、`output/`、本地构建产物已经加入 `.gitignore`。
+- 如果要反馈问题，请使用合成示例或先脱敏。
+
+更多见 [`SECURITY.md`](SECURITY.md) 与 [`docs/privacy.md`](docs/privacy.md)。
+
+## 🗺️ 路线图
+
+- [x] 协议优先 OAuth → JSON 导出
+- [x] 中文 GUI：粘贴 / 文件输入、输出格式选择、深浅色主题
+- [x] 取消任务、自动重试、失败诊断报告
+- [x] 唯一批次输出目录，避免覆盖历史导出
+- [ ] IMAP / IMAP XOAUTH2 取码 backend
+- [ ] Graph / JMAP / POP3 backend
+- [ ] CSV / 表格列映射导入
+- [ ] 更细的失败账号重跑入口
+
+## 🛠️ 开发与发版
 
 ```bash
 git clone https://github.com/AyeSt0/gpt2json.git
 cd gpt2json
-python -m pip install -e .[gui]
+python -m pip install -e .[dev,gui]
+python -m ruff check gpt2json tests scripts
+python -m pytest -q
 ```
 
-## 发版前自检
+重新生成 README 截图和营销图：
 
 ```bash
-python -m pip install -e .[dev,gui]
-python -m pytest -q
+python scripts/generate_docs_assets.py
+```
+
+发版前检查：
+
+```bash
 python scripts/check_release.py
 python -m build
 python -m twine check dist/*
 ```
 
-发版时先更新 `gpt2json/__init__.py`、`packaging/windows/GPT2JSON.iss` 与 `CHANGELOG.md`，并运行 `python scripts/check_release.py --require-assets` 校验版本、日志标题和已生成资产 SHA256，再创建对应的 `vX.Y.Z` Git tag。
+完整发版流程见 [`docs/release.md`](docs/release.md)。
 
-```bash
-git tag v0.1.1
-git push origin v0.1.1
-```
+## 🤝 贡献
 
-如果只是发布 GitHub Release，建议使用 Git tag / GitHub 自动生成的 Source archive，不要手动打包本地工作区，避免把 `output/` 下的本地导出文件带进去。
+欢迎提交新的输入格式、OTP backend、GUI 体验改进和文档修正。请先阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)，并确保测试只使用合成数据。
 
-## 许可证
+## 📄 许可证
 
-MIT，详见 [LICENSE](LICENSE)。
+MIT，详见 [`LICENSE`](LICENSE)。

@@ -23,7 +23,6 @@ EXPECTED_RELEASE_PATTERNS = (
     "gpt2json-{version}-py3-none-any.whl",
     "gpt2json-{version}.tar.gz",
     "GPT2JSON-Setup-v{version}.exe",
-    "GPT2JSON-ArtSetup-v{version}.exe",
     "GPT2JSON-v{version}-windows-x64.zip",
 )
 

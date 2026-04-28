@@ -42,9 +42,12 @@ jobs:
 
       - name: Test
         shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: |
           python -m pytest -q
-          python -m ruff check gpt2json tests
+          python -m ruff check gpt2json tests scripts
+          python scripts/check_release.py
 
       - name: Build Python packages
         shell: pwsh
@@ -74,20 +77,16 @@ jobs:
         run: |
           .\packaging\windows\build-installer.ps1
 
-      - name: Build art installer
-        shell: pwsh
-        run: |
-          .\packaging\windows\build-art-installer.ps1
-
       - name: Pack release assets
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force release | Out-Null
+          Get-ChildItem release -Filter "GPT2JSON-ArtSetup-v*.exe" -ErrorAction SilentlyContinue | Remove-Item -Force
+          Get-ChildItem release -Filter "GPT2JSON-CoreSetup-v*.exe" -ErrorAction SilentlyContinue | Remove-Item -Force
           $version = $env:GPT2JSON_VERSION
           if (-not $version) { throw "GPT2JSON_VERSION is not set; Determine release version step did not run." }
           $expected = @(
             "release/GPT2JSON-Setup-v$version.exe",
-            "release/GPT2JSON-ArtSetup-v$version.exe",
             "packaging/windows/assets/installer-art-shell-transparent.png"
           )
           foreach ($path in $expected) {
@@ -113,6 +112,6 @@ jobs:
           $tag = "${{ github.ref_name }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --title "GPT2JSON $tag" --notes "自动构建的 GPT2JSON 发布包。"
+            gh release create $tag --title "GPT2JSON $tag" --generate-notes
           }
           gh release upload $tag release/* --clobber

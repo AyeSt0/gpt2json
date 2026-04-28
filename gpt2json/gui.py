@@ -8,18 +8,35 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QObject, QSettings, QSize, QStandardPaths, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import (
+    QEvent,
+    QIdentityProxyModel,
+    QLibraryInfo,
+    QObject,
+    QSettings,
+    QSize,
+    QStandardPaths,
+    Qt,
+    QTimer,
+    QTranslator,
+    QUrl,
+    Signal,
+)
 from PySide6.QtGui import (
     QColor,
     QDesktopServices,
     QFont,
     QFontDatabase,
     QIcon,
+    QPainter,
+    QPainterPath,
+    QPen,
     QPixmap,
     QSyntaxHighlighter,
     QTextCharFormat,
 )
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QButtonGroup,
     QComboBox,
@@ -30,8 +47,10 @@ from PySide6.QtWidgets import (
     QGraphicsDropShadowEffect,
     QGridLayout,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
+    QListView,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -41,8 +60,11 @@ from PySide6.QtWidgets import (
     QSizeGrip,
     QSizePolicy,
     QSpinBox,
+    QSplitter,
     QStackedWidget,
+    QStyle,
     QToolButton,
+    QTreeView,
     QVBoxLayout,
     QWidget,
 )
@@ -106,8 +128,53 @@ def create_app_settings() -> QSettings:
     path.parent.mkdir(parents=True, exist_ok=True)
     return QSettings(str(path), QSettings.Format.IniFormat)
 
+
+def install_qt_translations(app: QApplication | None) -> None:
+    """Load Qt's Simplified Chinese translations for built-in dialogs.
+
+    GPT2JSON's own widgets are handwritten in Chinese, but Qt built-ins such as
+    QFileDialog provide tooltips and detail-view headers from qtbase_*.qm.  Keep
+    the translator objects alive at module scope; otherwise Qt silently falls
+    back to English after garbage collection.
+    """
+
+    global _QT_TRANSLATIONS_INSTALLED
+    if app is None or _QT_TRANSLATIONS_INSTALLED:
+        return
+
+    filenames = ("qtbase_zh_CN.qm", "qt_zh_CN.qm")
+    translation_roots = [
+        Path(QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)),
+        Path(__file__).resolve().parent / "assets" / "translations",
+    ]
+    if hasattr(sys, "_MEIPASS"):
+        bundle_root = Path(sys._MEIPASS)
+        translation_roots.extend(
+            [
+                bundle_root / "PySide6" / "translations",
+                bundle_root / "PySide6" / "Qt" / "translations",
+            ]
+        )
+
+    installed = False
+    for filename in filenames:
+        for root in translation_roots:
+            path = root / filename
+            if not path.exists():
+                continue
+            translator = QTranslator(app)
+            if translator.load(str(path)):
+                app.installTranslator(translator)
+                _QT_TRANSLATORS.append(translator)
+                installed = True
+                break
+    _QT_TRANSLATIONS_INSTALLED = installed
+
+
 READY_LOG = "🟢 等待开始：请粘贴账号文本，或导入账号文件。\n📄 当前支持：自动识别 / LDXP Plus7 三段式 OTP。\n📮 说明：程序会优先尝试账密登录；只有服务端要求验证码时，才会访问输入里的取码源。"
 _UI_FONT_FAMILY = ""
+_QT_TRANSLATORS: list[QTranslator] = []
+_QT_TRANSLATIONS_INSTALLED = False
 
 LIGHT_THEME = {
     "shell": "#F6F8FC",
@@ -194,7 +261,7 @@ def classify_log_line(text: str) -> str:
         return "output"
     if line.startswith(("📮", "📫", "📬", "🧾", "⌛")) or "验证码" in line:
         return "otp"
-    if line.startswith(("📁", "🧰", "📘", "📚")) or "输出：" in line or "输出目录：" in line:
+    if line.startswith(("📁", "🗂️", "🧰", "📘", "📚")) or "输出：" in line or "输出目录：" in line or "输出根目录：" in line:
         return "output"
     return "default"
 
@@ -227,6 +294,66 @@ class LogHighlighter(QSyntaxHighlighter):
             account_fmt = QTextCharFormat(fmt)
             account_fmt.setFontWeight(QFont.Weight.Bold)
             self.setFormat(account_start, max(0, account_end - account_start), account_fmt)
+
+
+class LocalizedFileDialogProxyModel(QIdentityProxyModel):
+    HEADER_LABELS = ("名称", "大小", "类型", "修改时间")
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole) -> Any:  # noqa: N802
+        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal and section < len(self.HEADER_LABELS):
+            return self.HEADER_LABELS[section]
+        return super().headerData(section, orientation, role)
+
+
+def rounded_pixmap(source: QPixmap, size: int, radius: float) -> QPixmap:
+    scaled = source.scaled(
+        size,
+        size,
+        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+    if scaled.width() != size or scaled.height() != size:
+        x = max(0, (scaled.width() - size) // 2)
+        y = max(0, (scaled.height() - size) // 2)
+        scaled = scaled.copy(x, y, size, size)
+
+    output = QPixmap(size, size)
+    output.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(output)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    path = QPainterPath()
+    path.addRoundedRect(0, 0, size, size, radius, radius)
+    painter.setClipPath(path)
+    painter.drawPixmap(0, 0, scaled)
+    painter.end()
+    return output
+
+
+class DialogDragFilter(QObject):
+    def __init__(self, dialog: QDialog) -> None:
+        super().__init__(dialog)
+        self.dialog = dialog
+        self._drag_offset: Any = None
+
+    def eventFilter(self, obj: QObject, event: Any) -> bool:  # noqa: N802
+        event_type = event.type()
+        if event_type == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+            self._drag_offset = self._global_point(event) - self.dialog.frameGeometry().topLeft()
+            event.accept()
+            return True
+        if event_type == QEvent.Type.MouseMove and self._drag_offset is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            self.dialog.move(self._global_point(event) - self._drag_offset)
+            event.accept()
+            return True
+        if event_type == QEvent.Type.MouseButtonRelease:
+            self._drag_offset = None
+        return super().eventFilter(obj, event)
+
+    @staticmethod
+    def _global_point(event: Any) -> Any:
+        if hasattr(event, "globalPosition"):
+            return event.globalPosition().toPoint()
+        return event.globalPos()
 
 
 def load_ui_font() -> str:
@@ -324,6 +451,246 @@ def _style_text_context_menu(menu: QMenu, widget: Any) -> None:
         }}
         """
     )
+
+
+def build_unified_file_dialog_stylesheet(p: dict[str, str]) -> str:
+    """Return the GPT2JSON themed stylesheet for non-native file dialogs."""
+
+    return f"""
+        QFileDialog#UnifiedFileDialog {{
+            background:{p['card']};
+            color:{p['text']};
+            border:1px solid {p['border']};
+            border-radius:14px;
+        }}
+        #FileDialogTitleBar {{
+            min-height:42px;
+            max-height:42px;
+            border:none;
+            border-bottom:1px solid {p['border']};
+            background:transparent;
+        }}
+        #FileDialogTitleIcon {{
+            min-width:22px;
+            max-width:22px;
+            min-height:22px;
+            max-height:22px;
+        }}
+        #FileDialogTitle {{
+            color:{p['text']};
+            font-size:14px;
+            font-weight:900;
+        }}
+        #FileDialogCloseButton {{
+            min-width:32px;
+            max-width:32px;
+            min-height:32px;
+            max-height:32px;
+            border:none;
+            border-radius:8px;
+            color:{p['text']};
+            background:transparent;
+            font-size:18px;
+            padding:0;
+        }}
+        #FileDialogCloseButton:hover {{
+            color:white;
+            background:#EF4444;
+        }}
+        #ToolbarLocationLabel {{
+            color:{p['muted']};
+            font-size:12px;
+            font-weight:800;
+        }}
+        QFileDialog#UnifiedFileDialog QLabel {{
+            color:{p['muted']};
+            font-size:12px;
+            font-weight:700;
+        }}
+        QFileDialog#UnifiedFileDialog QLineEdit,
+        QFileDialog#UnifiedFileDialog QComboBox {{
+            min-height:34px;
+            border-radius:9px;
+            padding-left:10px;
+            padding-right:8px;
+            color:{p['text']};
+            background:{p['input']};
+            border:1px solid {p['border']};
+            font-size:12px;
+            font-weight:600;
+        }}
+        QFileDialog#UnifiedFileDialog QLineEdit:focus,
+        QFileDialog#UnifiedFileDialog QComboBox:focus {{
+            border:1px solid #60A5FA;
+        }}
+        QFileDialog#UnifiedFileDialog QComboBox::drop-down {{
+            width:24px;
+            border:none;
+            background:transparent;
+        }}
+        QFileDialog#UnifiedFileDialog QListView,
+        QFileDialog#UnifiedFileDialog QTreeView {{
+            outline:0;
+            color:{p['text']};
+            background:{p['input']};
+            border:1px solid {p['border']};
+            border-radius:9px;
+            padding:4px;
+            alternate-background-color:{p['soft']};
+            selection-background-color:#2563EB;
+            selection-color:white;
+        }}
+        QFileDialog#UnifiedFileDialog QListView#sidebar {{
+            min-width:96px;
+            max-width:112px;
+            color:{p['text']};
+            background:{p['soft']};
+            border:1px solid {p['border']};
+            border-radius:9px;
+            padding:4px;
+            font-size:11px;
+            font-weight:700;
+        }}
+        QFileDialog#UnifiedFileDialog QListView::item,
+        QFileDialog#UnifiedFileDialog QTreeView::item {{
+            min-height:22px;
+            padding:2px 6px;
+            border-radius:6px;
+        }}
+        QFileDialog#UnifiedFileDialog QListView#sidebar::item {{
+            min-height:23px;
+            padding:2px 5px;
+            border-radius:7px;
+        }}
+        QFileDialog#UnifiedFileDialog QListView::item:hover,
+        QFileDialog#UnifiedFileDialog QTreeView::item:hover {{
+            color:#2563EB;
+            background:{p['soft']};
+        }}
+        QFileDialog#UnifiedFileDialog QListView#sidebar::item:hover {{
+            color:#2563EB;
+            background:{p['input']};
+        }}
+        QFileDialog#UnifiedFileDialog QListView::item:selected,
+        QFileDialog#UnifiedFileDialog QTreeView::item:selected {{
+            color:white;
+            background:#2563EB;
+        }}
+        QFileDialog#UnifiedFileDialog QListView#sidebar::item:selected {{
+            color:white;
+            background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #1677FF,stop:1 #7C3AED);
+        }}
+        QFileDialog#UnifiedFileDialog QHeaderView::section {{
+            min-height:26px;
+            color:{p['muted']};
+            background:{p['soft']};
+            border:none;
+            border-bottom:1px solid {p['border']};
+            padding:5px 8px;
+            font-size:12px;
+            font-weight:800;
+        }}
+        QFileDialog#UnifiedFileDialog QToolButton {{
+            min-width:28px;
+            max-width:30px;
+            min-height:28px;
+            max-height:30px;
+            border-radius:5px;
+            color:{p['text']};
+            background:transparent;
+            border:1px solid transparent;
+            padding:3px;
+        }}
+        QFileDialog#UnifiedFileDialog QToolButton:hover {{
+            border-color:{p['border']};
+            color:#2563EB;
+            background:{p['soft']};
+        }}
+        QFileDialog#UnifiedFileDialog QToolButton:pressed,
+        QFileDialog#UnifiedFileDialog QToolButton:checked {{
+            border-color:#93C5FD;
+            color:#2563EB;
+            background:{p['input']};
+        }}
+        QFileDialog#UnifiedFileDialog QPushButton {{
+            min-height:34px;
+            min-width:82px;
+            border-radius:9px;
+            color:{p['text']};
+            background:{p['soft']};
+            border:1px solid {p['border']};
+            font-size:12px;
+            font-weight:800;
+            padding:0 13px;
+        }}
+        QFileDialog#UnifiedFileDialog QPushButton:hover {{
+            border-color:#3B82F6;
+            color:#2563EB;
+            background:{p['input']};
+        }}
+        QFileDialog#UnifiedFileDialog QPushButton#DialogPrimaryButton {{
+            color:white;
+            border:1px solid #2563EB;
+            background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #1677FF,stop:1 #7C3AED);
+        }}
+        QFileDialog#UnifiedFileDialog QPushButton#DialogPrimaryButton:hover {{
+            color:white;
+            background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #0F63D6,stop:1 #6D28D9);
+        }}
+        QFileDialog#UnifiedFileDialog QSplitter::handle {{
+            background:transparent;
+        }}
+        QFileDialog#UnifiedFileDialog QSplitter::handle:horizontal {{
+            width:8px;
+            margin:0 2px;
+        }}
+        QFileDialog#UnifiedFileDialog QSplitter::handle:horizontal:hover {{
+            background:{p['border']};
+            border-radius:4px;
+        }}
+        QFileDialog#UnifiedFileDialog QScrollBar:vertical {{
+            width:10px;
+            background:transparent;
+            margin:2px;
+        }}
+        QFileDialog#UnifiedFileDialog QScrollBar::handle:vertical {{
+            min-height:28px;
+            border-radius:5px;
+            background:{p['border2']};
+        }}
+        QFileDialog#UnifiedFileDialog QScrollBar::add-page:vertical,
+        QFileDialog#UnifiedFileDialog QScrollBar::sub-page:vertical {{
+            background:transparent;
+        }}
+        QFileDialog#UnifiedFileDialog QScrollBar::add-line:vertical,
+        QFileDialog#UnifiedFileDialog QScrollBar::sub-line:vertical {{
+            height:0;
+            background:transparent;
+        }}
+        QFileDialog#UnifiedFileDialog QScrollBar:horizontal {{
+            height:10px;
+            background:transparent;
+            margin:2px;
+        }}
+        QFileDialog#UnifiedFileDialog QScrollBar::handle:horizontal {{
+            min-width:28px;
+            border-radius:5px;
+            background:{p['border2']};
+        }}
+        QFileDialog#UnifiedFileDialog QScrollBar::add-page:horizontal,
+        QFileDialog#UnifiedFileDialog QScrollBar::sub-page:horizontal {{
+            background:transparent;
+        }}
+        QFileDialog#UnifiedFileDialog QScrollBar::add-line:horizontal,
+        QFileDialog#UnifiedFileDialog QScrollBar::sub-line:horizontal {{
+            width:0;
+            background:transparent;
+        }}
+        QFileDialog#UnifiedFileDialog QAbstractScrollArea::corner {{
+            background:transparent;
+            border:none;
+        }}
+    """
 
 
 def build_chinese_text_context_menu(widget: Any) -> QMenu:
@@ -638,6 +1005,7 @@ class PresetNumberCombo(QComboBox):
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
+        install_qt_translations(QApplication.instance())
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
         self.setMinimumSize(980, 640)
         self.resize(1180, 740)
@@ -675,6 +1043,7 @@ class MainWindow(QMainWindow):
         self._last_preflight_error = ""
         self._last_preflight_source = ""
         self._last_preflight_snapshot_key = ""
+        self._last_result_dir = ""
         self._preflight_seq = 0
         self._preflight_running = False
         self._log_waiting = True
@@ -699,8 +1068,13 @@ class MainWindow(QMainWindow):
         self.shell = QFrame()
         self.shell.setObjectName("Shell")
         self.shadow = QGraphicsDropShadowEffect(self.shell)
-        self.shadow.setBlurRadius(28)
-        self.shadow.setOffset(0, 10)
+        # Disable the drop-shadow effect: on some Windows scaling / GPU
+        # combinations QGraphicsDropShadowEffect shows a sharp rectangular
+        # halo around the rounded frameless window.  The shell border now
+        # carries the window edge, avoiding the “硬方框阴影” artifact.
+        self.shadow.setEnabled(False)
+        self.shadow.setBlurRadius(0)
+        self.shadow.setOffset(0, 0)
         self.shell.setGraphicsEffect(self.shadow)
         outer_layout.addWidget(self.shell)
 
@@ -1093,20 +1467,469 @@ class MainWindow(QMainWindow):
     def palette(self) -> dict[str, str]:
         return DARK_THEME if self._theme == "dark" else LIGHT_THEME
 
+    def _dialog_start_directory(self, path_text: str = "") -> Path:
+        raw = (path_text or "").strip()
+        path = Path(raw).expanduser() if raw else Path.cwd()
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        if path.is_file():
+            path = path.parent
+        while not path.exists() and path.parent != path:
+            path = path.parent
+        return path if path.exists() else Path.cwd()
+
+    def _file_dialog_sidebar_places(self) -> list[tuple[str, QUrl, str]]:
+        places: list[tuple[str, QUrl, str]] = []
+        seen: set[str] = set()
+
+        def add_url(label: str, url: QUrl, tooltip: str = "") -> None:
+            if not label:
+                return
+            key = url.toString().casefold()
+            if key in seen:
+                return
+            seen.add(key)
+            places.append((label, url, tooltip or url.toLocalFile() or label))
+
+        def add(label: str, value: str | Path, tooltip: str = "") -> None:
+            if not label:
+                return
+            path = Path(value).expanduser()
+            if not path.exists():
+                return
+            try:
+                key = str(path.resolve()).casefold()
+            except Exception:
+                key = str(path).casefold()
+            if key in seen:
+                return
+            seen.add(key)
+            places.append((label, QUrl.fromLocalFile(str(path)), tooltip or str(path)))
+
+        standard_locations: tuple[tuple[str, QStandardPaths.StandardLocation], ...] = (
+            ("桌面", QStandardPaths.StandardLocation.DesktopLocation),
+            ("文档", QStandardPaths.StandardLocation.DocumentsLocation),
+            ("下载", QStandardPaths.StandardLocation.DownloadLocation),
+            ("图片", QStandardPaths.StandardLocation.PicturesLocation),
+            ("音乐", QStandardPaths.StandardLocation.MusicLocation),
+            ("视频", QStandardPaths.StandardLocation.MoviesLocation),
+        )
+        for label, location in standard_locations:
+            value = QStandardPaths.writableLocation(location)
+            if value:
+                add(label, value)
+
+        # Qt's non-native QFileDialog can show a Windows-style drive overview
+        # when navigated to the empty file URL.  Put it after the high-frequency
+        # user folders so the sidebar stays short and task-oriented.
+        add_url("此电脑", QUrl("file:"), "查看所有磁盘和驱动器")
+
+        return places
+
+    def _apply_unified_file_dialog_style(self, dialog: QFileDialog, *, accept_text: str) -> None:
+        dialog.setObjectName("UnifiedFileDialog")
+        dialog.setWindowIcon(QIcon(str(APP_ICON_PATH)) if APP_ICON_PATH.exists() else self.windowIcon())
+        dialog.setWindowFlags((dialog.windowFlags() | Qt.WindowType.FramelessWindowHint) & ~Qt.WindowType.WindowContextHelpButtonHint)
+        # QFileDialog is a complex top-level widget.  Enabling translucent
+        # background here can make the native child viewport show through as a
+        # fully transparent window on Windows, especially with Direct2D / DPI
+        # scaling.  Keep it opaque; the unified title bar still provides the
+        # visual integration without turning the dialog into a see-through pane.
+        dialog.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+        dialog.setViewMode(QFileDialog.ViewMode.Detail)
+        dialog.setLabelText(QFileDialog.DialogLabel.Accept, accept_text)
+        dialog.setLabelText(QFileDialog.DialogLabel.Reject, "取消")
+        dialog.setLabelText(QFileDialog.DialogLabel.LookIn, "位置")
+        dialog.setLabelText(QFileDialog.DialogLabel.FileName, "名称")
+        dialog.setLabelText(QFileDialog.DialogLabel.FileType, "类型")
+        proxy = LocalizedFileDialogProxyModel(dialog)
+        dialog.setProxyModel(proxy)
+        dialog._localized_proxy = proxy  # type: ignore[attr-defined]
+        dialog.setStyleSheet(build_unified_file_dialog_stylesheet(self.palette()))
+        dialog.resize(760, 520)
+
+        sidebar_places = self._file_dialog_sidebar_places()
+        if sidebar_places:
+            dialog.setSidebarUrls([url for _label, url, _tooltip in sidebar_places])
+
+        self._install_file_dialog_chrome(dialog)
+        self._arrange_file_dialog_toolbar(dialog)
+        self._localize_file_dialog_widgets(dialog)
+        self._localize_file_dialog_sidebar(dialog, sidebar_places)
+        self._tune_file_dialog_views(dialog)
+        for delay_ms in (0, 50, 200):
+            QTimer.singleShot(
+                delay_ms,
+                lambda d=dialog, places=sidebar_places: (
+                    self._install_file_dialog_chrome(d),
+                    self._arrange_file_dialog_toolbar(d),
+                    self._localize_file_dialog_widgets(d),
+                    self._localize_file_dialog_sidebar(d, places),
+                    self._tune_file_dialog_views(d),
+                ),
+            )
+        normalized_accept = accept_text.replace("&", "")
+        for button in dialog.findChildren(QPushButton):
+            if button.text().replace("&", "") == normalized_accept:
+                button.setObjectName("DialogPrimaryButton")
+                button.setDefault(True)
+                break
+
+    def _install_file_dialog_chrome(self, dialog: QFileDialog) -> None:
+        if dialog.findChild(QWidget, "FileDialogTitleBar") is not None:
+            return
+        grid = dialog.layout()
+        if not isinstance(grid, QGridLayout):
+            return
+
+        existing: list[tuple[Any, tuple[int, int, int, int]]] = []
+        for index in reversed(range(grid.count())):
+            position = grid.getItemPosition(index)
+            item = grid.takeAt(index)
+            if item is not None:
+                existing.append((item, position))
+        for item, (row, column, row_span, column_span) in reversed(existing):
+            grid.addItem(item, row + 1, column, row_span, column_span)
+
+        grid.setContentsMargins(10, 8, 10, 10)
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(6)
+
+        title_bar = QFrame(dialog)
+        title_bar.setObjectName("FileDialogTitleBar")
+        title_layout = QHBoxLayout(title_bar)
+        title_layout.setContentsMargins(8, 0, 4, 0)
+        title_layout.setSpacing(8)
+
+        icon = QLabel()
+        icon.setObjectName("FileDialogTitleIcon")
+        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_path = ICON_DARK_PATH if self._theme == "dark" else ICON_LIGHT_PATH
+        if not icon_path.exists():
+            icon_path = ICON_PATH
+        if icon_path.exists():
+            icon.setPixmap(QPixmap(str(icon_path)).scaled(20, 20, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+
+        title = QLabel(dialog.windowTitle() or APP_NAME)
+        title.setObjectName("FileDialogTitle")
+
+        close_button = QToolButton()
+        close_button.setObjectName("FileDialogCloseButton")
+        close_button.setText("×")
+        close_button.setToolTip("关闭")
+        close_button.clicked.connect(dialog.reject)
+
+        title_layout.addWidget(icon)
+        title_layout.addWidget(title, 1)
+        title_layout.addWidget(close_button)
+        grid.addWidget(title_bar, 0, 0, 1, max(1, grid.columnCount()))
+
+        drag_filter = DialogDragFilter(dialog)
+        dialog._drag_filter = drag_filter  # type: ignore[attr-defined]
+        for widget in (title_bar, icon, title):
+            widget.installEventFilter(drag_filter)
+
+    def _find_layout_containing_widget(self, layout: Any, widget: QWidget) -> Any:
+        if layout is None:
+            return None
+        for index in range(layout.count()):
+            item = layout.itemAt(index)
+            if item is None:
+                continue
+            if item.widget() is widget:
+                return layout
+            child_layout = item.layout()
+            found = self._find_layout_containing_widget(child_layout, widget) if child_layout is not None else None
+            if found is not None:
+                return found
+        return None
+
+    def _file_dialog_toolbar_layout(self, dialog: QFileDialog) -> Any:
+        combo = dialog.findChild(QComboBox, "lookInCombo")
+        if combo is None:
+            return None
+        return self._find_layout_containing_widget(dialog.layout(), combo)
+
+    def _refresh_file_dialog_current_dir(self, dialog: QFileDialog) -> None:
+        current_url = dialog.directoryUrl()
+        for tree in dialog.findChildren(QTreeView):
+            model = tree.model()
+            source_model = model.sourceModel() if hasattr(model, "sourceModel") else model
+            if source_model is not None and hasattr(source_model, "setRootPath") and hasattr(source_model, "rootPath"):
+                source_model.setRootPath(source_model.rootPath())
+        if current_url.isValid():
+            dialog.setDirectoryUrl(current_url)
+        self._tune_file_dialog_views(dialog)
+
+    def _file_dialog_toolbar_icon(self, name: str, fallback: QStyle.StandardPixmap) -> tuple[QIcon, str]:
+        # Do not tint the platform icons into a single silhouette: in dark mode
+        # that made every toolbar action look like the same white blob.  These
+        # lightweight vector glyphs keep the familiar Windows/Fluent outline
+        # language while using small semantic accents for easy scanning.
+        dark = self._theme == "dark"
+        base = QColor("#E2E8F0" if dark else "#475569")
+        muted = QColor("#94A3B8" if dark else "#64748B")
+        blue = QColor("#60A5FA" if dark else "#2563EB")
+        purple = QColor("#C4B5FD" if dark else "#7C3AED")
+        green = QColor("#86EFAC" if dark else "#16A34A")
+        amber = QColor("#FCD34D" if dark else "#F59E0B")
+        amber_fill = QColor("#78350F" if dark else "#FEF3C7")
+        surface = QColor("#1E293B" if dark else "#EFF6FF")
+
+        pixmap = QPixmap(22, 22)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(QPen(base, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+
+        def line(x1: float, y1: float, x2: float, y2: float, color: QColor | None = None, width: float = 2.0) -> None:
+            painter.setPen(QPen(color or base, width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            painter.drawLine(int(x1), int(y1), int(x2), int(y2))
+
+        def rounded_rect(x: float, y: float, w: float, h: float, radius: float, stroke: QColor, fill: QColor | None = None, width: float = 1.6) -> None:
+            painter.setPen(QPen(stroke, width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            painter.setBrush(fill if fill is not None else Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(int(x), int(y), int(w), int(h), radius, radius)
+
+        if name == "backButton":
+            line(14, 5, 8, 11, blue)
+            line(8, 11, 14, 17, blue)
+            line(9, 11, 18, 11, base)
+        elif name == "forwardButton":
+            line(8, 5, 14, 11, blue)
+            line(14, 11, 8, 17, blue)
+            line(4, 11, 13, 11, base)
+        elif name == "toParentButton":
+            line(11, 5, 5, 11, purple)
+            line(11, 5, 17, 11, purple)
+            line(11, 6, 11, 18, base)
+            line(7, 18, 15, 18, muted, 1.8)
+        elif name == "refreshButton":
+            painter.setPen(QPen(green, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            painter.drawArc(5, 5, 12, 12, 35 * 16, 285 * 16)
+            line(16, 4, 17, 9, green)
+            line(16, 4, 12, 5, green)
+        elif name == "newFolderButton":
+            folder = QPainterPath()
+            folder.moveTo(3, 8)
+            folder.lineTo(8, 8)
+            folder.lineTo(10, 6)
+            folder.lineTo(14, 6)
+            folder.lineTo(16, 8)
+            folder.lineTo(19, 8)
+            folder.lineTo(19, 17)
+            folder.lineTo(3, 17)
+            folder.closeSubpath()
+            painter.setPen(QPen(amber, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            painter.setBrush(amber_fill)
+            painter.drawPath(folder)
+            line(15, 11, 15, 15, blue, 1.8)
+            line(13, 13, 17, 13, blue, 1.8)
+        elif name == "listModeButton":
+            for y, color in ((7, blue), (11, purple), (15, green)):
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(color)
+                painter.drawEllipse(4, y - 1, 2, 2)
+                line(8, y, 18, y, base, 1.7)
+        elif name == "detailModeButton":
+            colors = (blue, purple, green, muted)
+            positions = ((4, 5), (12, 5), (4, 13), (12, 13))
+            for (x, y), color in zip(positions, colors, strict=True):
+                rounded_rect(x, y, 6, 6, 1.5, color, surface, 1.4)
+        else:
+            fallback_icon = QApplication.style().standardIcon(fallback)
+            painter.end()
+            return fallback_icon, "platform"
+
+        painter.end()
+        return QIcon(pixmap), "accent"
+
+    def _arrange_file_dialog_toolbar(self, dialog: QFileDialog) -> None:
+        layout = self._file_dialog_toolbar_layout(dialog)
+        if layout is None:
+            return
+        root_layout = dialog.layout()
+        if isinstance(root_layout, QGridLayout):
+            # QFileDialog's default grid reserves column 0 for the "Look in"
+            # label and places the toolbar/address row at column 1.  Once the
+            # label is folded into our toolbar, re-span the row from column 0
+            # so navigation buttons start flush with the content margin.
+            position = None
+            for index in range(root_layout.count()):
+                item = root_layout.itemAt(index)
+                if item is not None and item.layout() is layout:
+                    position = root_layout.getItemPosition(index)
+                    break
+            if position is not None and position[1] != 0:
+                root_layout.removeItem(layout)
+                root_layout.addLayout(layout, position[0], 0, position[2], root_layout.columnCount())
+        location_label = dialog.findChild(QLabel, "lookInLabel")
+        if location_label is not None:
+            if root_layout is not None:
+                root_layout.removeWidget(location_label)
+            location_label.setText("")
+            location_label.setFixedSize(0, 0)
+            location_label.setVisible(False)
+        combo = dialog.findChild(QComboBox, "lookInCombo")
+        if combo is None:
+            return
+
+        inline_label = dialog.findChild(QLabel, "ToolbarLocationLabel")
+        if inline_label is None:
+            inline_label = QLabel("位置", dialog)
+            inline_label.setObjectName("ToolbarLocationLabel")
+            inline_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            inline_label.setMinimumWidth(28)
+
+        refresh_button = dialog.findChild(QToolButton, "refreshButton")
+        if refresh_button is None:
+            refresh_button = QToolButton(dialog)
+            refresh_button.setObjectName("refreshButton")
+            refresh_button.clicked.connect(lambda _checked=False, d=dialog: self._refresh_file_dialog_current_dir(d))
+
+        widgets: list[QWidget] = []
+        for name in ("backButton", "forwardButton", "toParentButton"):
+            button = dialog.findChild(QToolButton, name)
+            if button is not None:
+                widgets.append(button)
+        widgets.extend([refresh_button, inline_label, combo])
+        for name in ("newFolderButton", "listModeButton", "detailModeButton"):
+            button = dialog.findChild(QToolButton, name)
+            if button is not None:
+                widgets.append(button)
+
+        # QFileDialog builds this row as: address bar, then buttons.  Reorder it
+        # to the Windows-native mental model: navigation buttons first, then the
+        # location/address bar, with folder/view tools at the right.
+        for widget in widgets:
+            index = layout.indexOf(widget)
+            if index >= 0:
+                layout.takeAt(index)
+        if isinstance(layout, QHBoxLayout):
+            layout.setSpacing(4)
+        for index, widget in enumerate(widgets):
+            stretch = 1 if widget is combo else 0
+            layout.insertWidget(index, widget, stretch)
+        combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def _localize_file_dialog_widgets(self, dialog: QFileDialog) -> None:
+        # Qt translations cover these once qtbase_zh_CN.qm is loaded.  These
+        # explicit fallbacks keep packaged builds Chinese even if a translation
+        # file is missing from the runtime bundle.
+        toolbar_buttons: dict[str, tuple[str, QStyle.StandardPixmap]] = {
+            "backButton": ("后退", QStyle.StandardPixmap.SP_FileDialogBack),
+            "forwardButton": ("前进", QStyle.StandardPixmap.SP_ArrowForward),
+            "toParentButton": ("向上一级", QStyle.StandardPixmap.SP_FileDialogToParent),
+            "refreshButton": ("刷新", QStyle.StandardPixmap.SP_BrowserReload),
+            "newFolderButton": ("新建文件夹", QStyle.StandardPixmap.SP_FileDialogNewFolder),
+            "listModeButton": ("列表", QStyle.StandardPixmap.SP_FileDialogListView),
+            "detailModeButton": ("详细信息", QStyle.StandardPixmap.SP_FileDialogDetailedView),
+        }
+        for button in dialog.findChildren(QToolButton):
+            config = toolbar_buttons.get(button.objectName())
+            if not config:
+                continue
+            tooltip, pixmap = config
+            button.setText("")
+            button.setToolTip(tooltip)
+            button.setAccessibleName(tooltip)
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            button.setAutoRaise(True)
+            button.setFixedSize(30, 30)
+            button.setIconSize(QSize(18, 18))
+            icon, icon_color = self._file_dialog_toolbar_icon(button.objectName(), pixmap)
+            button.setIcon(icon)
+            button.setProperty("themeIconColor", icon_color)
+            button.setProperty("themeIconMode", self._theme)
+
+    def _localize_file_dialog_sidebar(self, dialog: QFileDialog, places: list[tuple[str, QUrl, str]]) -> None:
+        sidebar = dialog.findChild(QListView, "sidebar")
+        if sidebar is None:
+            return
+        sidebar.setMinimumWidth(96)
+        sidebar.setMaximumWidth(112)
+        sidebar.setIconSize(QSize(14, 14))
+        sidebar.setSpacing(1)
+        model = sidebar.model()
+        if model is None:
+            return
+        if not bool(getattr(model, "_gpt2json_sidebar_connected", False)):
+            model._gpt2json_sidebar_connected = True
+
+            def relabel_later(*_args: Any, d: QFileDialog = dialog, p: list[tuple[str, QUrl, str]] = places, m: Any = model) -> None:
+                if bool(getattr(m, "_gpt2json_sidebar_relabeling", False)):
+                    return
+                QTimer.singleShot(0, lambda: self._localize_file_dialog_sidebar(d, p))
+
+            model.modelReset.connect(relabel_later)
+            model.rowsInserted.connect(relabel_later)
+            model.layoutChanged.connect(relabel_later)
+            model.dataChanged.connect(relabel_later)
+        model._gpt2json_sidebar_relabeling = True
+        try:
+            for row, (label, url, tooltip) in enumerate(places):
+                if row >= model.rowCount():
+                    break
+                index = model.index(row, 0)
+                model.setData(index, label, Qt.ItemDataRole.DisplayRole)
+                model.setData(index, tooltip or url.toLocalFile(), Qt.ItemDataRole.ToolTipRole)
+        finally:
+            model._gpt2json_sidebar_relabeling = False
+
+    def _tune_file_dialog_views(self, dialog: QFileDialog) -> None:
+        # Keep QFileDialog's familiar information layout, but make the detail
+        # table denser and closer to the main UI instead of turning it into a
+        # sparse custom picker.
+        for tree in dialog.findChildren(QTreeView):
+            tree.setAlternatingRowColors(True)
+            tree.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+            tree.setUniformRowHeights(True)
+            tree.setSortingEnabled(True)
+            header = tree.header()
+            header.setHighlightSections(False)
+            header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            header.setMinimumSectionSize(72)
+            header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+            if tree.model() is not None and tree.model().columnCount() >= 4:
+                header.resizeSection(0, 280)
+                header.resizeSection(1, 86)
+                header.resizeSection(2, 116)
+                header.resizeSection(3, 150)
+        splitter = dialog.findChild(QSplitter, "splitter")
+        if splitter is not None:
+            splitter.setChildrenCollapsible(False)
+            splitter.setHandleWidth(8)
+            splitter.setSizes([104, 640])
+
+    def _create_input_file_dialog(self, start_path: str = "") -> QFileDialog:
+        dialog = QFileDialog(self, "选择账号文件", str(self._dialog_start_directory(start_path)))
+        dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptOpen)
+        dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
+        dialog.setNameFilters(["文本文件 (*.txt)", "所有文件 (*)"])
+        self._apply_unified_file_dialog_style(dialog, accept_text="选择文件")
+        return dialog
+
+    def _create_output_directory_dialog(self, start_path: str = "") -> QFileDialog:
+        start_dir = self._dialog_start_directory(start_path)
+        dialog = QFileDialog(self, "选择输出目录", str(start_dir))
+        dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptOpen)
+        dialog.setFileMode(QFileDialog.FileMode.Directory)
+        # 不启用 ShowDirsOnly：用户选输出目录时也能看到目录内文件，
+        # 信息量更接近系统默认浏览窗口；若误选文件，pick_output 会回退到父目录。
+        dialog.setOption(QFileDialog.Option.ShowDirsOnly, False)
+        self._apply_unified_file_dialog_style(dialog, accept_text="选择此目录")
+        dialog.setLabelText(QFileDialog.DialogLabel.FileName, "文件夹")
+        return dialog
+
     def _refresh_logo(self) -> None:
         icon_path = ICON_DARK_PATH if self._theme == "dark" else ICON_LIGHT_PATH
         if not icon_path.exists():
             icon_path = ICON_PATH
         if icon_path.exists():
             self.logo.setText("")
-            self.logo.setPixmap(
-                QPixmap(str(icon_path)).scaled(
-                    50,
-                    50,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-            )
+            self.logo.setPixmap(rounded_pixmap(QPixmap(str(icon_path)), 50, 14))
         else:
             self.logo.setPixmap(QPixmap())
             self.logo.setText("GJ")
@@ -1115,7 +1938,7 @@ class MainWindow(QMainWindow):
         p = self.palette()
         chevron_url = UI_CHEVRON_DOWN_PATH.as_posix()
         QApplication.instance().setFont(QFont(load_ui_font(), 10))  # type: ignore[union-attr]
-        self.shadow.setColor(Qt.GlobalColor.black if self._theme == "dark" else Qt.GlobalColor.gray)
+        self.shadow.setEnabled(False)
         self._refresh_logo()
         self.theme_btn.setText("")
         icon_path = THEME_SUN_PATH if self._theme == "dark" else THEME_MOON_PATH
@@ -1671,25 +2494,30 @@ class MainWindow(QMainWindow):
             scroll_bar.setValue(scroll_bar.maximum())
 
     def pick_input(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "选择账号文件", str(Path.cwd()), "文本文件 (*.txt);;所有文件 (*)")
-        if path:
-            self.file_drop.set_path(path)
+        dialog = self._create_input_file_dialog(self.file_drop.path)
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selectedFiles():
+            self.file_drop.set_path(dialog.selectedFiles()[0])
             self._input_mode = "file"
             self._refresh_input_mode()
             self._schedule_preflight()
 
     def pick_output(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "选择输出目录", self.output_edit.text() or str(Path.cwd()))
-        if path:
-            self.output_edit.setText(path)
+        dialog = self._create_output_directory_dialog(self.output_edit.text())
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selectedFiles():
+            selected = Path(dialog.selectedFiles()[0])
+            if selected.is_file():
+                selected = selected.parent
+            self.output_edit.setText(str(selected))
             self._save_settings()
 
     def open_output_dir(self) -> None:
-        path = Path(self.output_edit.text().strip() or "output")
+        path = Path(self._last_result_dir or self.output_edit.text().strip() or "output")
         ok, message = self._validate_output_dir(create=True)
         if not ok:
             QMessageBox.warning(self, "输出目录不可用", message)
             return
+        if not path.exists():
+            path = Path(self.output_edit.text().strip() or "output")
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
 
     def _paste_text(self) -> str:
@@ -1913,9 +2741,10 @@ class MainWindow(QMainWindow):
         self.append_log(f"🔁 稳定性策略：瞬时网络/Callback 超时自动重试，最多 {int(self.max_attempts_spin.value())} 次。")
         self.append_log("🧭 执行流程：OAuth 初始化 → 账号密码验证 → 按需获取邮箱验证码 → Callback 换取 JSON。")
         self.append_log("🔎 登录策略：优先账密登录；只有出现验证码页面时才启用取码源；全程不拉起浏览器。")
-        self.append_log(f"📁 输出目录：{Path(output_dir).resolve()}")
+        self.append_log(f"📁 输出根目录：{Path(output_dir).resolve()}（本次会自动新建唯一批次目录，不覆盖旧文件）")
         self._cancel_event = threading.Event()
         self._is_cancelling = False
+        self._last_result_dir = ""
         self._set_running(True)
         self.sub2api_row.set_path("")
         self.cpa_row.set_path("")
@@ -2101,7 +2930,12 @@ class MainWindow(QMainWindow):
             self.total_stat.set_value(self._total)
             self._update_progress()
             concurrency = event.get("concurrency") or "自动"
+            out_dir = str(event.get("out_dir") or "").strip()
+            if out_dir:
+                self._last_result_dir = out_dir
             self.append_log(f"📦 任务已启动：共 {self._total} 个账号，并发={concurrency}。")
+            if out_dir:
+                self.append_log(f"🗂️ 本次结果目录：{out_dir}")
         elif event_type == "row_start":
             self._running += 1
             self.running_stat.set_value(self._running)
@@ -2167,12 +3001,15 @@ class MainWindow(QMainWindow):
         sub2api_path = str(summary.get("sub2api_export") or "")
         cpa_zip = str(summary.get("cpa_zip") or "")
         cpa_dir = str(summary.get("cpa_dir") or "")
+        result_dir = str(summary.get("out_dir") or "")
         failure_report = str(summary.get("failure_report") or "")
         failure_categories = summary.get("failure_categories") if isinstance(summary.get("failure_categories"), dict) else {}
         retry_count = int(summary.get("retry_count") or 0)
         cpa_path = cpa_zip or cpa_dir or str(summary.get("cpa_manifest") or "")
         self.sub2api_row.set_path(sub2api_path)
         self.cpa_row.set_path(cpa_path)
+        if result_dir:
+            self._last_result_dir = result_dir
         self._refresh_output_format_state()
         self.append_log("")
         if cancelled:
@@ -2186,6 +3023,8 @@ class MainWindow(QMainWindow):
             self.append_log(f"⚠️ 失败诊断：{'；'.join(parts)}。")
         if sub2api_path:
             self.append_log(f"🧰 Sub2API 输出：{sub2api_path}")
+        if result_dir:
+            self.append_log(f"🗂️ 本次结果目录：{result_dir}")
         if cpa_path:
             if cpa_zip:
                 self.append_log(f"📘 CPA ZIP 输出：{cpa_zip}")
@@ -2212,6 +3051,7 @@ class MainWindow(QMainWindow):
 def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
+    install_qt_translations(app)
     if APP_ICON_PATH.exists():
         app.setWindowIcon(QIcon(str(APP_ICON_PATH)))
     window = MainWindow()

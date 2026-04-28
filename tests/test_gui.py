@@ -10,6 +10,8 @@ import pytest
 
 QtWidgets = pytest.importorskip("PySide6.QtWidgets")
 QtTest = pytest.importorskip("PySide6.QtTest")
+QtCore = pytest.importorskip("PySide6.QtCore")
+QtGui = pytest.importorskip("PySide6.QtGui")
 
 from gpt2json import gui as gui_module  # noqa: E402
 from gpt2json.gui import (  # noqa: E402
@@ -17,8 +19,10 @@ from gpt2json.gui import (  # noqa: E402
     APP_VERSION,
     MainWindow,
     build_chinese_text_context_menu,
+    build_unified_file_dialog_stylesheet,
     classify_log_line,
     create_app_settings,
+    rounded_pixmap,
 )
 
 
@@ -31,6 +35,36 @@ def _clear_settings():
     settings = create_app_settings()
     settings.clear()
     settings.sync()
+
+
+def _icon_average_brightness(icon) -> float:
+    image = icon.pixmap(18, 18).toImage()
+    total = 0.0
+    count = 0
+    for y in range(image.height()):
+        for x in range(image.width()):
+            color = image.pixelColor(x, y)
+            if color.alpha() <= 0:
+                continue
+            total += (color.red() + color.green() + color.blue()) / 3
+            count += 1
+    return total / max(1, count)
+
+
+def _icon_color_signature(icon) -> tuple[int, int, int]:
+    image = icon.pixmap(18, 18).toImage()
+    red = green = blue = count = 0
+    for y in range(image.height()):
+        for x in range(image.width()):
+            color = image.pixelColor(x, y)
+            if color.alpha() <= 0:
+                continue
+            red += color.red()
+            green += color.green()
+            blue += color.blue()
+            count += 1
+    count = max(1, count)
+    return (red // count, green // count, blue // count)
 
 
 def test_gui_enables_run_only_after_valid_preflight(tmp_path):
@@ -163,6 +197,7 @@ def test_gui_clear_input_preserves_current_tab_and_theme_toggle(tmp_path):
 
     assert window._theme == "light"
     assert "深色" in window.theme_btn.toolTip()
+    assert not window.shadow.isEnabled()
     light_stylesheet = window.styleSheet()
     window.toggle_theme()
     app.processEvents()
@@ -185,6 +220,18 @@ def test_gui_clear_input_preserves_current_tab_and_theme_toggle(tmp_path):
 
     window.close()
     _clear_settings()
+
+
+def test_rounded_pixmap_masks_logo_corners():
+    _app()
+    source = QtGui.QPixmap(50, 50)
+    source.fill(QtGui.QColor("#2563EB"))
+    rounded = rounded_pixmap(source, 50, 14)
+    image = rounded.toImage()
+
+    assert image.pixelColor(0, 0).alpha() == 0
+    assert image.pixelColor(49, 0).alpha() == 0
+    assert image.pixelColor(25, 25).alpha() == 255
 
 
 def test_gui_async_preflight_discards_stale_file_result(tmp_path, monkeypatch):
@@ -329,6 +376,7 @@ def test_log_line_classification_for_semantic_colors():
     assert classify_log_line("🛑 取消请求：已发送") == "cancel"
     assert classify_log_line("📮 账号 #003：服务端要求邮箱验证码") == "otp"
     assert classify_log_line("🧰 Sub2API 输出：out.json") == "output"
+    assert classify_log_line("🗂️ 本次结果目录：output/GPT2JSON_20260429_043512_a1b2c3") == "output"
     assert classify_log_line("🚀 开始导出：配置已确认") == "start"
     assert classify_log_line("🔁 自动重试：账号 #001 正在进行第 2/2 次尝试。") == "warning"
     assert classify_log_line("🧾 失败诊断报告：failure_report.safe.json") == "output"
@@ -361,5 +409,129 @@ def test_text_context_menu_is_chinese():
     assert "粘贴" in log_actions
     assert not log_actions["粘贴"].isEnabled()
 
+    window.close()
+    _clear_settings()
+
+
+def test_output_directory_dialog_uses_unified_theme(tmp_path):
+    _clear_settings()
+    app = _app()
+    window = MainWindow()
+    window.toggle_theme()
+    missing_child = tmp_path / "missing" / "output"
+    dialog = window._create_output_directory_dialog(str(missing_child))
+    QtTest.QTest.qWait(80)
+    app.processEvents()
+
+    assert dialog.objectName() == "UnifiedFileDialog"
+    assert dialog.windowFlags() & QtCore.Qt.WindowType.FramelessWindowHint
+    assert not dialog.testAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground)
+    assert dialog.testAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground)
+    title_bar = dialog.findChild(QtWidgets.QFrame, "FileDialogTitleBar")
+    assert title_bar is not None
+    close_button = dialog.findChild(QtWidgets.QToolButton, "FileDialogCloseButton")
+    assert close_button is not None
+    assert close_button.text() == "×"
+    grid = dialog.layout()
+    assert isinstance(grid, QtWidgets.QGridLayout)
+    title_bar_row = next(grid.getItemPosition(index)[0] for index in range(grid.count()) if grid.itemAt(index).widget() is title_bar)
+    assert title_bar_row == 0
+    assert dialog.testOption(QtWidgets.QFileDialog.Option.DontUseNativeDialog)
+    assert not dialog.testOption(QtWidgets.QFileDialog.Option.ShowDirsOnly)
+    assert dialog.fileMode() == QtWidgets.QFileDialog.FileMode.Directory
+    assert dialog.labelText(QtWidgets.QFileDialog.DialogLabel.Accept) == "选择此目录"
+    assert dialog.labelText(QtWidgets.QFileDialog.DialogLabel.Reject) == "取消"
+    assert dialog.labelText(QtWidgets.QFileDialog.DialogLabel.FileName) == "文件夹"
+    assert Path(dialog.directory().absolutePath()) == tmp_path
+    tooltips = {button.objectName(): button.toolTip() for button in dialog.findChildren(QtWidgets.QToolButton)}
+    assert tooltips["backButton"] == "后退"
+    assert tooltips["forwardButton"] == "前进"
+    assert tooltips["toParentButton"] == "向上一级"
+    assert tooltips["refreshButton"] == "刷新"
+    assert tooltips["newFolderButton"] == "新建文件夹"
+    assert tooltips["listModeButton"] == "列表"
+    assert tooltips["detailModeButton"] == "详细信息"
+    toolbar_buttons = {
+        button.objectName(): button
+        for button in dialog.findChildren(QtWidgets.QToolButton)
+        if button.objectName()
+        in {"backButton", "forwardButton", "toParentButton", "refreshButton", "newFolderButton", "listModeButton", "detailModeButton"}
+    }
+    assert list(toolbar_buttons) == ["backButton", "forwardButton", "toParentButton", "newFolderButton", "listModeButton", "detailModeButton", "refreshButton"]
+    for button in toolbar_buttons.values():
+        assert button.text() == ""
+        assert not button.icon().isNull()
+        assert button.toolButtonStyle() == QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly
+        assert button.iconSize().width() == 18
+        assert button.width() == 30
+        assert button.property("themeIconColor") == "accent"
+        assert button.property("themeIconMode") == "dark"
+    assert len({_icon_color_signature(button.icon()) for button in toolbar_buttons.values()}) >= 4
+    toolbar_layout = window._file_dialog_toolbar_layout(dialog)
+    toolbar_order = [
+        toolbar_layout.itemAt(index).widget().objectName()
+        for index in range(toolbar_layout.count())
+        if toolbar_layout.itemAt(index).widget() is not None
+    ]
+    assert toolbar_order[:6] == ["backButton", "forwardButton", "toParentButton", "refreshButton", "ToolbarLocationLabel", "lookInCombo"]
+    assert toolbar_order[-3:] == ["newFolderButton", "listModeButton", "detailModeButton"]
+    original_location_label = dialog.findChild(QtWidgets.QLabel, "lookInLabel")
+    assert original_location_label is not None
+    assert not original_location_label.isVisible()
+    assert original_location_label.width() == 0
+    sidebar = dialog.findChild(QtWidgets.QListView, "sidebar")
+    assert sidebar is not None
+    assert 92 <= sidebar.minimumWidth() <= 100
+    assert sidebar.iconSize().width() <= 16
+    sidebar_labels = [sidebar.model().index(row, 0).data(QtCore.Qt.ItemDataRole.DisplayRole) for row in range(sidebar.model().rowCount())]
+    assert sidebar_labels[:6] == ["桌面", "文档", "下载", "图片", "音乐", "视频"]
+    assert sidebar_labels[-1] == "此电脑"
+    assert not any(str(label).startswith("本地磁盘") for label in sidebar_labels)
+    assert dialog.sidebarUrls()[sidebar_labels.index("此电脑")].toString() == "file:"
+    computer_index = sidebar.model().index(sidebar_labels.index("此电脑"), 0)
+    assert computer_index.data(QtCore.Qt.ItemDataRole.ToolTipRole) == "查看所有磁盘和驱动器"
+    splitter = dialog.findChild(QtWidgets.QSplitter, "splitter")
+    assert splitter is not None
+    assert splitter.handleWidth() == 8
+    tree = dialog.findChild(QtWidgets.QTreeView, "treeView")
+    assert tree is not None
+    assert tree.selectionBehavior() == QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows
+    assert tree.model().headerData(0, QtCore.Qt.Orientation.Horizontal) == "名称"
+    assert tree.model().headerData(1, QtCore.Qt.Orientation.Horizontal) == "大小"
+    stylesheet = dialog.styleSheet()
+    assert "QFileDialog#UnifiedFileDialog" in stylesheet
+    assert "QPushButton#DialogPrimaryButton" in stylesheet
+    assert gui_module.DARK_THEME["card"] in stylesheet
+
+    dialog.close()
+    window.close()
+    _clear_settings()
+
+
+def test_account_file_dialog_uses_unified_theme(tmp_path):
+    _clear_settings()
+    app = _app()
+    input_file = tmp_path / "accounts.txt"
+    input_file.write_text("ok@example.com----pass----https://otp.test/{email}\n", encoding="utf-8")
+    window = MainWindow()
+    dialog = window._create_input_file_dialog(str(input_file))
+    app.processEvents()
+
+    assert dialog.objectName() == "UnifiedFileDialog"
+    assert dialog.testOption(QtWidgets.QFileDialog.Option.DontUseNativeDialog)
+    assert dialog.fileMode() == QtWidgets.QFileDialog.FileMode.ExistingFile
+    assert dialog.nameFilters() == ["文本文件 (*.txt)", "所有文件 (*)"]
+    assert dialog.labelText(QtWidgets.QFileDialog.DialogLabel.Accept) == "选择文件"
+    assert Path(dialog.directory().absolutePath()) == tmp_path
+    back_button = dialog.findChild(QtWidgets.QToolButton, "backButton")
+    assert back_button.property("themeIconColor") == "accent"
+    assert back_button.property("themeIconMode") == "light"
+    assert _icon_average_brightness(back_button.icon()) < 130
+
+    style = build_unified_file_dialog_stylesheet(gui_module.LIGHT_THEME)
+    assert "QTreeView" in style
+    assert "border-radius:9px" in style
+
+    dialog.close()
     window.close()
     _clear_settings()

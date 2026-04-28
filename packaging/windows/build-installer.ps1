@@ -8,7 +8,9 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $distExe = Join-Path $root "dist\GPT2JSON\GPT2JSON.exe"
 $script = Join-Path $root "packaging\windows\GPT2JSON.iss"
 $releaseDir = Join-Path $root "release"
+$buildDir = Join-Path $root "packaging\windows\build"
 $artUninstallerScript = Join-Path $root "packaging\windows\build-art-uninstaller.ps1"
+$wrapperInstallerScript = Join-Path $root "packaging\windows\build-art-installer.ps1"
 
 function Get-ProjectVersion {
     Push-Location $root
@@ -53,12 +55,15 @@ foreach ($asset in $requiredAssets) {
 }
 
 if (-not (Test-Path -LiteralPath $artUninstallerScript)) {
-    throw "未找到艺术卸载器构建脚本：$artUninstallerScript"
+    throw "未找到卸载器构建脚本：$artUninstallerScript"
 }
 & $artUninstallerScript
-if ($LASTEXITCODE -ne 0) { throw "艺术卸载器构建失败。" }
+if ($LASTEXITCODE -ne 0) { throw "卸载器构建失败。" }
 
 New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
+Get-ChildItem -LiteralPath $releaseDir -Filter "GPT2JSON-ArtSetup-v*.exe" -ErrorAction SilentlyContinue | Remove-Item -Force
+Get-ChildItem -LiteralPath $releaseDir -Filter "GPT2JSON-CoreSetup-v*.exe" -ErrorAction SilentlyContinue | Remove-Item -Force
 
 $command = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
 $candidates = @(
@@ -82,6 +87,17 @@ Write-Host "使用 Inno Setup: $iscc"
 Write-Host "编译脚本: $script"
 & $iscc "/DMyAppVersion=$appVersion" $script
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup 编译失败。" }
+
+$coreInstaller = Join-Path $buildDir "GPT2JSON-CoreSetup-v$appVersion.exe"
+if (-not (Test-Path $coreInstaller)) {
+    throw "安装核心编译完成但未找到输出文件：$coreInstaller"
+}
+
+if (-not (Test-Path -LiteralPath $wrapperInstallerScript)) {
+    throw "未找到安装器外壳构建脚本：$wrapperInstallerScript"
+}
+& $wrapperInstallerScript
+if ($LASTEXITCODE -ne 0) { throw "安装器外壳构建失败。" }
 
 $installer = Join-Path $releaseDir "GPT2JSON-Setup-v$appVersion.exe"
 if (-not (Test-Path $installer)) {

@@ -1,19 +1,57 @@
 name: 功能建议
-description: 建议新的输入格式、OTP backend 或 GUI 改进
+description: 建议新的输入格式、OTP backend、GUI 或文档改进
 title: "feat: "
 labels: ["enhancement"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        请只提供合成示例，不要粘贴真实账号、密码、token、cookie、验证码、邮箱正文或导出 JSON。
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: 功能类型
+      options:
+        - 输入格式
+        - OTP backend / 邮箱协议
+        - GUI 体验
+        - 导出格式
+        - 安装器 / Release
+        - 文档
+        - 其它
+    validations:
+      required: true
+
   - type: textarea
     id: problem
     attributes:
       label: 需求背景
-      description: 希望 GPT2JSON 支持什么？
+      description: 当前哪里不方便？你希望 GPT2JSON 支持什么？
     validations:
       required: true
+
   - type: textarea
     id: proposal
     attributes:
       label: 方案建议
-      description: 描述格式、backend 或 UI 改动。请只使用合成示例。
+      description: 描述建议的格式、backend、界面或文档改动。
+      placeholder: |
+        示例输入：user@example.test----gpt-pass----mail-token
+        期望输出：...
     validations:
       required: true
+
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: 兼容性影响
+      description: 是否会影响现有三段式格式、Sub2API / CPA 输出、或 GUI 流程？
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 示例数据均为合成数据，不包含真实凭据。
+          required: true

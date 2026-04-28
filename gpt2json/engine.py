@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-import shutil
+import secrets
 import threading
 import time
 import zipfile
@@ -66,41 +66,6 @@ def _append_jsonl(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(_compact_json(payload) + "\n")
-
-
-def _reset_generated_artifacts(out_dir: Path) -> None:
-    """Make each export run produce a clean, self-consistent result set.
-
-    The GUI exposes the selected output directory as "the current export".
-    Without cleanup, re-running into the same directory can leave stale CPA
-    files or stale JSONL rows next to the new summary, which is easy to import
-    by mistake.  Only known GPT2JSON-generated children are removed.
-    """
-
-    resolved_out = out_dir.resolve()
-    generated_files = (
-        "sub2api_accounts.secret.json",
-        "cpa_manifest.json",
-        "failure_report.safe.json",
-        "summary.json",
-        "progress.json",
-        "results.safe.jsonl",
-    )
-    generated_globs = ("cpa_tokens_*.zip",)
-    generated_dirs = ("CPA", "sub_accounts")
-    for name in generated_files:
-        target = (out_dir / name).resolve()
-        if target.parent == resolved_out and target.exists() and target.is_file():
-            target.unlink()
-    for pattern in generated_globs:
-        for child in out_dir.glob(pattern):
-            target = child.resolve()
-            if target.parent == resolved_out and target.exists() and target.is_file():
-                target.unlink()
-    for name in generated_dirs:
-        target = (out_dir / name).resolve()
-        if target.parent == resolved_out and target.exists() and target.is_dir():
-            shutil.rmtree(target)
 
 
 def _exception_result(row: Any, *, status: str, stage: str, exc: BaseException) -> AttemptResult:
@@ -244,6 +209,36 @@ def _run_timestamp() -> str:
     return time.strftime("%Y%m%d_%H%M%S")
 
 
+def _create_batch_output_dir(output_root: Path) -> tuple[str, Path]:
+    """Create a unique per-run result directory under the selected output root."""
+
+    output_root.mkdir(parents=True, exist_ok=True)
+    for _attempt in range(100):
+        batch_id = f"{_run_timestamp()}_{secrets.token_hex(3)}"
+        out_dir = output_root / f"GPT2JSON_{batch_id}"
+        try:
+            out_dir.mkdir()
+        except FileExistsError:
+            continue
+        return batch_id, out_dir
+    raise FileExistsError(f"failed to create a unique GPT2JSON export directory under {output_root}")
+
+
+def _unique_child_file_path(directory: Path, filename: str) -> Path:
+    """Return a non-existing child path, preserving the original name when possible."""
+
+    candidate = directory / filename
+    if not candidate.exists():
+        return candidate
+    stem = candidate.stem
+    suffix = candidate.suffix
+    for index in range(2, 10000):
+        candidate = directory / f"{stem}_{index:03d}{suffix}"
+        if not candidate.exists():
+            return candidate
+    raise FileExistsError(f"failed to create a unique filename for {filename}")
+
+
 def _safe_result_row(result: AttemptResult, *, row_index: int = 0) -> dict[str, Any]:
     return {
         "row_index": int(row_index or 0),
@@ -273,20 +268,21 @@ def run_export(
 ) -> dict[str, Any]:
     log = logger or (lambda _text: None)
     emit = on_event or (lambda _event: None)
-    out_dir = Path(config.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    rows, input_source = _load_rows(config)
     export_sub2api = bool(config.export_sub2api)
     export_cpa = bool(config.export_cpa)
     if not (export_sub2api or export_cpa):
         raise ValueError("at least one export format must be selected")
-    _reset_generated_artifacts(out_dir)
+    rows, input_source = _load_rows(config)
+    output_root = Path(config.out_dir)
+    batch_id, out_dir = _create_batch_output_dir(output_root)
     concurrency = resolve_concurrency(config.concurrency, len(rows))
     max_attempts = max(1, min(5, int(config.max_attempts or 1)))
     summary: dict[str, Any] = {
         "started_at": utc_now_iso(),
         "input": input_source,
+        "output_root": str(output_root),
         "out_dir": str(out_dir),
+        "batch_id": batch_id,
         "row_count": len(rows),
         "concurrency": concurrency,
         "concurrency_mode": "auto" if int(config.concurrency or 0) <= 0 else "manual",
@@ -303,7 +299,9 @@ def run_export(
         {
             "type": "started",
             "total": len(rows),
+            "output_root": str(output_root),
             "out_dir": str(out_dir),
+            "batch_id": batch_id,
             "concurrency": concurrency,
         }
     )
@@ -318,7 +316,7 @@ def run_export(
     lock = threading.Lock()
     results: list[AttemptResult] = []
     successes: list[dict[str, Any]] = []
-    run_stamp = _run_timestamp()
+    run_stamp = batch_id
 
     def run_one(row: Any, row_index: int) -> AttemptResult:
         emit({"type": "row_start", "row_index": row_index, "line_no": row.line_no, "email_masked": mask_email(row.login_email)})
@@ -459,7 +457,7 @@ def run_export(
         if export_cpa:
             cpa_payload = build_cpa_token_json(token_payload)
             cpa_filename = f"{email}.json" if email else f"token_{run_stamp}_{index:03d}.json"
-            cpa_path = cpa_dir / cpa_filename
+            cpa_path = _unique_child_file_path(cpa_dir, cpa_filename)
             write_json(cpa_path, cpa_payload)
             cpa_files.append(
                 {

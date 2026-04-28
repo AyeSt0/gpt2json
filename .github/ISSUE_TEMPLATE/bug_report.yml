@@ -3,31 +3,78 @@ description: 报告可复现的问题
 title: "bug: "
 labels: ["bug"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。请只使用合成示例，不要粘贴真实账号、密码、token、cookie、验证码、导出 JSON 或邮箱正文。
+
+  - type: input
+    id: version
+    attributes:
+      label: GPT2JSON 版本
+      placeholder: "0.1.2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: 使用入口
+      options:
+        - 桌面 GUI
+        - CLI
+        - Windows 安装器
+        - Windows 便携包
+        - 其它
+    validations:
+      required: true
+
+  - type: dropdown
+    id: export_format
+    attributes:
+      label: 导出格式
+      options:
+        - Sub2API JSON
+        - CPA JSON
+        - Sub2API + CPA
+        - 未到导出阶段
+    validations:
+      required: true
+
   - type: textarea
     id: summary
     attributes:
       label: 问题摘要
-      description: 发生了什么？
+      description: 简要说明发生了什么，以及你期望发生什么。
     validations:
       required: true
+
   - type: textarea
     id: reproduce
     attributes:
       label: 复现步骤
-      description: 请只使用合成示例，不要粘贴真实凭据。
+      description: 请使用合成账号和脱敏路径。
       placeholder: |
-        1. 运行 ...
-        2. 观察到 ...
+        1. 粘贴 user@example.test----pass----https://otp.example/latest?mail={email}
+        2. 选择输出目录 output
+        3. 点击开始导出
+        4. 观察到 ...
     validations:
       required: true
-  - type: input
-    id: version
-    attributes:
-      label: 版本
-      placeholder: 0.1.0
+
   - type: textarea
     id: logs
     attributes:
-      label: 相关日志
-      description: 请先脱敏账号、token、cookie、本地用户名和账号数据。
+      label: 脱敏日志 / 失败分类
+      description: 可以粘贴 GUI 日志、CLI 输出或 failure_report.safe.json 中的分类；请先脱敏。
       render: text
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已确认内容不包含真实账号、密码、token、cookie、验证码或导出 JSON。
+          required: true
+        - label: 我已查看 README 或 troubleshooting 中的相关说明。
+          required: false

@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [{ name = "GPT2JSON Contributors" }]
-keywords = ["sub2api", "cpa", "json", "oauth", "desktop", "exporter"]
+keywords = ["sub2api", "cpa", "json", "oauth", "desktop", "exporter", "imap", "jmap", "graph"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
@@ -38,6 +38,8 @@ Homepage = "https://github.com/AyeSt0/gpt2json"
 Repository = "https://github.com/AyeSt0/gpt2json"
 Issues = "https://github.com/AyeSt0/gpt2json/issues"
 Documentation = "https://github.com/AyeSt0/gpt2json#readme"
+Changelog = "https://github.com/AyeSt0/gpt2json/blob/main/CHANGELOG.md"
+Security = "https://github.com/AyeSt0/gpt2json/security/policy"
 
 [project.scripts]
 gpt2json = "gpt2json.cli:main"
