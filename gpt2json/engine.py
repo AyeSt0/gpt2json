@@ -40,6 +40,7 @@ class ExportConfig:
     impersonate: str = DEFAULT_IMPERSONATE
     input_format: str = "auto"
     max_attempts: int = 3
+    auto_rerun_attempts: int = 2
 
 
 def resolve_concurrency(requested: int, row_count: int) -> int:
@@ -125,6 +126,8 @@ def _is_recoverable_retryable(result: AttemptResult) -> bool:
         return True
     if status == "email_otp_validate_error":
         return not reason or reason.startswith("http_5") or reason in {"bad_request", "invalid_auth_step"}
+    if status in {"auth_entry_error", "authorize_continue_error"} and reason in {"http_403", "http_408", "http_409", "http_425", "http_429"}:
+        return True
     if stage == "email_verification" and ("otp" in reason or "code" in reason or "验证码" in reason):
         return True
     transient_markers = (
@@ -168,17 +171,17 @@ def _diagnose_failure(result: AttemptResult) -> tuple[str, str]:
     if lowered in {"invalid_credentials"}:
         return "凭据无效", "服务端明确返回凭据无效；请检查 GPT/OpenAI 登录邮箱和登录密码。"
     if reason == "wrong_email_otp_code":
-        return "验证码错误或过期", "取码源可能返回了旧验证码。客户端会尽量等待新码；如果仍失败，请稍后重新运行这一条。"
+        return "验证码错误或过期", "取码源可能返回了旧验证码。客户端会自动重试并追加自动重跑；如果仍失败，通常需要稍后等待新验证码。"
     if status == "otp_timeout" or reason == "otp_timeout":
         return "未获取到验证码", "请确认取码源可访问，或在高级选项中适当增加验证码等待超时。"
     if status == "email_otp_validate_error":
         return "验证码提交失败", "验证码接口拒绝了当前验证码；通常是旧码、过期码或取码源延迟。"
     if stage == "finalize" or status == "finalize_error":
         if "timeout" in lowered or "timed out" in lowered or "curl: (28)" in lowered:
-            return "Callback 换 JSON 超时", "客户端已自动重试瞬时超时；如果仍失败，建议稍后重跑失败账号或调高 HTTP 请求超时。"
-        return "Callback 换 JSON 未完成", "登录和验证码已通过，但最后换取 JSON 未完成；建议稍后重跑失败账号。"
+            return "Callback 换 JSON 超时", "客户端已自动重试并追加自动重跑；如果仍失败，建议调高 HTTP 请求超时或稍后再让客户端自动处理。"
+        return "Callback 换 JSON 未完成", "登录和验证码已通过，但最后换取 JSON 未完成；客户端会优先自动重跑可恢复失败。"
     if "timeout" in lowered or "timed out" in lowered or "curl: (28)" in lowered:
-        return "网络请求超时", "客户端已自动重试可恢复超时；如果仍失败，请稍后重跑或调高 HTTP 请求超时。"
+        return "网络请求超时", "客户端已自动重试并追加自动重跑；如果仍失败，请调高 HTTP 请求超时或稍后再运行。"
     if reason.startswith("http_"):
         return "接口返回异常", f"服务端返回 {reason.replace('http_', 'HTTP ')}；建议稍后重试。"
     if status == "export_prepare_error":
@@ -203,6 +206,8 @@ def _failure_report_row(result: AttemptResult) -> dict[str, Any]:
         "suggestion": suggestion,
         "attempt": int((result.meta or {}).get("attempt") or 1),
         "max_attempts": int((result.meta or {}).get("max_attempts") or 1),
+        "normal_attempts": int((result.meta or {}).get("normal_attempts") or (result.meta or {}).get("max_attempts") or 1),
+        "auto_rerun_attempts": int((result.meta or {}).get("auto_rerun_attempts") or 0),
         "otp_required": bool(result.otp_required),
     }
 
@@ -276,6 +281,8 @@ def _safe_result_row(result: AttemptResult, *, row_index: int = 0) -> dict[str, 
         "reason": result.reason,
         "attempt": int((result.meta or {}).get("attempt") or 1),
         "max_attempts": int((result.meta or {}).get("max_attempts") or 1),
+        "normal_attempts": int((result.meta or {}).get("normal_attempts") or (result.meta or {}).get("max_attempts") or 1),
+        "auto_rerun_attempts": int((result.meta or {}).get("auto_rerun_attempts") or 0),
         "events": result.events[-8:],
         "started_at": result.started_at,
         "finished_at": result.finished_at,
@@ -301,6 +308,8 @@ def run_export(
     batch_id, out_dir = _create_batch_output_dir(output_root)
     concurrency = resolve_concurrency(config.concurrency, len(rows))
     max_attempts = max(1, min(5, int(config.max_attempts or 1)))
+    auto_rerun_attempts = max(0, min(5, int(config.auto_rerun_attempts or 0)))
+    total_attempt_limit = max_attempts + auto_rerun_attempts
     summary: dict[str, Any] = {
         "started_at": utc_now_iso(),
         "input": input_source,
@@ -317,6 +326,8 @@ def run_export(
         "otp_mode": config.otp_mode,
         "input_format": config.input_format,
         "max_attempts": max_attempts,
+        "auto_rerun_attempts": auto_rerun_attempts,
+        "total_attempt_limit": total_attempt_limit,
     }
     write_json(out_dir / "progress.json", summary)
     emit(
@@ -345,7 +356,7 @@ def run_export(
     def run_one(row: Any, row_index: int) -> AttemptResult:
         emit({"type": "row_start", "row_index": row_index, "line_no": row.line_no, "email_masked": mask_email(row.login_email)})
         if _is_cancelled(cancel_event):
-            return _cancelled_result(row, row_index=row_index, max_attempts=max_attempts)
+            return _cancelled_result(row, row_index=row_index, max_attempts=total_attempt_limit)
 
         def emit_stage(event: dict[str, Any]) -> None:
             payload = {
@@ -358,7 +369,7 @@ def run_export(
             emit(payload)
 
         result: AttemptResult | None = None
-        for attempt in range(1, max_attempts + 1):
+        for attempt in range(1, total_attempt_limit + 1):
             try:
                 client = (
                     client_factory()
@@ -380,7 +391,7 @@ def run_export(
                     cancel_event=cancel_event,
                 )
                 if _is_cancelled(cancel_event):
-                    return _cancelled_result(row, row_index=row_index, max_attempts=max_attempts)
+                    return _cancelled_result(row, row_index=row_index, max_attempts=total_attempt_limit)
                 result = client.login_and_exchange(row, otp_fetcher=otp_fetcher)
                 if not isinstance(result, AttemptResult):
                     raise TypeError(f"client returned {type(result).__name__}, expected AttemptResult")
@@ -389,7 +400,9 @@ def run_export(
                 result = _exception_result(row, status="runtime_error", stage="runtime_exception", exc=exc)
 
             result.meta["attempt"] = attempt
-            result.meta["max_attempts"] = max_attempts
+            result.meta["max_attempts"] = total_attempt_limit
+            result.meta["normal_attempts"] = max_attempts
+            result.meta["auto_rerun_attempts"] = auto_rerun_attempts
             result.meta["row_index"] = row_index
             if _is_cancelled(cancel_event) and not result.ok:
                 result.status = "cancelled"
@@ -397,8 +410,9 @@ def run_export(
                 result.reason = "user_cancelled"
                 result.events.append({"stage": "cancelled", "reason": "user_cancelled"})
                 return result
-            if result.ok or attempt >= max_attempts or not _is_recoverable_retryable(result):
+            if result.ok or attempt >= total_attempt_limit or not _is_recoverable_retryable(result):
                 return result
+            is_auto_rerun = attempt >= max_attempts
             emit(
                 {
                     "type": "row_retry",
@@ -407,19 +421,23 @@ def run_export(
                     "email_masked": mask_email(row.login_email),
                     "attempt": attempt,
                     "next_attempt": attempt + 1,
-                    "max_attempts": max_attempts,
+                    "max_attempts": total_attempt_limit,
+                    "normal_attempts": max_attempts,
+                    "auto_rerun_attempts": auto_rerun_attempts,
+                    "auto_rerun": is_auto_rerun,
                     "status": result.status,
                     "stage": result.stage,
                     "reason": result.reason,
                 }
             )
+            wait_seconds = min(18, 8 + (attempt - max_attempts + 1) * 5) if is_auto_rerun else min(6, 1 + attempt * 2)
             if cancel_event is not None:
-                if cancel_event.wait(min(6, 1 + attempt * 2)):
-                    return _cancelled_result(row, row_index=row_index, max_attempts=max_attempts)
+                if cancel_event.wait(wait_seconds):
+                    return _cancelled_result(row, row_index=row_index, max_attempts=total_attempt_limit)
             else:
-                time.sleep(min(6, 1 + attempt * 2))
+                time.sleep(wait_seconds)
 
-        return result or _cancelled_result(row, row_index=row_index, max_attempts=max_attempts)
+        return result or _cancelled_result(row, row_index=row_index, max_attempts=total_attempt_limit)
 
     log(f"[+] loaded rows: {len(rows)} | concurrency={concurrency} ({summary['concurrency_mode']})")
     with ThreadPoolExecutor(max_workers=concurrency) as executor:
@@ -521,6 +539,7 @@ def run_export(
     summary["cancelled"] = _is_cancelled(cancel_event)
     summary["cancelled_count"] = len([result for result in results if result.status == "cancelled"])
     retry_count = len([result for result in results if int((result.meta or {}).get("attempt") or 1) > 1])
+    auto_rerun_count = len([result for result in results if int((result.meta or {}).get("attempt") or 1) > max_attempts])
     failed_results = [result for result in results if not result.ok]
     failure_rows = [_failure_report_row(result) for result in failed_results]
     failure_categories: dict[str, int] = {}
@@ -533,6 +552,7 @@ def run_export(
     summary["cpa_zip"] = str(cpa_zip_path) if successes and export_cpa else ""
     summary["cpa_manifest"] = str(out_dir / "cpa_manifest.json") if successes and export_cpa else ""
     summary["retry_count"] = retry_count
+    summary["auto_rerun_count"] = auto_rerun_count
     summary["failure_categories"] = failure_categories
     if failure_rows:
         failure_report_path = out_dir / "failure_report.safe.json"

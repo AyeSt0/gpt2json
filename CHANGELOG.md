@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- 客户端新增“自动重跑补救”：常规自动重试仍未成功时，会继续对可恢复失败追加重跑；账号停用等终态失败不会重跑。
+
+### Changed
+
+- GUI 高级选项新增“自动重跑补救次数”，并在日志中区分普通自动重试和额外自动重跑。
+
 ### Planned
 
 - IMAP / IMAP XOAUTH2、Graph、JMAP、POP3、Provider API 等邮箱取码 backend。

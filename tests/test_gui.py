@@ -107,6 +107,7 @@ def test_gui_enables_run_only_after_valid_preflight(tmp_path):
     window.concurrency_spin.setEditText("128")
     assert window.concurrency_spin.value() == 128
     assert window.max_attempts_spin.value() == 3
+    assert window.auto_rerun_spin.value() == 2
     window.max_attempts_spin.setValue(3)
     assert window.max_attempts_spin.value() == 3
     window.output_edit.setText("output")
@@ -368,6 +369,24 @@ def test_gui_runtime_logs_include_account_sequence(tmp_path):
     assert "账号 #003 te***@example.com" in retry_text
     assert "第 2/2 次尝试" in retry_text
 
+    window.log_edit.clear()
+    window.on_event(
+        {
+            "type": "row_retry",
+            "row_index": 3,
+            "line_no": 9,
+            "email_masked": "te***@example.com",
+            "stage": "email_verification",
+            "reason": "wrong_email_otp_code",
+            "next_attempt": 4,
+            "max_attempts": 5,
+            "auto_rerun": True,
+        }
+    )
+    rerun_text = window.log_edit.toPlainText()
+    assert "自动重跑补救" in rerun_text
+    assert "第 4/5 次尝试" in rerun_text
+
     window.close()
     _clear_settings()
 
@@ -382,6 +401,7 @@ def test_log_line_classification_for_semantic_colors():
     assert classify_log_line("🗂️ 本次结果目录：output/GPT2JSON_20260429_043512_a1b2c3") == "output"
     assert classify_log_line("🚀 开始导出：配置已确认") == "start"
     assert classify_log_line("🔁 自动重试：账号 #001 正在进行第 2/2 次尝试。") == "warning"
+    assert classify_log_line("🔄 自动重跑补救：账号 #001 正在进行第 4/5 次尝试。") == "warning"
     assert classify_log_line("🧾 失败诊断报告：failure_report.safe.json") == "output"
     assert classify_log_line("📦 任务已启动：共 3 个账号，并发=3。") == "start"
     assert classify_log_line("🧭 执行流程：OAuth 初始化 → 账号密码验证 → 按需获取邮箱验证码 → Callback 换取 JSON。") == "info"

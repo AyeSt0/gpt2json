@@ -137,6 +137,33 @@ class FlakyOtpClient(ProtocolLoginClient):
         return AttemptResult(row=row, status="success", stage="callback", token_json=token_json)
 
 
+class PersistentOtpClient(ProtocolLoginClient):
+    attempts_by_email: dict[str, int] = {}
+
+    def login_and_exchange(self, row, *, otp_fetcher, proxies=None):
+        del otp_fetcher, proxies
+        attempt = self.attempts_by_email.get(row.login_email, 0) + 1
+        self.attempts_by_email[row.login_email] = attempt
+        if attempt <= 3:
+            return AttemptResult(
+                row=row,
+                status="email_otp_validate_error",
+                stage="email_verification",
+                reason="wrong_email_otp_code",
+            )
+        token_json = json.dumps(
+            {
+                "access_token": "a.b.c",
+                "refresh_token": "refresh",
+                "account_id": f"acc-{row.line_no}",
+                "email": row.login_email,
+                "expired": "2026-04-27T00:00:00Z",
+            },
+            ensure_ascii=False,
+        )
+        return AttemptResult(row=row, status="success", stage="callback", token_json=token_json)
+
+
 class AccountDeactivatedClient(ProtocolLoginClient):
     attempts_by_email: dict[str, int] = {}
 
@@ -370,6 +397,39 @@ def test_run_export_retries_recoverable_stale_otp(tmp_path: Path):
     assert summary["failure_report"] == ""
 
 
+def test_run_export_auto_reruns_recoverable_failure_after_normal_attempts(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("gpt2json.engine.time.sleep", lambda _seconds: None)
+    out_dir = tmp_path / "out"
+    PersistentOtpClient.attempts_by_email = {}
+    events = []
+    summary = run_export(
+        ExportConfig(
+            input_path="missing.txt",
+            out_dir=str(out_dir),
+            input_text="ok@example.com----pass----https://otp.local/1",
+            concurrency=1,
+            max_attempts=3,
+            auto_rerun_attempts=2,
+        ),
+        client_factory=lambda: PersistentOtpClient(),
+        on_event=events.append,
+    )
+
+    assert summary["success_count"] == 1
+    assert summary["failure_count"] == 0
+    assert summary["auto_rerun_count"] == 1
+    assert summary["total_attempt_limit"] == 5
+    assert PersistentOtpClient.attempts_by_email["ok@example.com"] == 4
+    retry_events = [event for event in events if event.get("type") == "row_retry"]
+    assert len(retry_events) == 3
+    assert retry_events[-1]["auto_rerun"] is True
+    safe = safe_rows_from(summary)[0]
+    assert safe["status"] == "success"
+    assert safe["attempt"] == 4
+    assert safe["normal_attempts"] == 3
+    assert safe["auto_rerun_attempts"] == 2
+
+
 def test_run_export_does_not_retry_terminal_account_state(tmp_path: Path):
     out_dir = tmp_path / "out"
     AccountDeactivatedClient.attempts_by_email = {}
@@ -512,4 +572,3 @@ def test_resolve_concurrency_auto_caps_at_eight():
     assert resolve_concurrency(0, 20) == 8
     assert resolve_concurrency(5, 20) == 5
     assert resolve_concurrency(128, 20) == 128
-

@@ -249,7 +249,7 @@ def classify_log_line(text: str) -> str:
         return "error"
     if line.startswith("🛑") or line.startswith("取消"):
         return "cancel"
-    if line.startswith("🔁"):
+    if line.startswith(("🔁", "🔄 自动重跑")):
         return "warning"
     if line.startswith(("🚀", "🧩", "📦 任务")) or line.startswith(("开始导出：", "运行配置：")):
         return "start"
@@ -1320,7 +1320,8 @@ class MainWindow(QMainWindow):
         self.otp_timeout_spin = self._spin(10, 600, 180)
         self.otp_interval_spin = self._spin(1, 60, 3)
         self.max_attempts_spin = self._spin(1, 5, 3)
-        for spin in (self.timeout_spin, self.otp_timeout_spin, self.otp_interval_spin, self.max_attempts_spin):
+        self.auto_rerun_spin = self._spin(0, 5, 2)
+        for spin in (self.timeout_spin, self.otp_timeout_spin, self.otp_interval_spin, self.max_attempts_spin, self.auto_rerun_spin):
             spin.setVisible(False)
         layout.addStretch(1)
         return card
@@ -2123,6 +2124,7 @@ class MainWindow(QMainWindow):
         self.otp_timeout_spin.setValue(int_setting("otp_timeout", 180, 10, 600))
         self.otp_interval_spin.setValue(int_setting("otp_interval", 3, 1, 60))
         self.max_attempts_spin.setValue(int_setting("max_attempts", 3, 1, 5))
+        self.auto_rerun_spin.setValue(int_setting("auto_rerun_attempts", 2, 0, 5))
         self.advanced_btn.setText("高级选项（弹窗配置）  ›")
 
     def _save_settings(self) -> None:
@@ -2136,6 +2138,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("otp_timeout", int(self.otp_timeout_spin.value()))
         self.settings.setValue("otp_interval", int(self.otp_interval_spin.value()))
         self.settings.setValue("max_attempts", int(self.max_attempts_spin.value()))
+        self.settings.setValue("auto_rerun_attempts", int(self.auto_rerun_spin.value()))
         self.settings.sync()
 
     def _schedule_preflight(self) -> None:
@@ -2428,7 +2431,8 @@ class MainWindow(QMainWindow):
         otp_spin = self._spin(10, 600, int(self.otp_timeout_spin.value()))
         interval_spin = self._spin(1, 60, int(self.otp_interval_spin.value()))
         attempts_spin = self._spin(1, 5, int(self.max_attempts_spin.value()))
-        for spin in (http_spin, otp_spin, interval_spin, attempts_spin):
+        auto_rerun_spin = self._spin(0, 5, int(self.auto_rerun_spin.value()))
+        for spin in (http_spin, otp_spin, interval_spin, attempts_spin, auto_rerun_spin):
             spin.setFixedWidth(110)
         grid = QGridLayout()
         grid.setHorizontalSpacing(14)
@@ -2451,6 +2455,7 @@ class MainWindow(QMainWindow):
         add_row(1, "验证码等待超时（秒）", "触发邮箱验证码后，最多轮询取码源多久。", otp_spin)
         add_row(2, "验证码轮询间隔（秒）", "两次取码请求之间的间隔，过低可能触发限流。", interval_spin)
         add_row(3, "自动重试次数", "单账号遇到可恢复失败时最多尝试几次，默认 3。", attempts_spin)
+        add_row(4, "自动重跑补救次数", "自动重试仍未成功时，仅对可恢复失败额外重跑；账号停用等终态不会重跑。", auto_rerun_spin)
         grid.setColumnStretch(0, 1)
         layout.addLayout(grid)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -2476,6 +2481,7 @@ class MainWindow(QMainWindow):
             self.otp_timeout_spin.setValue(otp_spin.value())
             self.otp_interval_spin.setValue(interval_spin.value())
             self.max_attempts_spin.setValue(attempts_spin.value())
+            self.auto_rerun_spin.setValue(auto_rerun_spin.value())
             self._save_settings()
 
     def _set_status(self, text: str, mode: str) -> None:
@@ -2738,7 +2744,8 @@ class MainWindow(QMainWindow):
         self._set_status("运行中", "running")
         self.append_log("🚀 开始导出：配置已确认，正在按协议获取 JSON。")
         self.append_log(f"🧩 运行配置：输入格式={self._input_format_label()}；导出={self._selected_output_labels()}；并发={'自动' if int(self.concurrency_spin.value()) == 0 else self.concurrency_spin.value()}。")
-        self.append_log(f"🔁 稳定性策略：瞬时网络/Callback 超时自动重试，最多 {int(self.max_attempts_spin.value())} 次。")
+        total_attempts = int(self.max_attempts_spin.value()) + int(self.auto_rerun_spin.value())
+        self.append_log(f"🔁 稳定性策略：可恢复失败先自动重试 {int(self.max_attempts_spin.value())} 次；仍未成功时自动重跑补救 {int(self.auto_rerun_spin.value())} 次，最多 {total_attempts} 次。")
         self.append_log("🧭 执行流程：OAuth 初始化 → 账号密码验证 → 按需获取邮箱验证码 → Callback 换取 JSON。")
         self.append_log("🔎 登录策略：优先账密登录；只有出现验证码页面时才启用取码源；全程不拉起浏览器。")
         self.append_log(f"📁 输出根目录：{Path(output_dir).resolve()}（本次会自动新建唯一批次目录，不覆盖旧文件）")
@@ -2760,6 +2767,7 @@ class MainWindow(QMainWindow):
             otp_interval=int(self.otp_interval_spin.value()),
             timeout=int(self.timeout_spin.value()),
             max_attempts=int(self.max_attempts_spin.value()),
+            auto_rerun_attempts=int(self.auto_rerun_spin.value()),
             input_format=self._input_format(),
         )
 
@@ -2968,9 +2976,13 @@ class MainWindow(QMainWindow):
             reason = self._reason_display(event.get("reason"))
             next_attempt = int(event.get("next_attempt") or 0)
             max_attempts = int(event.get("max_attempts") or 0)
+            auto_rerun = bool(event.get("auto_rerun"))
             attempt_text = f"第 {next_attempt}/{max_attempts} 次尝试" if next_attempt and max_attempts else "下一次尝试"
             detail = f"；原因：{reason}" if reason else ""
-            self.append_log(f"🔁 自动重试：{account} 上次停在「{self._stage_display(stage)}」{detail}，正在进行{attempt_text}。")
+            if auto_rerun:
+                self.append_log(f"🔄 自动重跑补救：{account} 上次停在「{self._stage_display(stage)}」{detail}，正在进行{attempt_text}。")
+            else:
+                self.append_log(f"🔁 自动重试：{account} 上次停在「{self._stage_display(stage)}」{detail}，正在进行{attempt_text}。")
         elif event_type == "cancelling":
             self._is_cancelling = True
             self._set_status("取消中", "warning")
@@ -3023,6 +3035,7 @@ class MainWindow(QMainWindow):
         failure_report = str(summary.get("failure_report") or "")
         failure_categories = summary.get("failure_categories") if isinstance(summary.get("failure_categories"), dict) else {}
         retry_count = int(summary.get("retry_count") or 0)
+        auto_rerun_count = int(summary.get("auto_rerun_count") or 0)
         cpa_path = cpa_zip or cpa_dir or str(summary.get("cpa_manifest") or "")
         self.sub2api_row.set_path(sub2api_path)
         self.cpa_row.set_path(cpa_path)
@@ -3036,6 +3049,8 @@ class MainWindow(QMainWindow):
             self.append_log(f"🎉 任务完成：成功 {success_count} 个，失败 {failure_count} 个。")
         if retry_count:
             self.append_log(f"🔁 自动恢复：本次有 {retry_count} 个账号通过自动重试完成或收敛。")
+        if auto_rerun_count:
+            self.append_log(f"🔄 自动重跑补救：本次有 {auto_rerun_count} 个账号进入额外自动重跑。")
         if failure_categories:
             parts = [f"{name} {count} 个" for name, count in failure_categories.items()]
             self.append_log(f"⚠️ 失败诊断：{'；'.join(parts)}。")
