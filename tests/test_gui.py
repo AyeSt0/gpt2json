@@ -12,7 +12,7 @@ QtWidgets = pytest.importorskip("PySide6.QtWidgets")
 QtTest = pytest.importorskip("PySide6.QtTest")
 
 from gpt2json import gui as gui_module  # noqa: E402
-from gpt2json.gui import APP_NAME, APP_VERSION, MainWindow, create_app_settings  # noqa: E402
+from gpt2json.gui import APP_NAME, APP_VERSION, MainWindow, classify_log_line, create_app_settings  # noqa: E402
 
 
 def _app():
@@ -287,3 +287,12 @@ def test_gui_runtime_logs_include_account_sequence(tmp_path):
 
     window.close()
     _clear_settings()
+
+
+def test_log_line_classification_for_semantic_colors():
+    assert classify_log_line("✅ 成功：账号 #001 已获取 JSON") == "success"
+    assert classify_log_line("⚠️ 失败：账号 #002 停在「验证码提交」") == "error"
+    assert classify_log_line("🛑 取消请求：已发送") == "cancel"
+    assert classify_log_line("📮 账号 #003：服务端要求邮箱验证码") == "otp"
+    assert classify_log_line("🧰 Sub2API 输出：out.json") == "output"
+    assert classify_log_line("🚀 开始导出：配置已确认") == "start"

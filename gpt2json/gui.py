@@ -8,7 +8,16 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QObject, QSettings, QSize, QStandardPaths, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QFont, QFontDatabase, QIcon, QPixmap
+from PySide6.QtGui import (
+    QColor,
+    QDesktopServices,
+    QFont,
+    QFontDatabase,
+    QIcon,
+    QPixmap,
+    QSyntaxHighlighter,
+    QTextCharFormat,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -133,6 +142,85 @@ DARK_THEME = {
     "status_fg": "#86EFAC",
     "status_bd": "#1F6B43",
 }
+
+LIGHT_LOG_COLORS = {
+    "default": "#475569",
+    "info": "#2563EB",
+    "start": "#7C3AED",
+    "account": "#334155",
+    "otp": "#B45309",
+    "output": "#0F766E",
+    "success": "#15803D",
+    "warning": "#B45309",
+    "error": "#DC2626",
+    "cancel": "#EA580C",
+}
+
+DARK_LOG_COLORS = {
+    "default": "#CBD5E1",
+    "info": "#93C5FD",
+    "start": "#C4B5FD",
+    "account": "#E2E8F0",
+    "otp": "#FCD34D",
+    "output": "#5EEAD4",
+    "success": "#86EFAC",
+    "warning": "#FBBF24",
+    "error": "#FCA5A5",
+    "cancel": "#FDBA74",
+}
+
+
+def classify_log_line(text: str) -> str:
+    line = str(text or "").strip()
+    if not line:
+        return "default"
+    if line.startswith(("✅", "🎉")) or line.startswith("成功：") or "任务完成：" in line:
+        return "success"
+    if line.startswith(("⚠️", "💥")) or line.startswith(("失败：", "主流程异常：")):
+        return "error"
+    if line.startswith("🛑") or line.startswith("取消"):
+        return "cancel"
+    if line.startswith(("📮", "📫", "📬", "🧾", "⌛")) or "验证码" in line:
+        return "otp"
+    if line.startswith(("📁", "🧰", "📘", "📚")) or "输出：" in line or "输出目录：" in line:
+        return "output"
+    if line.startswith(("🚀", "🧩")) or line.startswith(("开始导出：", "运行配置：")):
+        return "start"
+    if line.startswith(("👤", "🚪", "🛡️", "📨", "🔑", "🎫", "📦")):
+        return "account"
+    if line.startswith(("🧭", "🔎", "🧪", "🔄", "ℹ️", "✨", "👀", "🟢", "📄")):
+        return "info"
+    return "default"
+
+
+class LogHighlighter(QSyntaxHighlighter):
+    def __init__(self, document: Any, *, theme: str = "light") -> None:
+        super().__init__(document)
+        self.theme = theme
+
+    def set_theme(self, theme: str) -> None:
+        self.theme = theme
+        self.rehighlight()
+
+    def highlightBlock(self, text: str) -> None:  # noqa: N802
+        colors = DARK_LOG_COLORS if self.theme == "dark" else LIGHT_LOG_COLORS
+        kind = classify_log_line(text)
+        fmt = QTextCharFormat()
+        fmt.setForeground(QColor(colors.get(kind, colors["default"])))
+        if kind in {"success", "error", "cancel", "start"}:
+            fmt.setFontWeight(QFont.Weight.DemiBold)
+        self.setFormat(0, len(text), fmt)
+
+        account_start = text.find("账号 #")
+        if account_start >= 0:
+            account_end = text.find("：", account_start)
+            if account_end < 0:
+                account_end = text.find(":", account_start)
+            if account_end < 0:
+                account_end = len(text)
+            account_fmt = QTextCharFormat(fmt)
+            account_fmt.setFontWeight(QFont.Weight.Bold)
+            self.setFormat(account_start, max(0, account_end - account_start), account_fmt)
 
 
 def load_ui_font() -> str:
@@ -827,6 +915,7 @@ class MainWindow(QMainWindow):
         self.log_edit.setObjectName("LogBox")
         self.log_edit.setReadOnly(True)
         self.log_edit.setPlainText(READY_LOG)
+        self.log_highlighter = LogHighlighter(self.log_edit.document(), theme=self._theme)
         log_layout.addWidget(self.log_edit, 1)
         layout.addWidget(log_card, 1)
         return right
@@ -968,6 +1057,8 @@ class MainWindow(QMainWindow):
             #LogBox {{ border-radius:9px; border:1px solid {p['border']}; background:{p['log']}; color:{p['muted']}; padding:11px; font-family:Consolas, 'Cascadia Mono', monospace; font-size:12px; }}
             """
         )
+        if hasattr(self, "log_highlighter"):
+            self.log_highlighter.set_theme(self._theme)
         self._apply_status_style()
 
     def _apply_status_style(self) -> None:
