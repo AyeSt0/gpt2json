@@ -546,6 +546,14 @@ class ProtocolLoginClient:
             # Runtime telemetry must never break the actual login flow.
             return
 
+    def _finalize_timeout(self) -> int:
+        # The post-OTP consent/callback chain is the slowest part of this flow:
+        # it may include consent, workspace/org selection, redirects, and the
+        # OAuth token exchange.  Keep normal login requests responsive, but do
+        # not let the final JSON exchange fail just because the GUI default HTTP
+        # timeout is 30 seconds.
+        return max(self.timeout, 60)
+
     def _request(self, session: requests.Session, method: str, url: str, *, proxies: Any = None, headers: dict[str, Any] | None = None, json_body: Any = None, data: Any = None, allow_redirects: bool = False, timeout: int | None = None) -> Any:
         kwargs = {
             "headers": headers or {},
@@ -673,7 +681,7 @@ class ProtocolLoginClient:
                     code_verifier=oauth_start.code_verifier,
                     redirect_uri=oauth_start.redirect_uri,
                     verify=self.verify_ssl,
-                    timeout=self.timeout,
+                    timeout=self._finalize_timeout(),
                 )
                 return token_json, ""
             final_resp = self._request_with_retry(
@@ -683,7 +691,7 @@ class ProtocolLoginClient:
                 proxies=proxies,
                 headers=_headers(AUTH_NAV_HEADERS, referer="https://auth.openai.com/"),
                 allow_redirects=False,
-                timeout=self.timeout,
+                timeout=self._finalize_timeout(),
             )
             next_url = ""
             if final_resp.status_code in {301, 302, 303, 307, 308}:
@@ -697,7 +705,7 @@ class ProtocolLoginClient:
                         code_verifier=oauth_start.code_verifier,
                         redirect_uri=oauth_start.redirect_uri,
                         verify=self.verify_ssl,
-                        timeout=self.timeout,
+                        timeout=self._finalize_timeout(),
                     )
                     return token_json, ""
                 if "consent_challenge=" in current_url:
@@ -712,7 +720,7 @@ class ProtocolLoginClient:
                         },
                         data={"action": "accept"},
                         proxies=proxies,
-                        timeout=self.timeout,
+                        timeout=self._finalize_timeout(),
                     )
                     next_url = _normalize_absolute_url(current_url, (getattr(consent_resp, "headers", {}) or {}).get("Location") or "")
                 else:
@@ -735,7 +743,7 @@ class ProtocolLoginClient:
             ),
             data=json.dumps({"workspace_id": workspace_id}, ensure_ascii=False, separators=(",", ":")),
             proxies=proxies,
-            timeout=self.timeout,
+            timeout=self._finalize_timeout(),
         )
         transition = _extract_transition_targets_from_response(select_resp, request_url="https://auth.openai.com/api/accounts/workspace/select")
         if transition["callback_url"]:
@@ -745,7 +753,7 @@ class ProtocolLoginClient:
                 code_verifier=oauth_start.code_verifier,
                 redirect_uri=oauth_start.redirect_uri,
                 verify=self.verify_ssl,
-                timeout=self.timeout,
+                timeout=self._finalize_timeout(),
             )
             return token_json, transition, ""
 
@@ -781,7 +789,7 @@ class ProtocolLoginClient:
                         code_verifier=oauth_start.code_verifier,
                         redirect_uri=oauth_start.redirect_uri,
                         verify=self.verify_ssl,
-                        timeout=self.timeout,
+                        timeout=self._finalize_timeout(),
                     )
                     token_json = _inject_selected_org_context(token_json, organization_id=selected_org_id, project_id=selected_project_id)
                     return token_json, org_transition, ""
@@ -814,7 +822,7 @@ class ProtocolLoginClient:
                 code_verifier=oauth_start.code_verifier,
                 redirect_uri=oauth_start.redirect_uri,
                 verify=self.verify_ssl,
-                timeout=self.timeout,
+                timeout=self._finalize_timeout(),
             )
             return token_json, "", transition
 

@@ -288,6 +288,24 @@ def test_gui_runtime_logs_include_account_sequence(tmp_path):
     assert "密码验证通过" in text
     assert "成功：账号 #003" in text
 
+    window.log_edit.clear()
+    window.on_event(
+        {
+            "type": "row_retry",
+            "row_index": 3,
+            "line_no": 9,
+            "email_masked": "te***@example.com",
+            "stage": "finalize",
+            "reason": "TimeoutError: The read operation timed out",
+            "next_attempt": 2,
+            "max_attempts": 2,
+        }
+    )
+    retry_text = window.log_edit.toPlainText()
+    assert "自动重试" in retry_text
+    assert "账号 #003 te***@example.com" in retry_text
+    assert "第 2/2 次尝试" in retry_text
+
     window.close()
     _clear_settings()
 
@@ -299,6 +317,7 @@ def test_log_line_classification_for_semantic_colors():
     assert classify_log_line("📮 账号 #003：服务端要求邮箱验证码") == "otp"
     assert classify_log_line("🧰 Sub2API 输出：out.json") == "output"
     assert classify_log_line("🚀 开始导出：配置已确认") == "start"
+    assert classify_log_line("🔁 自动重试：账号 #001 正在进行第 2/2 次尝试。") == "warning"
     assert classify_log_line("📦 任务已启动：共 3 个账号，并发=3。") == "start"
     assert classify_log_line("🧭 执行流程：OAuth 初始化 → 账号密码验证 → 按需获取邮箱验证码 → Callback 换取 JSON。") == "info"
     assert classify_log_line("🔎 登录策略：遇到验证码才启用取码源。") == "info"

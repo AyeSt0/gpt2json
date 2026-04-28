@@ -180,6 +180,8 @@ def classify_log_line(text: str) -> str:
         return "error"
     if line.startswith("🛑") or line.startswith("取消"):
         return "cancel"
+    if line.startswith("🔁"):
+        return "warning"
     if line.startswith(("🚀", "🧩", "📦 任务")) or line.startswith(("开始导出：", "运行配置：")):
         return "start"
     if line.startswith(("👤", "🚪", "🛡️", "📨", "🔑", "🎫", "📦")):
@@ -1968,6 +1970,15 @@ class MainWindow(QMainWindow):
             message = self._friendly_stage_message(event)
             if message:
                 self.append_log(message)
+        elif event_type == "row_retry":
+            account = self._account_label(event)
+            stage = str(event.get("stage") or event.get("status") or "").strip()
+            reason = self._reason_display(event.get("reason"))
+            next_attempt = int(event.get("next_attempt") or 0)
+            max_attempts = int(event.get("max_attempts") or 0)
+            attempt_text = f"第 {next_attempt}/{max_attempts} 次尝试" if next_attempt and max_attempts else "下一次尝试"
+            detail = f"；原因：{reason}" if reason else ""
+            self.append_log(f"🔁 自动重试：{account} 上次停在「{self._stage_display(stage)}」{detail}，正在进行{attempt_text}。")
         elif event_type == "cancelling":
             self._is_cancelling = True
             self._set_status("取消中", "warning")

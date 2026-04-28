@@ -63,6 +63,33 @@ class MalformedTokenClient(ProtocolLoginClient):
         )
 
 
+class FlakyFinalizeClient(ProtocolLoginClient):
+    attempts_by_email: dict[str, int] = {}
+
+    def login_and_exchange(self, row, *, otp_fetcher, proxies=None):
+        del otp_fetcher, proxies
+        attempt = self.attempts_by_email.get(row.login_email, 0) + 1
+        self.attempts_by_email[row.login_email] = attempt
+        if attempt == 1:
+            return AttemptResult(
+                row=row,
+                status="runtime_error",
+                stage="finalize",
+                reason="TimeoutError: The read operation timed out",
+            )
+        token_json = json.dumps(
+            {
+                "access_token": "a.b.c",
+                "refresh_token": "refresh",
+                "account_id": f"acc-{row.line_no}",
+                "email": row.login_email,
+                "expired": "2026-04-27T00:00:00Z",
+            },
+            ensure_ascii=False,
+        )
+        return AttemptResult(row=row, status="success", stage="callback", token_json=token_json)
+
+
 def account_text() -> str:
     return "\n".join(
         [
@@ -201,6 +228,31 @@ def test_run_export_marks_malformed_success_token_as_failure(tmp_path: Path):
     safe_rows = [json.loads(line) for line in (out_dir / "results.safe.jsonl").read_text(encoding="utf-8").splitlines()]
     assert {row["status"] for row in safe_rows} == {"success", "export_prepare_error"}
     assert len(list((out_dir / "CPA").glob("*.json"))) == 1
+
+
+def test_run_export_retries_transient_finalize_timeout(tmp_path: Path):
+    out_dir = tmp_path / "out"
+    FlakyFinalizeClient.attempts_by_email = {}
+    events = []
+    summary = run_export(
+        ExportConfig(
+            input_path="missing.txt",
+            out_dir=str(out_dir),
+            input_text="ok@example.com----pass----https://otp.local/1",
+            concurrency=1,
+            max_attempts=2,
+        ),
+        client_factory=lambda: FlakyFinalizeClient(),
+        on_event=events.append,
+    )
+
+    assert summary["success_count"] == 1
+    assert summary["failure_count"] == 0
+    assert FlakyFinalizeClient.attempts_by_email["ok@example.com"] == 2
+    assert any(event.get("type") == "row_retry" for event in events)
+    safe_rows = [json.loads(line) for line in (out_dir / "results.safe.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert safe_rows[0]["status"] == "success"
+    assert safe_rows[0]["attempt"] == 2
 
 
 def test_run_export_cleans_previous_generated_artifacts(tmp_path: Path):

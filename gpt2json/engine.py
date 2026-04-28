@@ -39,6 +39,7 @@ class ExportConfig:
     verify_ssl: bool = True
     impersonate: str = DEFAULT_IMPERSONATE
     input_format: str = "auto"
+    max_attempts: int = 2
 
 
 def resolve_concurrency(requested: int, row_count: int) -> int:
@@ -126,6 +127,35 @@ def _cancelled_result(row: Any) -> AttemptResult:
     )
 
 
+def _is_transient_retryable(result: AttemptResult) -> bool:
+    if result.ok or result.status == "cancelled":
+        return False
+    status = str(result.status or "").strip()
+    stage = str(result.stage or "").strip()
+    reason = str(result.reason or "").strip().lower()
+    transient_markers = (
+        "timeout",
+        "timed out",
+        "read operation timed out",
+        "curl: (28)",
+        "connection reset",
+        "connection aborted",
+        "temporarily unavailable",
+        "remote disconnected",
+        "http_429",
+        "http_502",
+        "http_503",
+        "http_504",
+    )
+    if status == "runtime_error" and any(marker in reason for marker in transient_markers):
+        return True
+    if stage == "finalize" and any(marker in reason for marker in transient_markers):
+        return True
+    if status == "finalize_error" and (reason in {"callback_error", "finalize_unresolved"} or any(marker in reason for marker in transient_markers)):
+        return True
+    return False
+
+
 def _prepare_token_data(token_json: str, *, pool: str, token_type: str, fallback_email: str = "") -> dict[str, Any]:
     data = json.loads(token_json)
     if not isinstance(data, dict):
@@ -163,6 +193,8 @@ def _safe_result_row(result: AttemptResult, *, row_index: int = 0) -> dict[str, 
         "stage": result.stage,
         "otp_required": bool(result.otp_required),
         "reason": result.reason,
+        "attempt": int((result.meta or {}).get("attempt") or 1),
+        "max_attempts": int((result.meta or {}).get("max_attempts") or 1),
         "events": result.events[-8:],
         "started_at": result.started_at,
         "finished_at": result.finished_at,
@@ -188,6 +220,7 @@ def run_export(
         raise ValueError("at least one export format must be selected")
     _reset_generated_artifacts(out_dir)
     concurrency = resolve_concurrency(config.concurrency, len(rows))
+    max_attempts = max(1, min(5, int(config.max_attempts or 1)))
     summary: dict[str, Any] = {
         "started_at": utc_now_iso(),
         "input": input_source,
@@ -201,6 +234,7 @@ def run_export(
         "export_cpa": export_cpa,
         "otp_mode": config.otp_mode,
         "input_format": config.input_format,
+        "max_attempts": max_attempts,
     }
     write_json(out_dir / "progress.json", summary)
     emit(
@@ -239,40 +273,68 @@ def run_export(
             payload.update(event)
             emit(payload)
 
-        try:
-            client = (
-                client_factory()
-                if client_factory is not None
-                else ProtocolLoginClient(
-                    impersonate=config.impersonate,
-                    verify_ssl=config.verify_ssl,
-                    timeout=config.timeout,
-                    event_callback=emit_stage,
+        result: AttemptResult | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                client = (
+                    client_factory()
+                    if client_factory is not None
+                    else ProtocolLoginClient(
+                        impersonate=config.impersonate,
+                        verify_ssl=config.verify_ssl,
+                        timeout=config.timeout,
+                        event_callback=emit_stage,
+                    )
                 )
-            )
-            otp_fetcher = OtpFetcher(
-                mode=config.otp_mode,
-                command=config.otp_command,
-                timeout=config.otp_timeout,
-                interval=config.otp_interval,
-                impersonate=config.impersonate,
-                verify=config.verify_ssl,
-                cancel_event=cancel_event,
-            )
-            if _is_cancelled(cancel_event):
-                return _cancelled_result(row)
-            result = client.login_and_exchange(row, otp_fetcher=otp_fetcher)
-            if not isinstance(result, AttemptResult):
-                raise TypeError(f"client returned {type(result).__name__}, expected AttemptResult")
+                otp_fetcher = OtpFetcher(
+                    mode=config.otp_mode,
+                    command=config.otp_command,
+                    timeout=config.otp_timeout,
+                    interval=config.otp_interval,
+                    impersonate=config.impersonate,
+                    verify=config.verify_ssl,
+                    cancel_event=cancel_event,
+                )
+                if _is_cancelled(cancel_event):
+                    return _cancelled_result(row)
+                result = client.login_and_exchange(row, otp_fetcher=otp_fetcher)
+                if not isinstance(result, AttemptResult):
+                    raise TypeError(f"client returned {type(result).__name__}, expected AttemptResult")
+            except Exception as exc:
+                emit_stage({"stage": "runtime_exception", "reason": f"{type(exc).__name__}: {str(exc)[:180]}"})
+                result = _exception_result(row, status="runtime_error", stage="runtime_exception", exc=exc)
+
+            result.meta["attempt"] = attempt
+            result.meta["max_attempts"] = max_attempts
             if _is_cancelled(cancel_event) and not result.ok:
                 result.status = "cancelled"
                 result.stage = "cancelled"
                 result.reason = "user_cancelled"
                 result.events.append({"stage": "cancelled", "reason": "user_cancelled"})
-            return result
-        except Exception as exc:
-            emit_stage({"stage": "runtime_exception", "reason": f"{type(exc).__name__}: {str(exc)[:180]}"})
-            return _exception_result(row, status="runtime_error", stage="runtime_exception", exc=exc)
+                return result
+            if result.ok or attempt >= max_attempts or not _is_transient_retryable(result):
+                return result
+            emit(
+                {
+                    "type": "row_retry",
+                    "row_index": row_index,
+                    "line_no": row.line_no,
+                    "email_masked": mask_email(row.login_email),
+                    "attempt": attempt,
+                    "next_attempt": attempt + 1,
+                    "max_attempts": max_attempts,
+                    "status": result.status,
+                    "stage": result.stage,
+                    "reason": result.reason,
+                }
+            )
+            if cancel_event is not None:
+                if cancel_event.wait(min(6, 1 + attempt * 2)):
+                    return _cancelled_result(row)
+            else:
+                time.sleep(min(6, 1 + attempt * 2))
+
+        return result or _cancelled_result(row)
 
     log(f"[+] loaded rows: {len(rows)} | concurrency={concurrency} ({summary['concurrency_mode']})")
     with ThreadPoolExecutor(max_workers=concurrency) as executor:
