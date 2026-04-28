@@ -245,3 +245,45 @@ def test_gui_cancel_button_sets_cancel_event(tmp_path):
     window._set_running(False)
     window.close()
     _clear_settings()
+
+
+def test_gui_runtime_logs_include_account_sequence(tmp_path):
+    _clear_settings()
+    app = _app()
+    window = MainWindow()
+    window.output_edit.setText(str(tmp_path / "out"))
+    window.show()
+    app.processEvents()
+
+    window.log_edit.clear()
+    window.on_event({"type": "started", "total": 12, "concurrency": 3})
+    window.on_event({"type": "row_start", "line_no": 3, "email_masked": "te***@example.com"})
+    window.on_event(
+        {
+            "type": "row_stage",
+            "line_no": 3,
+            "email_masked": "te***@example.com",
+            "stage": "password_verify",
+            "status_code": 200,
+            "page_type": "email_otp_verification",
+        }
+    )
+    window.on_event(
+        {
+            "type": "row_done",
+            "done": 1,
+            "total": 12,
+            "ok": True,
+            "line_no": 3,
+            "email_masked": "te***@example.com",
+            "otp_required": True,
+        }
+    )
+
+    text = window.log_edit.toPlainText()
+    assert "账号 #003 te***@example.com" in text
+    assert "密码验证通过" in text
+    assert "成功：账号 #003" in text
+
+    window.close()
+    _clear_settings()

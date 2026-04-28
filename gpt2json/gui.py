@@ -1767,6 +1767,20 @@ class MainWindow(QMainWindow):
         key = str(value or "").strip()
         return mapping.get(key, key or "未知阶段")
 
+    def _account_label(self, event: dict[str, Any]) -> str:
+        email = str(event.get("email_masked") or "").strip()
+        try:
+            line_no = int(event.get("line_no") or 0)
+        except (TypeError, ValueError):
+            line_no = 0
+        if line_no > 0:
+            width = max(3, len(str(max(int(self._total or 0), line_no))))
+            suffix = f" {email}" if email else ""
+            return f"账号 #{line_no:0{width}d}{suffix}"
+        if email:
+            return f"账号 {email}"
+        return "账号"
+
     def _reason_display(self, value: Any) -> str:
         raw = str(value or "").strip()
         if not raw:
@@ -1797,48 +1811,48 @@ class MainWindow(QMainWindow):
         return raw
 
     def _friendly_stage_message(self, event: dict[str, Any]) -> str:
-        email = str(event.get("email_masked") or "账号")
+        account = self._account_label(event)
         stage = str(event.get("stage") or "").strip()
         status = self._status_code_label(event.get("status_code"))
         page_type = str(event.get("page_type") or "").strip()
         if stage == "oauth_start":
-            return f"🧭 账号 {email}：开始 OAuth 初始化，创建授权会话。"
+            return f"🧭 {account}：开始 OAuth 初始化，创建授权会话。"
         if stage == "entry":
-            return f"🚪 账号 {email}：授权入口已响应（{status}），正在保存会话状态。"
+            return f"🚪 {account}：授权入口已响应（{status}），正在保存会话状态。"
         if stage == "sentinel":
-            return f"🛡️ 账号 {email}：会话已建立，正在获取风控校验票据。"
+            return f"🛡️ {account}：会话已建立，正在获取风控校验票据。"
         if stage == "authorize_continue":
-            return f"📨 账号 {email}：邮箱已提交到认证接口（{status}），正在确认下一步登录方式。"
+            return f"📨 {account}：邮箱已提交到认证接口（{status}），正在确认下一步登录方式。"
         if stage == "password_verify":
             if bool(event.get("callback_url_present")):
-                return f"✅ 账号 {email}：密码验证通过，已直接获得 Callback。"
+                return f"✅ {account}：密码验证通过，已直接获得 Callback。"
             if "otp" in page_type.lower() or "verify" in page_type.lower():
-                return f"📮 账号 {email}：密码验证通过，服务端要求邮箱验证码，准备访问取码源。"
-            return f"🔑 账号 {email}：密码验证完成（{status}），继续推进授权流程。"
+                return f"📮 {account}：密码验证通过，服务端要求邮箱验证码，准备访问取码源。"
+            return f"🔑 {account}：密码验证完成（{status}），继续推进授权流程。"
         if stage == "otp_backend_plan":
             primary = self._backend_display(event.get("primary_backend"))
             display_name = str(event.get("display_name") or "").strip()
             suffix = f" · {display_name}" if display_name and display_name != primary else ""
-            return f"📫 账号 {email}：取码方式已确定为 {primary}{suffix}，正在等待新的邮箱验证码。"
+            return f"📫 {account}：取码方式已确定为 {primary}{suffix}，正在等待新的邮箱验证码。"
         if stage == "otp_fetch":
             backend = self._backend_display(event.get("backend"))
             if bool(event.get("code_present")):
-                return f"📬 账号 {email}：已获取验证码（来源：{backend}，{status}），准备提交验证。"
-            return f"⌛ 账号 {email}：暂未获取到新验证码（来源：{backend}，{status}），将继续等待或按超时处理。"
+                return f"📬 {account}：已获取验证码（来源：{backend}，{status}），准备提交验证。"
+            return f"⌛ {account}：暂未获取到新验证码（来源：{backend}，{status}），将继续等待或按超时处理。"
         if stage == "email_otp_validate":
             if bool(event.get("callback_url_present")):
-                return f"🧾 账号 {email}：验证码提交成功（{status}），已获得 Callback。"
-            return f"🧾 账号 {email}：验证码已提交（{status}），正在进入收尾流程。"
+                return f"🧾 {account}：验证码提交成功（{status}），已获得 Callback。"
+            return f"🧾 {account}：验证码已提交（{status}），正在进入收尾流程。"
         if stage == "finalize":
-            return f"🎫 账号 {email}：正在完成 Callback 跳转并换取最终 JSON。"
+            return f"🎫 {account}：正在完成 Callback 跳转并换取最终 JSON。"
         if stage == "callback":
-            return f"📦 账号 {email}：Callback 完成，JSON 已获取。"
+            return f"📦 {account}：Callback 完成，JSON 已获取。"
         if stage == "runtime_exception":
-            return f"🧯 账号 {email}：当前账号发生异常，已隔离处理，不影响其它账号继续运行。"
+            return f"🧯 {account}：当前账号发生异常，已隔离处理，不影响其它账号继续运行。"
         if stage == "export_prepare":
-            return f"🧹 账号 {email}：JSON 整理时发现格式异常，已跳过当前账号。"
+            return f"🧹 {account}：JSON 整理时发现格式异常，已跳过当前账号。"
         if stage == "cancelled":
-            return f"🛑 账号 {email}：收到取消信号，当前账号不再继续推进。"
+            return f"🛑 {account}：收到取消信号，当前账号不再继续推进。"
         return ""
 
     def on_event(self, event: dict[str, Any]) -> None:
@@ -1852,8 +1866,7 @@ class MainWindow(QMainWindow):
         elif event_type == "row_start":
             self._running += 1
             self.running_stat.set_value(self._running)
-            email = str(event.get("email_masked") or "")
-            self.append_log(f"👤 账号 {email}：进入执行队列，准备开始登录流程。")
+            self.append_log(f"👤 {self._account_label(event)}：进入执行队列，准备开始登录流程。")
         elif event_type == "row_stage":
             message = self._friendly_stage_message(event)
             if message:
@@ -1865,21 +1878,21 @@ class MainWindow(QMainWindow):
         elif event_type == "row_done":
             self._done = int(event.get("done") or self._done + 1)
             self._running = max(0, self._running - 1)
-            email = str(event.get("email_masked") or "")
+            account = self._account_label(event)
             if event.get("ok"):
                 self._success += 1
                 suffix = "；本次经过邮箱验证码验证" if event.get("otp_required") else ""
-                self.append_log(f"✅ 成功：账号 {email} 已获取 JSON{suffix}，稍后统一写入导出文件。")
+                self.append_log(f"✅ 成功：{account} 已获取 JSON{suffix}，稍后统一写入导出文件。")
             else:
                 self._failure += 1
                 status = str(event.get("status") or "failed")
                 reason = str(event.get("reason") or "").strip()
                 stage = str(event.get("stage") or "").strip()
                 if status == "cancelled":
-                    self.append_log(f"🛑 取消：账号 {email} 已停止，等待其它运行中的账号收尾。")
+                    self.append_log(f"🛑 取消：{account} 已停止，等待其它运行中的账号收尾。")
                 else:
                     detail = f"；原因：{self._reason_display(reason)}" if reason else ""
-                    self.append_log(f"⚠️ 失败：账号 {email} 停在「{self._stage_display(stage or status)}」{detail}。")
+                    self.append_log(f"⚠️ 失败：{account} 停在「{self._stage_display(stage or status)}」{detail}。")
             self.success_stat.set_value(self._success)
             self.failed_stat.set_value(self._failure)
             self.running_stat.set_value(self._running)
