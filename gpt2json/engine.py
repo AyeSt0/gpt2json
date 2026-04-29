@@ -132,6 +132,11 @@ def _is_recoverable_retryable(result: AttemptResult) -> bool:
         return True
     if status == "email_otp_validate_error":
         return not reason or reason.startswith("http_5") or reason in {"bad_request", "invalid_auth_step"}
+    if status == "password_error":
+        if reason in {"bad_request", "invalid_auth_step"}:
+            return True
+        if reason.startswith("http_5") or reason in {"http_408", "http_409", "http_425", "http_429"}:
+            return True
     if status in {"auth_entry_error", "authorize_continue_error"} and reason in {"http_403", "http_408", "http_409", "http_425", "http_429"}:
         return True
     if stage == "email_verification" and ("otp" in reason or "code" in reason or "验证码" in reason):
@@ -172,6 +177,8 @@ def _diagnose_failure(result: AttemptResult) -> tuple[str, str]:
         return "用户取消", "任务已取消；如需继续，重新开始导出即可。"
     if status == "bad_password":
         return "密码验证失败", "请检查这条账号的 GPT/OpenAI 登录密码是否正确。"
+    if status == "password_error":
+        return "密码阶段协议异常", "密码接口没有完成稳定校验；客户端会先自动修复会话并重试，仍失败时进入自动重试/补跑策略。"
     if lowered in {"account_deactivated", "account_disabled", "account_suspended", "account_deleted"}:
         return "账号状态不可用", "服务端明确返回账号已停用/禁用/注销；自动重试无法修复，建议更换账号或联系上游处理。"
     if lowered in {"account_locked"}:

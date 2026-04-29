@@ -518,6 +518,62 @@ def _is_consent_branch(*, page_type: str, continue_url: str) -> bool:
     return normalized_page_type == "sign_in_with_chatgpt_codex_consent" or "sign-in-with-chatgpt/codex/consent" in normalized_continue_url
 
 
+def _transition_status_code(transition: dict[str, Any]) -> int:
+    try:
+        return int(transition.get("status_code") or 0)
+    except Exception:
+        return 0
+
+
+def _transition_reason(transition: dict[str, Any]) -> str:
+    status_code = _transition_status_code(transition)
+    return str(transition.get("error_code") or (f"http_{status_code}" if status_code else "")).strip()
+
+
+def _compact_transition_event(stage: str, transition: dict[str, Any], **extra: Any) -> dict[str, Any]:
+    event = {
+        "stage": stage,
+        "status_code": _transition_status_code(transition),
+        "page_type": str(transition.get("page_type") or "").strip(),
+        "continue_url": str(transition.get("continue_url") or "").strip()[:300],
+        "callback_url_present": bool(transition.get("callback_url")),
+    }
+    if transition.get("error"):
+        event["error"] = str(transition.get("error") or "")[:180]
+    event.update(extra)
+    return event
+
+
+def _should_repair_password_verify(transition: dict[str, Any]) -> bool:
+    status_code = _transition_status_code(transition)
+    reason = _transition_reason(transition).lower()
+    if status_code in {408, 409, 425, 429} or status_code >= 500:
+        return True
+    # `invalid_username_or_password` is normally terminal, but it is also the
+    # most common disguise when the auth state machine rejects a stale
+    # Sentinel/session pairing.  Try one same-session repair before surfacing it
+    # as a real bad-password diagnosis.
+    return status_code in {400, 401, 403} and reason in {"", "bad_request", "invalid_auth_step", "invalid_username_or_password"}
+
+
+def _should_repair_email_otp_validate(transition: dict[str, Any]) -> bool:
+    status_code = _transition_status_code(transition)
+    reason = _transition_reason(transition).lower()
+    if status_code in {408, 409, 425, 429} or status_code >= 500:
+        return True
+    if reason in {"wrong_email_otp_code", "email_otp_expired"}:
+        return False
+    return status_code in {400, 401, 403} and reason in {"", "bad_request", "invalid_auth_step"}
+
+
+def _password_failure_status(transition: dict[str, Any]) -> str:
+    status_code = _transition_status_code(transition)
+    reason = _transition_reason(transition).lower()
+    if status_code in {408, 409, 425, 429} or status_code >= 500 or reason in {"bad_request", "invalid_auth_step"}:
+        return "password_error"
+    return "bad_password" if status_code in {400, 401, 403} else "password_error"
+
+
 ProtocolEventCallback = Callable[[dict[str, Any]], None]
 
 
@@ -683,6 +739,52 @@ class ProtocolLoginClient:
             return self.request_authorize_continue_sentinel(did, proxies=proxies, flow=flow)
         except Exception:
             return str(fallback or "").strip()
+
+    def _visit_auth_page(self, session: requests.Session, url: str, *, referer: str, proxies: Any = None, stage: str) -> dict[str, Any]:
+        """Best-effort browser-like navigation between auth API steps.
+
+        Real browser login does not jump directly from one JSON API to the
+        next: after `/authorize/continue` it loads the password page, and after
+        password verification it may load the email verification page.  These
+        page visits can refresh cookies/checksums used by the next API call.
+        Keep this best-effort so older sandboxes that do not require the page
+        hop are not penalized by a transient warm-up failure.
+        """
+
+        target_url = str(url or "").strip()
+        if not target_url:
+            return {}
+        parsed = urllib.parse.urlparse(target_url)
+        if parsed.scheme not in {"http", "https"} or parsed.netloc.lower() != "auth.openai.com":
+            return {}
+        try:
+            resp = self._request_with_retry(
+                session,
+                "GET",
+                target_url,
+                proxies=proxies,
+                headers=_headers(AUTH_NAV_HEADERS, referer=referer or "https://auth.openai.com/log-in"),
+                allow_redirects=True,
+                timeout=self.timeout,
+                retries=1,
+            )
+            transition = _extract_transition_targets_from_response(resp, request_url=target_url)
+            self._emit_stage(stage, **{k: v for k, v in _compact_transition_event(stage, transition).items() if k != "stage"})
+            return transition
+        except Exception as exc:
+            transition = {
+                "status_code": 0,
+                "payload": {},
+                "raw_text": "",
+                "location_url": "",
+                "continue_url": target_url,
+                "page_type": _infer_page_type_from_url(target_url),
+                "callback_url": "",
+                "error_code": "",
+                "error": f"{type(exc).__name__}: {str(exc)[:180]}",
+            }
+            self._emit_stage(stage, error=transition["error"], page_type=transition["page_type"], status_code=0)
+            return transition
 
     def _follow_redirect_chain_to_callback(self, session: requests.Session, *, start_url: str, oauth_start: OAuthStart, proxies: Any = None) -> tuple[str | None, str]:
         current_url = str(start_url or "").strip()
@@ -957,20 +1059,36 @@ class ProtocolLoginClient:
                 result.reason = authorize_transition["error_code"] or f"http_{authorize_transition['status_code']}"
                 return result
 
+            password_referer = authorize_transition["continue_url"] or "https://auth.openai.com/log-in/password"
+            password_page = self._visit_auth_page(
+                session,
+                password_referer,
+                referer="https://auth.openai.com/log-in",
+                proxies=proxies,
+                stage="password_page_warmup",
+            )
+            if password_page:
+                result.events.append(_compact_transition_event("password_page_warmup", password_page))
+                password_referer = str(password_page.get("continue_url") or password_referer).strip()
+
             password_sentinel = self._sentinel_for_flow(did, flow="password_verify", proxies=proxies, fallback=sentinel)
             result.meta["password_sentinel_flow"] = "password_verify" if password_sentinel and password_sentinel != sentinel else "authorize_continue"
-            pwd_resp = self._post_with_retry(
-                session,
-                "https://auth.openai.com/api/accounts/password/verify",
-                headers=_headers(
-                    AUTH_JSON_HEADERS,
-                    referer=authorize_transition["continue_url"] or "https://auth.openai.com/log-in/password",
-                    oai_device_id=did,
-                    **{"openai-sentinel-token": password_sentinel},
-                ),
-                json_body={"password": row.gpt_password},
-                proxies=proxies,
-            )
+
+            def post_password_verify(sentinel_header: str, referer_url: str) -> Any:
+                return self._post_with_retry(
+                    session,
+                    "https://auth.openai.com/api/accounts/password/verify",
+                    headers=_headers(
+                        AUTH_JSON_HEADERS,
+                        referer=referer_url or "https://auth.openai.com/log-in/password",
+                        oai_device_id=did,
+                        **{"openai-sentinel-token": sentinel_header},
+                    ),
+                    json_body={"password": row.gpt_password},
+                    proxies=proxies,
+                )
+
+            pwd_resp = post_password_verify(password_sentinel, password_referer)
             pwd_transition = _extract_transition_targets_from_response(pwd_resp, request_url="https://auth.openai.com/api/accounts/password/verify")
             result.events.append({"stage": "password_verify", "status_code": pwd_transition["status_code"], "page_type": pwd_transition["page_type"], "continue_url": pwd_transition["continue_url"][:300], "callback_url_present": bool(pwd_transition["callback_url"])})
             self._emit_stage(
@@ -980,8 +1098,39 @@ class ProtocolLoginClient:
                 callback_url_present=bool(pwd_transition["callback_url"]),
             )
 
+            if _should_repair_password_verify(pwd_transition):
+                result.meta["password_repair_attempted"] = True
+                result.events.append(_compact_transition_event("password_verify_repair", pwd_transition, action="refresh_page_and_sentinel"))
+                self._emit_stage(
+                    "password_verify_repair",
+                    status_code=pwd_transition["status_code"],
+                    page_type=pwd_transition["page_type"],
+                    reason=_transition_reason(pwd_transition),
+                    action="refresh_page_and_sentinel",
+                )
+                repair_page = self._visit_auth_page(
+                    session,
+                    password_referer or "https://auth.openai.com/log-in/password",
+                    referer="https://auth.openai.com/log-in",
+                    proxies=proxies,
+                    stage="password_page_repair",
+                )
+                if repair_page:
+                    result.events.append(_compact_transition_event("password_page_repair", repair_page))
+                    password_referer = str(repair_page.get("continue_url") or password_referer).strip()
+                repair_sentinel = self._sentinel_for_flow(did, flow="password_verify", proxies=proxies, fallback=password_sentinel or sentinel)
+                pwd_resp = post_password_verify(repair_sentinel, password_referer)
+                pwd_transition = _extract_transition_targets_from_response(pwd_resp, request_url="https://auth.openai.com/api/accounts/password/verify")
+                result.events.append(_compact_transition_event("password_verify_repair_result", pwd_transition))
+                self._emit_stage(
+                    "password_verify_repair_result",
+                    status_code=pwd_transition["status_code"],
+                    page_type=pwd_transition["page_type"],
+                    callback_url_present=bool(pwd_transition["callback_url"]),
+                )
+
             if pwd_transition["status_code"] >= 400:
-                result.status = "bad_password" if pwd_transition["status_code"] in {400, 401, 403} else "password_error"
+                result.status = _password_failure_status(pwd_transition)
                 result.stage = "password_verify"
                 result.reason = pwd_transition["error_code"] or f"http_{pwd_transition['status_code']}"
                 return result
@@ -1031,20 +1180,35 @@ class ProtocolLoginClient:
                     status_code=otp_details.status_code,
                     code_present=True,
                 )
+                otp_referer = str(pwd_transition.get("continue_url") or "https://auth.openai.com/email-verification").strip()
+                otp_page = self._visit_auth_page(
+                    session,
+                    otp_referer,
+                    referer=password_referer or "https://auth.openai.com/log-in/password",
+                    proxies=proxies,
+                    stage="email_otp_page_warmup",
+                )
+                if otp_page:
+                    result.events.append(_compact_transition_event("email_otp_page_warmup", otp_page))
+                    otp_referer = str(otp_page.get("continue_url") or otp_referer).strip()
                 otp_sentinel = self._sentinel_for_flow(did, flow="email_otp_validate", proxies=proxies, fallback=password_sentinel or sentinel)
                 result.meta["otp_sentinel_flow"] = "email_otp_validate" if otp_sentinel and otp_sentinel not in {password_sentinel, sentinel} else result.meta.get("password_sentinel_flow", "authorize_continue")
-                otp_resp = self._post_with_retry(
-                    session,
-                    "https://auth.openai.com/api/accounts/email-otp/validate",
-                    headers=_headers(
-                        AUTH_JSON_HEADERS,
-                        referer="https://auth.openai.com/email-verification",
-                        oai_device_id=did,
-                        **{"openai-sentinel-token": otp_sentinel},
-                    ),
-                    json_body={"code": code},
-                    proxies=proxies,
-                )
+
+                def post_email_otp_validate(sentinel_header: str, referer_url: str) -> Any:
+                    return self._post_with_retry(
+                        session,
+                        "https://auth.openai.com/api/accounts/email-otp/validate",
+                        headers=_headers(
+                            AUTH_JSON_HEADERS,
+                            referer=referer_url or "https://auth.openai.com/email-verification",
+                            oai_device_id=did,
+                            **{"openai-sentinel-token": sentinel_header},
+                        ),
+                        json_body={"code": code},
+                        proxies=proxies,
+                    )
+
+                otp_resp = post_email_otp_validate(otp_sentinel, otp_referer)
                 current_transition = _extract_transition_targets_from_response(otp_resp, request_url="https://auth.openai.com/api/accounts/email-otp/validate")
                 result.events.append({"stage": "email_otp_validate", "status_code": current_transition["status_code"], "page_type": current_transition["page_type"], "continue_url": current_transition["continue_url"][:300], "callback_url_present": bool(current_transition["callback_url"])})
                 self._emit_stage(
@@ -1053,6 +1217,36 @@ class ProtocolLoginClient:
                     page_type=current_transition["page_type"],
                     callback_url_present=bool(current_transition["callback_url"]),
                 )
+                if _should_repair_email_otp_validate(current_transition):
+                    result.meta["otp_validate_repair_attempted"] = True
+                    result.events.append(_compact_transition_event("email_otp_validate_repair", current_transition, action="refresh_page_and_sentinel"))
+                    self._emit_stage(
+                        "email_otp_validate_repair",
+                        status_code=current_transition["status_code"],
+                        page_type=current_transition["page_type"],
+                        reason=_transition_reason(current_transition),
+                        action="refresh_page_and_sentinel",
+                    )
+                    repair_otp_page = self._visit_auth_page(
+                        session,
+                        otp_referer or "https://auth.openai.com/email-verification",
+                        referer=password_referer or "https://auth.openai.com/log-in/password",
+                        proxies=proxies,
+                        stage="email_otp_page_repair",
+                    )
+                    if repair_otp_page:
+                        result.events.append(_compact_transition_event("email_otp_page_repair", repair_otp_page))
+                        otp_referer = str(repair_otp_page.get("continue_url") or otp_referer).strip()
+                    repair_otp_sentinel = self._sentinel_for_flow(did, flow="email_otp_validate", proxies=proxies, fallback=otp_sentinel or password_sentinel or sentinel)
+                    otp_resp = post_email_otp_validate(repair_otp_sentinel, otp_referer)
+                    current_transition = _extract_transition_targets_from_response(otp_resp, request_url="https://auth.openai.com/api/accounts/email-otp/validate")
+                    result.events.append(_compact_transition_event("email_otp_validate_repair_result", current_transition))
+                    self._emit_stage(
+                        "email_otp_validate_repair_result",
+                        status_code=current_transition["status_code"],
+                        page_type=current_transition["page_type"],
+                        callback_url_present=bool(current_transition["callback_url"]),
+                    )
                 if current_transition["status_code"] >= 400:
                     result.status = "email_otp_validate_error"
                     result.reason = current_transition["error_code"] or f"http_{current_transition['status_code']}"

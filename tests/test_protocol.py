@@ -139,3 +139,100 @@ def test_protocol_uses_flow_specific_sentinel_for_email_otp(monkeypatch):
     assert otp_post[1]["openai-sentinel-token"] == "sentinel-email_otp_validate"
     assert otp_post[1]["oai-device-id"] == "did-otp"
     assert otp_post[2] == {"code": "123456"}
+
+
+def test_protocol_repairs_password_verify_state_once(monkeypatch):
+    client = ProtocolLoginClient()
+    flows = []
+    password_posts = []
+
+    def fake_request(session, method, url, **kwargs):
+        del method, kwargs
+        session.cookies.set("oai-did", "did-repair", domain="auth.openai.com")
+        return FakeResponse(status_code=200, url=url)
+
+    def fake_sentinel(did, *, proxies=None, flow="authorize_continue"):
+        del proxies
+        flows.append((did, flow))
+        return f"sentinel-{flow}-{len(flows)}"
+
+    def fake_post(session, url, *, headers, proxies=None, json_body=None, data=None, timeout=None, retries=2):
+        del session, headers, proxies, data, timeout, retries
+        if url.endswith("/authorize/continue"):
+            return FakeResponse(
+                payload={"page": {"type": "login_password"}, "continue_url": "https://auth.openai.com/log-in/password"}
+            )
+        if url.endswith("/password/verify"):
+            password_posts.append(json_body)
+            if len(password_posts) == 1:
+                return FakeResponse(status_code=401, payload={"error": {"code": "invalid_username_or_password"}})
+            return FakeResponse(payload={"page": {"type": "consent"}, "continue_url": "https://auth.openai.com/consent"})
+        raise AssertionError(f"unexpected post {url}")
+
+    monkeypatch.setattr(client, "_request", fake_request)
+    monkeypatch.setattr(client, "request_authorize_continue_sentinel", fake_sentinel)
+    monkeypatch.setattr(client, "_post_with_retry", fake_post)
+    monkeypatch.setattr(client, "_finalize_transition", lambda *args, **kwargs: ('{"access_token":"a.b.c","refresh_token":"r"}', "", kwargs["transition"]))
+
+    result = client.login_and_exchange(account_row(), otp_fetcher=FakeOtpFetcher())
+
+    assert result.ok
+    assert result.meta["password_repair_attempted"] is True
+    assert len(password_posts) == 2
+    assert flows == [
+        ("did-repair", "authorize_continue"),
+        ("did-repair", "password_verify"),
+        ("did-repair", "password_verify"),
+    ]
+    assert any(event["stage"] == "password_verify_repair_result" and event["status_code"] == 200 for event in result.events)
+
+
+def test_protocol_repairs_email_otp_validate_state_once(monkeypatch):
+    client = ProtocolLoginClient()
+    flows = []
+    otp_posts = []
+
+    def fake_request(session, method, url, **kwargs):
+        del method, kwargs
+        session.cookies.set("oai-did", "did-otp-repair", domain="auth.openai.com")
+        return FakeResponse(status_code=200, url=url)
+
+    def fake_sentinel(did, *, proxies=None, flow="authorize_continue"):
+        del proxies
+        flows.append((did, flow))
+        return f"sentinel-{flow}-{len(flows)}"
+
+    def fake_post(session, url, *, headers, proxies=None, json_body=None, data=None, timeout=None, retries=2):
+        del session, headers, proxies, data, timeout, retries
+        if url.endswith("/authorize/continue"):
+            return FakeResponse(
+                payload={"page": {"type": "login_password"}, "continue_url": "https://auth.openai.com/log-in/password"}
+            )
+        if url.endswith("/password/verify"):
+            return FakeResponse(
+                payload={"page": {"type": "email_otp_verification"}, "continue_url": "https://auth.openai.com/email-verification"}
+            )
+        if url.endswith("/email-otp/validate"):
+            otp_posts.append(json_body)
+            if len(otp_posts) == 1:
+                return FakeResponse(status_code=400, payload={"error": {"code": "invalid_auth_step"}})
+            return FakeResponse(payload={"page": {"type": "consent"}, "continue_url": "https://auth.openai.com/consent"})
+        raise AssertionError(f"unexpected post {url}")
+
+    monkeypatch.setattr(client, "_request", fake_request)
+    monkeypatch.setattr(client, "request_authorize_continue_sentinel", fake_sentinel)
+    monkeypatch.setattr(client, "_post_with_retry", fake_post)
+    monkeypatch.setattr(client, "_finalize_transition", lambda *args, **kwargs: ('{"access_token":"a.b.c","refresh_token":"r"}', "", kwargs["transition"]))
+
+    result = client.login_and_exchange(account_row(), otp_fetcher=FakeOtpFetcher())
+
+    assert result.ok
+    assert result.meta["otp_validate_repair_attempted"] is True
+    assert len(otp_posts) == 2
+    assert flows == [
+        ("did-otp-repair", "authorize_continue"),
+        ("did-otp-repair", "password_verify"),
+        ("did-otp-repair", "email_otp_validate"),
+        ("did-otp-repair", "email_otp_validate"),
+    ]
+    assert any(event["stage"] == "email_otp_validate_repair_result" and event["status_code"] == 200 for event in result.events)

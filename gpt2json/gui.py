@@ -2252,11 +2252,19 @@ class MainWindow(QMainWindow):
             "entry": "授权入口",
             "sentinel": "风控票据",
             "authorize_continue": "账号识别",
+            "password_page_warmup": "密码页预热",
             "password_verify": "密码验证",
+            "password_verify_repair": "密码链路修复",
+            "password_page_repair": "密码页修复",
+            "password_verify_repair_result": "密码修复结果",
             "email_verification": "邮箱验证码",
+            "email_otp_page_warmup": "验证码页预热",
             "otp_backend_plan": "验证码获取",
             "otp_fetch": "验证码获取",
             "email_otp_validate": "验证码提交",
+            "email_otp_validate_repair": "验证码链路修复",
+            "email_otp_page_repair": "验证码页修复",
+            "email_otp_validate_repair_result": "验证码修复结果",
             "finalize": "Callback 换票",
             "callback": "JSON 回调",
             "runtime_exception": "单账号异常",
@@ -2305,6 +2313,8 @@ class MainWindow(QMainWindow):
             "user_not_found": "服务端未识别该登录邮箱，请检查账号文本或更换账号。",
             "invalid_credentials": "服务端返回凭据无效，请检查 GPT/OpenAI 邮箱和登录密码。",
             "invalid_username_or_password": "服务端返回账号或密码不匹配，请检查第二段是否为 GPT/OpenAI 登录密码。",
+            "invalid_auth_step": "认证步骤状态不同步，客户端会自动刷新会话状态后重试。",
+            "bad_request": "认证接口认为当前请求状态不完整，客户端会自动刷新页面状态后重试。",
             "otp_timeout": "在等待时间内没有获取到新的验证码。",
             "callback_error": "没有拿到 OAuth Callback，可能是跳转链路未完成。",
             "finalize_unresolved": "登录已推进到收尾阶段，但最终 Callback 没有解析成功。",
@@ -2389,6 +2399,10 @@ class MainWindow(QMainWindow):
             return f"🛡️ {account}：会话已建立，正在获取风控校验票据。"
         if stage == "authorize_continue":
             return f"📨 {account}：邮箱已提交到认证接口（{status}），正在确认下一步登录方式。"
+        if stage == "password_page_warmup":
+            if event.get("error"):
+                return f"🧩 {account}：密码页预热暂未完成，继续使用当前会话尝试验证。"
+            return f"🧩 {account}：已按浏览器流程预热密码页（{status}），同步认证会话状态。"
         if stage == "password_verify":
             try:
                 code = int(event.get("status_code") or 0)
@@ -2401,6 +2415,26 @@ class MainWindow(QMainWindow):
             if "otp" in page_type.lower() or "verify" in page_type.lower():
                 return f"📮 {account}：密码验证通过，服务端要求邮箱验证码，准备访问取码源。"
             return f"🔑 {account}：密码验证完成（{status}），继续推进授权流程。"
+        if stage == "password_verify_repair":
+            reason = self._reason_display(event.get("reason"))
+            suffix = f"；原因：{reason}" if reason else ""
+            return f"🧰 {account}：密码验证链路触发一次自动修复，正在刷新页面状态和风控票据{suffix}。"
+        if stage == "password_page_repair":
+            if event.get("error"):
+                return f"🧩 {account}：密码页状态重新同步失败，仍会用刷新后的风控票据再试一次。"
+            return f"🧩 {account}：密码页状态已重新同步（{status}），准备再次验证密码。"
+        if stage == "password_verify_repair_result":
+            try:
+                code = int(event.get("status_code") or 0)
+            except Exception:
+                code = 0
+            if code >= 400:
+                return f"🚫 {account}：密码链路自动修复后仍被拒绝（{status}），将按失败诊断处理。"
+            return f"✅ {account}：密码链路自动修复成功（{status}），继续推进后续流程。"
+        if stage == "email_otp_page_warmup":
+            if event.get("error"):
+                return f"🧩 {account}：验证码页预热暂未完成，继续使用当前会话提交验证码。"
+            return f"🧩 {account}：已预热验证码页（{status}），同步取码提交前的会话状态。"
         if stage == "otp_backend_plan":
             primary = self._backend_display(event.get("primary_backend"))
             display_name = str(event.get("display_name") or "").strip()
@@ -2427,6 +2461,22 @@ class MainWindow(QMainWindow):
             if bool(event.get("callback_url_present")):
                 return f"🧾 {account}：验证码提交成功（{status}），已获得 Callback。"
             return f"🧾 {account}：验证码已提交（{status}），正在进入收尾流程。"
+        if stage == "email_otp_validate_repair":
+            reason = self._reason_display(event.get("reason"))
+            suffix = f"；原因：{reason}" if reason else ""
+            return f"🧰 {account}：验证码提交链路触发一次自动修复，正在刷新页面状态和风控票据{suffix}。"
+        if stage == "email_otp_page_repair":
+            if event.get("error"):
+                return f"🧩 {account}：验证码页状态重新同步失败，仍会用刷新后的风控票据再试一次。"
+            return f"🧩 {account}：验证码页状态已重新同步（{status}），准备再次提交验证码。"
+        if stage == "email_otp_validate_repair_result":
+            try:
+                code = int(event.get("status_code") or 0)
+            except Exception:
+                code = 0
+            if code >= 400:
+                return f"🧾 {account}：验证码链路自动修复后仍返回异常（{status}），稍后会按自动重试策略处理。"
+            return f"✅ {account}：验证码链路自动修复成功（{status}），继续进入收尾流程。"
         if stage == "finalize":
             return f"🎫 {account}：正在完成 Callback 跳转并换取最终 JSON。"
         if stage == "callback":

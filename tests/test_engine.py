@@ -109,6 +109,33 @@ class FlakyFinalizeClient(ProtocolLoginClient):
         return AttemptResult(row=row, status="success", stage="callback", token_json=token_json)
 
 
+class FlakyPasswordProtocolClient(ProtocolLoginClient):
+    attempts_by_email: dict[str, int] = {}
+
+    def login_and_exchange(self, row, *, otp_fetcher, proxies=None):
+        del otp_fetcher, proxies
+        attempt = self.attempts_by_email.get(row.login_email, 0) + 1
+        self.attempts_by_email[row.login_email] = attempt
+        if attempt == 1:
+            return AttemptResult(
+                row=row,
+                status="password_error",
+                stage="password_verify",
+                reason="invalid_auth_step",
+            )
+        token_json = json.dumps(
+            {
+                "access_token": "a.b.c",
+                "refresh_token": "refresh",
+                "account_id": f"acc-{row.line_no}",
+                "email": row.login_email,
+                "expired": "2026-04-27T00:00:00Z",
+            },
+            ensure_ascii=False,
+        )
+        return AttemptResult(row=row, status="success", stage="callback", token_json=token_json)
+
+
 class FlakyOtpClient(ProtocolLoginClient):
     attempts_by_email: dict[str, int] = {}
 
@@ -479,6 +506,33 @@ def test_run_export_retries_transient_finalize_timeout(tmp_path: Path):
     safe_rows = safe_rows_from(summary)
     assert safe_rows[0]["status"] == "success"
     assert safe_rows[0]["attempt"] == 2
+    assert summary["retry_count"] == 1
+    assert summary["failure_report"] == ""
+
+
+def test_run_export_retries_password_protocol_state(tmp_path: Path):
+    out_dir = tmp_path / "out"
+    FlakyPasswordProtocolClient.attempts_by_email = {}
+    events = []
+    summary = run_export(
+        ExportConfig(
+            input_path="missing.txt",
+            out_dir=str(out_dir),
+            input_text="ok@example.com----pass----https://otp.local/1",
+            concurrency=1,
+            max_attempts=2,
+        ),
+        client_factory=lambda: FlakyPasswordProtocolClient(),
+        on_event=events.append,
+    )
+
+    assert summary["success_count"] == 1
+    assert summary["failure_count"] == 0
+    assert FlakyPasswordProtocolClient.attempts_by_email["ok@example.com"] == 2
+    retry = [event for event in events if event.get("type") == "row_retry"]
+    assert len(retry) == 1
+    assert retry[0]["stage"] == "password_verify"
+    assert retry[0]["reason"] == "invalid_auth_step"
     assert summary["retry_count"] == 1
     assert summary["failure_report"] == ""
 
