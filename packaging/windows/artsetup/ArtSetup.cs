@@ -23,10 +23,18 @@ namespace GPT2JSON.Setup
     internal static class Program
     {
         [STAThread]
-        private static void Main()
+        private static void Main(string[] args)
         {
             var app = new WpfApplication();
-            app.Run(new InstallerWindow());
+            app.Run(new InstallerWindow(IsPreviewInstall(args)));
+        }
+
+        private static bool IsPreviewInstall(string[] args)
+        {
+            foreach (var arg in args ?? new string[0])
+                if (string.Equals(arg, "--preview-install", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
         }
     }
 
@@ -44,11 +52,13 @@ namespace GPT2JSON.Setup
         private readonly Button _minButton;
         private readonly InstalledAppInfo _existingInstall;
         private readonly bool _upgradeMode;
+        private readonly bool _previewInstallMode;
         private bool _installCompleted;
 
-        public InstallerWindow()
+        public InstallerWindow(bool previewInstallMode = false)
         {
-            _existingInstall = InstalledAppInfo.Detect();
+            _previewInstallMode = previewInstallMode;
+            _existingInstall = previewInstallMode ? null : InstalledAppInfo.Detect();
             _upgradeMode = _existingInstall != null;
             Title = AppName + " " + Version + (_upgradeMode ? " 升级" : " 安装");
             Width = 1120;
@@ -153,7 +163,9 @@ namespace GPT2JSON.Setup
                 : DefaultInstallPath();
 
             if (_dirBox != null)
-                _dirBox.Text = EnsureAppInstallPath(installPath);
+                _dirBox.Text = _previewInstallMode
+                    ? @"C:\Users\...\AppData\Local\Programs\GPT2JSON"
+                    : EnsureAppInstallPath(installPath);
 
             if (!_upgradeMode)
             {

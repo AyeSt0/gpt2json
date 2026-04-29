@@ -188,73 +188,20 @@ def create_hero() -> None:
     ASSET_DIR.mkdir(parents=True, exist_ok=True)
     img.convert("RGB").save(ASSET_DIR / "hero.png", quality=96)
 
-def create_installer_preview() -> None:
-    """Preserve the real installer screenshot used by README.
+def verify_installer_preview() -> None:
+    """Verify the real installer screenshot used by README exists.
 
-    The installer is a transparent WPF shell, so a faithful preview is captured
-    from the running installer and then sanitized to remove the local username
-    from the install path.  Do not regenerate it as a synthetic mockup here.
-    The only deterministic edit this script applies is the version badge, so
-    README screenshots never drift behind the package version.
+    This script intentionally does not patch text onto installer-preview.png.
+    The installer preview must be re-captured from the actual installer shell
+    with scripts/capture_installer_preview.py whenever installer wording changes.
     """
-
     preview = ASSET_DIR / "installer-preview.png"
-    if preview.exists():
-        version = project_version()
-        img = Image.open(preview).convert("RGBA")
-        draw = ImageDraw.Draw(img)
-        width, height = img.size
-        # The badge is part of the sanitized real screenshot.  Keep the same
-        # geometry proportionally so it survives small future screenshot crops.
-        x1 = int(width * 0.162)
-        y1 = int(height * 0.787)
-        x2 = int(width * 0.217)
-        y2 = int(height * 0.822)
-        draw.rounded_rectangle((x1, y1, x2, y2), radius=max(10, int(height * 0.017)), fill=(124, 147, 190, 245), outline=(205, 222, 255, 110), width=1)
-        text = f"v{version}"
-        text_font = font(max(15, int(height * 0.020)), bold=True)
-        bbox = draw.textbbox((0, 0), text, font=text_font)
-        draw.text((x1 + (x2 - x1 - (bbox[2] - bbox[0])) / 2, y1 + (y2 - y1 - (bbox[3] - bbox[1])) / 2 - 1), text, font=text_font, fill="#FFFFFF")
-        # Keep the sanitized real screenshot aligned with current installer copy.
-        # These patches intentionally sit on top of the screenshot so the local
-        # install path remains sanitized while wording changes stay deterministic.
-        sx = width / 1200
-        sy = height / 720
-        label_font = font(max(12, int(14 * sy)))
-        pill_font = font(max(11, int(13 * sy)), bold=True)
-        draw.rounded_rectangle(
-            (int(174 * sx), int(428 * sy), int(426 * sx), int(452 * sy)),
-            radius=max(8, int(10 * sy)),
-            fill=(16, 22, 49, 210),
+    if not preview.exists():
+        raise FileNotFoundError(
+            "installer-preview.png must be captured from the actual installer. "
+            "Build the installer, then run: python scripts/capture_installer_preview.py"
         )
-        draw.text((int(178 * sx), int(433 * sy)), "号商格式 · Sub2API / CPA JSON", font=label_font, fill="#B8CDEC")
-
-        def installer_pill(x: int, icon: str, label: str) -> None:
-            px = int(x * sx)
-            py = int(302 * sy)
-            pw = int(90 * sx)
-            ph = int(34 * sy)
-            draw.rounded_rectangle(
-                (px, py, px + pw, py + ph),
-                radius=max(12, int(16 * sy)),
-                fill=(30, 48, 82, 245),
-                outline=(95, 142, 205, 170),
-                width=1,
-            )
-            draw.text((px + int(16 * sx), py + int(8 * sy)), icon, font=pill_font, fill="#6EE7FF")
-            draw.text((px + int(36 * sx), py + int(8 * sy)), label, font=pill_font, fill="#E8F0FF")
-
-        installer_pill(486, "◇", "号商格式")
-        installer_pill(596, "↘", "JSON导出")
-        installer_pill(706, "✓", "本地处理")
-        img.convert("RGB").save(preview, quality=96)
-        print(f"Preserved real installer screenshot and updated version badge: {preview}")
-        return
-    raise FileNotFoundError(
-        "installer-preview.png is intentionally a sanitized real screenshot. "
-        "Build the installer, capture it locally, sanitize the install path, "
-        "then save it to docs/assets/installer-preview.png."
-    )
+    print(f"Verified real installer screenshot: {preview}")
 
 def capture_gui_previews() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -324,7 +271,7 @@ def capture_gui_previews() -> None:
 
 def main() -> None:
     create_hero()
-    create_installer_preview()
+    verify_installer_preview()
     capture_gui_previews()
     print(f"Generated docs assets in {ASSET_DIR}")
 
