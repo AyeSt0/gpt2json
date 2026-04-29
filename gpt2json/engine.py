@@ -177,17 +177,17 @@ def _diagnose_failure(result: AttemptResult) -> tuple[str, str]:
     if lowered in {"invalid_credentials"}:
         return "凭据无效", "服务端明确返回凭据无效；请检查 GPT/OpenAI 登录邮箱和登录密码。"
     if reason == "wrong_email_otp_code":
-        return "验证码错误或过期", "取码源可能返回了旧验证码。客户端会自动重试并追加自动重跑；如果仍失败，通常需要稍后等待新验证码。"
+        return "验证码错误或过期", "取码源可能返回了旧验证码。客户端会先自动重试，再进入单账号自动重跑补救；如果仍失败，通常需要稍后等待新验证码。"
     if status == "otp_timeout" or reason == "otp_timeout":
         return "未获取到验证码", "请确认取码源可访问，或在高级选项中适当增加验证码等待超时。"
     if status == "email_otp_validate_error":
         return "验证码提交失败", "验证码接口拒绝了当前验证码；通常是旧码、过期码或取码源延迟。"
     if stage == "finalize" or status == "finalize_error":
         if "timeout" in lowered or "timed out" in lowered or "curl: (28)" in lowered:
-            return "Callback 换 JSON 超时", "客户端已自动重试并追加自动重跑；如果仍失败，建议调高 HTTP 请求超时或稍后再让客户端自动处理。"
-        return "Callback 换 JSON 未完成", "登录和验证码已通过，但最后换取 JSON 未完成；客户端会优先自动重跑可恢复失败。"
+            return "Callback 换 JSON 超时", "客户端已自动重试并进入单账号自动重跑补救；如果仍失败，建议调高 HTTP 请求超时或稍后再让客户端自动处理。"
+        return "Callback 换 JSON 未完成", "登录和验证码已通过，但最后换取 JSON 未完成；客户端会优先对可恢复失败执行自动重跑补救。"
     if "timeout" in lowered or "timed out" in lowered or "curl: (28)" in lowered:
-        return "网络请求超时", "客户端已自动重试并追加自动重跑；如果仍失败，请调高 HTTP 请求超时或稍后再运行。"
+        return "网络请求超时", "客户端已自动重试并进入单账号自动重跑补救；如果仍失败，请调高 HTTP 请求超时或稍后再运行。"
     if reason.startswith("http_"):
         return "接口返回异常", f"服务端返回 {reason.replace('http_', 'HTTP ')}；建议稍后重试。"
     if status == "export_prepare_error":

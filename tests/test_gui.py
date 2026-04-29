@@ -202,7 +202,10 @@ def test_gui_input_mode_switch_and_clear(tmp_path):
 def test_gui_shows_failed_rerun_entry_from_summary(tmp_path, monkeypatch):
     _clear_settings()
     app = _app()
-    monkeypatch.setattr(gui_module.QMessageBox, "information", lambda *args, **kwargs: gui_module.QMessageBox.StandardButton.Ok)
+    information_calls = []
+    scheduled_callbacks = []
+    monkeypatch.setattr(gui_module.QMessageBox, "information", lambda *args, **kwargs: information_calls.append(args) or gui_module.QMessageBox.StandardButton.Ok)
+    monkeypatch.setattr(gui_module.QTimer, "singleShot", lambda _msec, callback: scheduled_callbacks.append(callback))
     rerun_file = tmp_path / "failed_rerun.secret.txt"
     rerun_file.write_text("retry@example.com----pass----https://otp.test/{email}\n", encoding="utf-8")
     failure_report = tmp_path / "failure_report.safe.json"
@@ -233,8 +236,49 @@ def test_gui_shows_failed_rerun_entry_from_summary(tmp_path, monkeypatch):
     assert window._last_failed_rerun_file == str(rerun_file)
     assert window.rerun_failed_btn.isVisible()
     assert window.rerun_failed_btn.isEnabled()
+    assert window._batch_auto_rerun_used
+    assert len(scheduled_callbacks) == 1
+    assert information_calls == []
     log_text = window.log_edit.toPlainText()
     assert "可恢复失败清单" in log_text
+    assert "批次级自动补跑" in log_text
+    assert "重跑失败账号" in log_text
+
+    window.close()
+    _clear_settings()
+
+
+def test_gui_batch_auto_rerun_does_not_loop_after_default_once(tmp_path, monkeypatch):
+    _clear_settings()
+    app = _app()
+    information_calls = []
+    scheduled_callbacks = []
+    monkeypatch.setattr(gui_module.QMessageBox, "information", lambda *args, **kwargs: information_calls.append(args) or gui_module.QMessageBox.StandardButton.Ok)
+    monkeypatch.setattr(gui_module.QTimer, "singleShot", lambda _msec, callback: scheduled_callbacks.append(callback))
+    rerun_file = tmp_path / "failed_rerun.secret.txt"
+    rerun_file.write_text("retry@example.com----pass----https://otp.test/{email}\n", encoding="utf-8")
+
+    window = MainWindow()
+    window.output_edit.setText(str(tmp_path / "out"))
+    window._batch_auto_rerun_used = True
+    window.show()
+    app.processEvents()
+
+    window.on_done(
+        {
+            "success_count": 0,
+            "failure_count": 1,
+            "cancelled": False,
+            "failed_rerun_file": str(rerun_file),
+            "rerunnable_failure_count": 1,
+            "failure_categories": {"验证码错误或过期": 1},
+        }
+    )
+
+    assert scheduled_callbacks == []
+    assert information_calls
+    log_text = window.log_edit.toPlainText()
+    assert "已达到默认 1 次上限" in log_text
     assert "重跑失败账号" in log_text
 
     window.close()
@@ -266,6 +310,45 @@ def test_gui_rerun_failed_accounts_loads_secret_text_and_autostarts(tmp_path, mo
     assert window.paste_edit.toPlainText().strip() == raw_line
     assert _wait_until(app, lambda: called["start"] == 1 and not window._pending_failed_rerun_autostart)
     assert window._last_preflight_count == 1
+    assert "重跑失败账号" in window.log_edit.toPlainText()
+
+    window.close()
+    _clear_settings()
+
+
+def test_gui_batch_auto_rerun_loads_secret_text_silently(tmp_path, monkeypatch):
+    _clear_settings()
+    app = _app()
+    info_calls = []
+    warning_calls = []
+    monkeypatch.setattr(gui_module.QMessageBox, "information", lambda *args, **kwargs: info_calls.append(args) or gui_module.QMessageBox.StandardButton.Ok)
+    monkeypatch.setattr(gui_module.QMessageBox, "warning", lambda *args, **kwargs: warning_calls.append(args) or gui_module.QMessageBox.StandardButton.Ok)
+    rerun_file = tmp_path / "failed_rerun.secret.txt"
+    raw_line = "retry@example.com----pass----https://otp.test/{email}"
+    rerun_file.write_text(raw_line + "\n", encoding="utf-8")
+
+    window = MainWindow()
+    window.output_edit.setText(str(tmp_path / "out"))
+    window._last_failed_rerun_file = str(rerun_file)
+    window.show()
+    app.processEvents()
+
+    called = {"start": 0}
+
+    def fake_start_run():
+        called["start"] += 1
+
+    monkeypatch.setattr(window, "start_run", fake_start_run)
+    window.rerun_failed_accounts(automatic=True)
+
+    assert window._input_mode == "paste"
+    assert window.paste_edit.toPlainText().strip() == raw_line
+    assert _wait_until(app, lambda: called["start"] == 1 and not window._pending_failed_rerun_autostart)
+    assert info_calls == []
+    assert warning_calls == []
+    log_text = window.log_edit.toPlainText()
+    assert "批次级自动补跑" in log_text
+    assert "预检查通过" in log_text
 
     window.close()
     _clear_settings()
