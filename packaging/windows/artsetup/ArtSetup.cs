@@ -313,8 +313,8 @@ namespace GPT2JSON.Setup
 
             var features = new WrapPanel();
             features.Children.Add(FeaturePill("◇", "号商格式"));
-            features.Children.Add(FeaturePill("@", "免登接码"));
-            features.Children.Add(FeaturePill("↘", "本地导出"));
+            features.Children.Add(FeaturePill("↘", "JSON导出"));
+            features.Children.Add(FeaturePill("✓", "本地处理"));
             Canvas.SetLeft(features, 410);
             Canvas.SetTop(features, 224);
             overlay.Children.Add(features);

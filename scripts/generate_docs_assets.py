@@ -136,7 +136,7 @@ def create_hero() -> None:
     # Minimal capability row: fine separators instead of heavy badges.
     cap_layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
     cap_draw = ImageDraw.Draw(cap_layer)
-    cap_specs = [(151, "号商格式", "#60A5FA"), (318, "免登接码", "#22D3EE"), (500, "Sub2API", "#A78BFA"), (676, "CPA", "#34D399"), (786, "批次隔离", "#93C5FD")]
+    cap_specs = [(151, "号商格式", "#60A5FA"), (318, "本地导出", "#22D3EE"), (484, "Sub2API", "#A78BFA"), (660, "CPA", "#34D399"), (770, "批次隔离", "#93C5FD")]
     for index, (x, label, color) in enumerate(cap_specs):
         cap_draw.ellipse((x, 584, x + 10, 594), fill=color)
         cap_draw.text((x + 19, 574), label, font=font(22, bold=True), fill=(226, 239, 255, 218))
@@ -245,8 +245,8 @@ def create_installer_preview() -> None:
             draw.text((px + int(36 * sx), py + int(8 * sy)), label, font=pill_font, fill="#E8F0FF")
 
         installer_pill(486, "◇", "号商格式")
-        installer_pill(596, "@", "免登接码")
-        installer_pill(706, "↘", "本地导出")
+        installer_pill(596, "↘", "JSON导出")
+        installer_pill(706, "✓", "本地处理")
         img.convert("RGB").save(preview, quality=96)
         print(f"Preserved real installer screenshot and updated version badge: {preview}")
         return
