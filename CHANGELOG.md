@@ -21,6 +21,7 @@
 ### Changed
 
 - 统一 GUI 日志、失败诊断与文档术语：明确区分“自动重试”“自动重跑补救”“批次级自动补跑”和“重跑失败账号”。
+- 输出目录更面向普通用户：主结果目录只保留 `sub2api_accounts.secret.json`、`CPA_<批次>/` 和必要的 `failed_rerun.secret.txt`；`summary.json`、`results.safe.jsonl`、`cpa_manifest.json`、`failure_report.safe.json` 统一收纳到 `_diagnostics/`。
 
 ### Fixed
 

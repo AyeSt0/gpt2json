@@ -207,10 +207,14 @@ def batch_dir_from(summary: dict) -> Path:
     return Path(str(summary["out_dir"]))
 
 
+def diagnostics_dir_from(summary: dict) -> Path:
+    return Path(str(summary["diagnostics_dir"]))
+
+
 def safe_rows_from(summary: dict) -> list[dict]:
     return [
         json.loads(line)
-        for line in (batch_dir_from(summary) / "results.safe.jsonl").read_text(encoding="utf-8").splitlines()
+        for line in (diagnostics_dir_from(summary) / "results.safe.jsonl").read_text(encoding="utf-8").splitlines()
     ]
 
 
@@ -229,7 +233,18 @@ def test_run_export_writes_cpa_and_sub2api(tmp_path: Path):
     assert batch_dir.name.startswith("GPT2JSON_")
     assert summary["output_root"] == str(out_dir)
     assert summary["batch_id"] in batch_dir.name
-    assert (batch_dir / "cpa_manifest.json").exists()
+    assert diagnostics_dir_from(summary).parent == batch_dir
+    assert Path(summary["summary_file"]) == diagnostics_dir_from(summary) / "summary.json"
+    assert Path(summary["progress_file"]) == diagnostics_dir_from(summary) / "progress.json"
+    assert Path(summary["results_file"]) == diagnostics_dir_from(summary) / "results.safe.jsonl"
+    assert Path(summary["summary_file"]).exists()
+    assert Path(summary["progress_file"]).exists()
+    assert Path(summary["results_file"]).exists()
+    assert (diagnostics_dir_from(summary) / "cpa_manifest.json").exists()
+    assert not (batch_dir / "cpa_manifest.json").exists()
+    assert not (batch_dir / "summary.json").exists()
+    assert not (batch_dir / "progress.json").exists()
+    assert not (batch_dir / "results.safe.jsonl").exists()
     assert (batch_dir / "sub2api_accounts.secret.json").exists()
     cpa_dir = Path(str(summary["cpa_dir"]))
     assert cpa_dir.parent == batch_dir
@@ -245,7 +260,7 @@ def test_run_export_writes_cpa_and_sub2api(tmp_path: Path):
     assert set(sub_payload) == {"proxies", "accounts"}
     assert sub_payload["accounts"][0]["credentials"]["client_id"]
     assert sub_payload["accounts"][0]["credentials"]["expires_in"] == 863999
-    manifest = json.loads((batch_dir / "cpa_manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads((diagnostics_dir_from(summary) / "cpa_manifest.json").read_text(encoding="utf-8"))
     assert manifest["count"] == 2
     assert manifest["format"] == "cpa-per-account-json"
     assert manifest["directory"] == cpa_dir.name
@@ -261,6 +276,24 @@ def test_run_export_writes_cpa_and_sub2api(tmp_path: Path):
     assert validation["cpa"]["status"] == "可导入"
     assert validation["cpa"]["count"] == 2
     assert validation["cpa"]["issue_count"] == 0
+
+
+def test_run_export_keeps_user_result_root_clean(tmp_path: Path):
+    out_dir = tmp_path / "out"
+    summary = run_export(
+        ExportConfig(input_path="missing.txt", out_dir=str(out_dir), input_text=account_text(), concurrency=3),
+        client_factory=lambda: FakeClient(),
+    )
+
+    batch_dir = batch_dir_from(summary)
+    visible_names = {item.name for item in batch_dir.iterdir()}
+    assert visible_names == {
+        f"CPA_{summary['batch_id']}",
+        "sub2api_accounts.secret.json",
+        "_diagnostics",
+    }
+    diagnostics_names = {item.name for item in diagnostics_dir_from(summary).iterdir()}
+    assert diagnostics_names == {"cpa_manifest.json", "progress.json", "results.safe.jsonl", "summary.json", "failure_report.safe.json"}
 
 
 def test_run_export_accepts_pasted_input_and_auto_concurrency(tmp_path: Path):
@@ -296,7 +329,7 @@ def test_run_export_cpa_only(tmp_path: Path):
     assert cpa_dir.parent == batch_dir
     assert cpa_dir.name == f"CPA_{summary['batch_id']}"
     assert len(list(cpa_dir.glob("*.json"))) == 2
-    assert (batch_dir / "cpa_manifest.json").exists()
+    assert (diagnostics_dir_from(summary) / "cpa_manifest.json").exists()
     assert not list(batch_dir.glob("cpa_tokens_*.zip"))
     assert not (batch_dir / "sub2api_accounts.secret.json").exists()
     assert summary["export_validation"]["sub2api"]["selected"] is False
@@ -325,6 +358,7 @@ def test_run_export_sub2api_only(tmp_path: Path):
     assert not list(batch_dir.glob("CPA_*"))
     assert (batch_dir / "sub2api_accounts.secret.json").exists()
     assert not (batch_dir / "cpa_manifest.json").exists()
+    assert not (diagnostics_dir_from(summary) / "cpa_manifest.json").exists()
     assert summary["export_validation"]["sub2api"]["status"] == "可导入"
     assert summary["export_validation"]["cpa"]["selected"] is False
     assert summary["export_validation"]["cpa"]["status"] == ""
@@ -557,7 +591,7 @@ def test_run_export_keeps_previous_generated_artifacts_in_output_root(tmp_path: 
     assert stale_zip.exists()
     assert stale_results.read_text(encoding="utf-8") == '{"status":"old"}\n'
     assert stale_summary.exists()
-    safe_rows = (batch_dir_from(summary) / "results.safe.jsonl").read_text(encoding="utf-8").splitlines()
+    safe_rows = (diagnostics_dir_from(summary) / "results.safe.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(safe_rows) == 3
     assert all("old" not in row for row in safe_rows)
 
@@ -601,7 +635,7 @@ def test_run_export_does_not_overwrite_duplicate_cpa_account_filenames(tmp_path:
     cpa_dir = Path(str(summary["cpa_dir"]))
     cpa_files = sorted(cpa_dir.glob("*.json"))
     assert [item.name for item in cpa_files] == ["same@example.com.json", "same@example.com_002.json"]
-    manifest = json.loads((batch_dir_from(summary) / "cpa_manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads((diagnostics_dir_from(summary) / "cpa_manifest.json").read_text(encoding="utf-8"))
     assert manifest["directory"] == cpa_dir.name
     assert [item["file"] for item in manifest["files"]] == [
         f"{cpa_dir.name}/same@example.com.json",

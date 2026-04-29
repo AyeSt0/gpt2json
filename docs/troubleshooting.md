@@ -30,7 +30,7 @@ GPT邮箱----GPT密码----OTP取码源
 3. 批次级自动补跑后若仍有可恢复失败，GUI 中会保留“重跑失败账号”；
 4. 点击“重跑失败账号”后，客户端读取同一份 `failed_rerun.secret.txt`，只载入这批失败账号，预检查通过后作为新批次执行；
 5. 如果仍失败，再增大高级选项里的验证码等待超时或自动重跑补救次数；
-6. 检查 `failure_report.safe.json` 的分类和建议；
+6. 检查 `_diagnostics/failure_report.safe.json` 的分类和建议；
 7. 确认取码 URL 能返回当前账号的新验证码。
 
 如果取码源一次返回多个验证码，客户端会优先按时间字段选择最新验证码；没有时间字段时会更偏向后出现的验证码，并继续过滤登录前预取到的旧码。
@@ -51,7 +51,7 @@ GPT邮箱----GPT密码----OTP取码源
 - Sub2API：`accounts`、`credentials.access_token`、`credentials.refresh_token`、`client_id`、`expires_at`、`model_mapping` 等；
 - CPA：`type=codex`、`email`、`expired`、`access_token`、`refresh_token` 等。
 
-如果日志提示“不建议导入”，先不要导入目标系统。打开本次结果目录中的 `summary.json`，查看 `export_validation.errors`，然后重新导出或调整输入数据。
+如果日志提示“不建议导入”，先不要导入目标系统。打开本次结果目录中的 `_diagnostics/summary.json`，查看 `export_validation.errors`，然后重新导出或调整输入数据。
 
 ## `failed_rerun.secret.txt` 是什么
 
@@ -81,7 +81,7 @@ failed_rerun.secret.txt
 output/GPT2JSON_20260429_043512_a1b2c3/
 ```
 
-GUI 完成后点击“打开输出目录”会优先打开本次结果目录。CLI 可在 `summary.json` 中查看 `out_dir`。
+GUI 完成后点击“打开输出目录”会优先打开本次结果目录。CLI 可在 `_diagnostics/summary.json` 中查看 `out_dir`；普通导入只需要根目录的 `sub2api_accounts.secret.json` 和 / 或 `CPA_<批次>/`。
 
 ## CPA 文件是不是一个账号一个 JSON
 

@@ -280,7 +280,7 @@ def classify_log_line(text: str) -> str:
         return "account"
     if line.startswith(("🧭", "🔎", "🔍", "🧪", "🔄", "ℹ️", "✨", "👀", "🟢", "📄", "🧮")):
         return "info"
-    if line.startswith("🧾 失败诊断报告"):
+    if line.startswith(("🧾 失败诊断报告", "🧾 诊断目录")):
         return "output"
     if line.startswith(("📮", "📫", "📬", "🧾", "⌛")) or "验证码" in line:
         return "otp"
@@ -3293,11 +3293,12 @@ class MainWindow(QMainWindow):
             self.running_stat.set_value(self._running)
             self._update_progress()
 
-    def _append_export_validation_logs(self, validation: Any) -> None:
+    def _append_export_validation_logs(self, validation: Any, *, summary_file: str = "") -> None:
         if not isinstance(validation, dict) or not validation.get("checked"):
             return
         status = str(validation.get("status") or ("可导入" if validation.get("ok", True) else "不建议导入"))
         self.append_log(f"🔍 导出校验：已检查导出的 JSON 是否可导入，整体状态：{status}。")
+        detail = f"详情见 {summary_file}。" if summary_file else "详情见 _diagnostics/summary.json。"
         sub = validation.get("sub2api") if isinstance(validation.get("sub2api"), dict) else {}
         if sub.get("selected"):
             count = int(sub.get("count") or 0)
@@ -3305,7 +3306,7 @@ class MainWindow(QMainWindow):
                 self.append_log(f"✅ 导出校验：Sub2API JSON 可导入（{count} 个账号）。")
             else:
                 issue_count = int(sub.get("issue_count") or len(sub.get("errors") or []))
-                self.append_log(f"⚠️ 导出校验：Sub2API JSON 不建议导入（{issue_count} 个问题）；详情见 summary.json。")
+                self.append_log(f"⚠️ 导出校验：Sub2API JSON 不建议导入（{issue_count} 个问题）；{detail}")
         cpa = validation.get("cpa") if isinstance(validation.get("cpa"), dict) else {}
         if cpa.get("selected"):
             count = int(cpa.get("count") or 0)
@@ -3314,7 +3315,7 @@ class MainWindow(QMainWindow):
                 self.append_log(f"✅ 导出校验：CPA 单账号 JSON 可导入 {count}/{count} 个。")
             else:
                 not_recommended = min(count, issue_count) if count else issue_count
-                self.append_log(f"⚠️ 导出校验：CPA 单账号 JSON 不建议导入 {not_recommended}/{count} 个；详情见 summary.json。")
+                self.append_log(f"⚠️ 导出校验：CPA 单账号 JSON 不建议导入 {not_recommended}/{count} 个；{detail}")
 
     def on_done(self, summary: dict) -> None:
         self._set_running(False)
@@ -3337,6 +3338,8 @@ class MainWindow(QMainWindow):
         sub2api_path = str(summary.get("sub2api_export") or "")
         cpa_dir = str(summary.get("cpa_dir") or "")
         result_dir = str(summary.get("out_dir") or "")
+        diagnostics_dir = str(summary.get("diagnostics_dir") or "")
+        summary_file = str(summary.get("summary_file") or "")
         failure_report = str(summary.get("failure_report") or "")
         failed_rerun_file = str(summary.get("failed_rerun_file") or "")
         rerunnable_failure_count = int(summary.get("rerunnable_failure_count") or 0)
@@ -3360,7 +3363,7 @@ class MainWindow(QMainWindow):
             self.append_log(f"🎉 任务完成：成功 {success_count} 个，失败 {failure_count} 个。")
         if retry_count or auto_rerun_count:
             self.append_log(f"🧮 自动重试 / 自动重跑补救统计：{retry_count} 个账号触发自动重试，其中 {auto_rerun_count} 个进入自动重跑补救。")
-        self._append_export_validation_logs(summary.get("export_validation"))
+        self._append_export_validation_logs(summary.get("export_validation"), summary_file=summary_file)
         if failure_categories:
             parts = [f"{name} {count} 个" for name, count in failure_categories.items()]
             self.append_log(f"⚠️ 失败诊断：{'；'.join(parts)}。")
@@ -3374,6 +3377,8 @@ class MainWindow(QMainWindow):
             self.append_log(f"🧰 Sub2API 输出：{sub2api_path}")
         if result_dir:
             self.append_log(f"🗂️ 本次结果目录：{result_dir}")
+        if diagnostics_dir:
+            self.append_log(f"🧾 诊断目录：{diagnostics_dir}（普通导入只需要根目录 JSON 和 CPA 文件夹）")
         if cpa_path:
             if cpa_dir:
                 self.append_log(f"📚 CPA 单账号 JSON 目录：{cpa_dir}")

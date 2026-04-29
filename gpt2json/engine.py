@@ -327,6 +327,11 @@ def run_export(
     rows, input_source = _load_rows(config)
     output_root = Path(config.out_dir)
     batch_id, out_dir = _create_batch_output_dir(output_root)
+    diagnostics_dir = out_dir / "_diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    summary_file = diagnostics_dir / "summary.json"
+    progress_file = diagnostics_dir / "progress.json"
+    results_file = diagnostics_dir / "results.safe.jsonl"
     concurrency = resolve_concurrency(config.concurrency, len(rows))
     max_attempts = max(1, min(5, int(config.max_attempts or 1)))
     auto_rerun_attempts = max(0, min(5, int(config.auto_rerun_attempts or 0)))
@@ -337,6 +342,10 @@ def run_export(
         "output_root": str(output_root),
         "out_dir": str(out_dir),
         "batch_id": batch_id,
+        "diagnostics_dir": str(diagnostics_dir),
+        "summary_file": str(summary_file),
+        "progress_file": str(progress_file),
+        "results_file": str(results_file),
         "row_count": len(rows),
         "concurrency": concurrency,
         "concurrency_mode": "auto" if int(config.concurrency or 0) <= 0 else "manual",
@@ -350,7 +359,7 @@ def run_export(
         "auto_rerun_attempts": auto_rerun_attempts,
         "total_attempt_limit": total_attempt_limit,
     }
-    write_json(out_dir / "progress.json", summary)
+    write_json(progress_file, summary)
     emit(
         {
             "type": "started",
@@ -365,7 +374,7 @@ def run_export(
         summary["finished_at"] = utc_now_iso()
         summary["success_count"] = 0
         summary["error"] = "no_valid_rows"
-        write_json(out_dir / "summary.json", summary)
+        write_json(summary_file, summary)
         emit({"type": "finished", "summary": summary})
         return summary
 
@@ -495,7 +504,7 @@ def run_export(
                     else:
                         successes.append(token_payload)
                 results.append(result)
-                _append_jsonl(out_dir / "results.safe.jsonl", _safe_result_row(result, row_index=row_index))
+                _append_jsonl(results_file, _safe_result_row(result, row_index=row_index))
             status_line = f"[{result.status}] {mask_email(result.row.login_email)}"
             if result.reason:
                 status_line += f" | {result.reason}"
@@ -529,6 +538,7 @@ def run_export(
     cpa_validation_errors: list[str] = []
     cpa_dir_name = f"CPA_{run_stamp}"
     cpa_dir = out_dir / cpa_dir_name
+    cpa_manifest_path = diagnostics_dir / "cpa_manifest.json"
     for index, token_payload in enumerate(successes, 1):
         email = str(token_payload.get("email") or "").strip()
         if export_cpa:
@@ -562,7 +572,7 @@ def run_export(
     }
     if successes and export_cpa:
         write_json(
-            out_dir / "cpa_manifest.json",
+            cpa_manifest_path,
             {
                 "exported_at": utc_now_iso(),
                 "count": len(successes),
@@ -609,7 +619,12 @@ def run_export(
     summary["sub2api_export"] = str(out_dir / "sub2api_accounts.secret.json") if successes and export_sub2api else ""
     summary["cpa_dir"] = str(cpa_dir) if successes and export_cpa else ""
     summary["cpa_zip"] = ""
-    summary["cpa_manifest"] = str(out_dir / "cpa_manifest.json") if successes and export_cpa else ""
+    summary["cpa_manifest"] = str(cpa_manifest_path) if successes and export_cpa else ""
+    summary["user_outputs"] = {
+        "sub2api": summary["sub2api_export"],
+        "cpa_dir": summary["cpa_dir"],
+        "failed_rerun_file": "",
+    }
     summary["retry_count"] = retry_count
     summary["auto_rerun_count"] = auto_rerun_count
     summary["failure_categories"] = failure_categories
@@ -624,8 +639,9 @@ def run_export(
         summary["failed_rerun_file"] = str(rerun_path)
     else:
         summary["failed_rerun_file"] = ""
+    summary["user_outputs"]["failed_rerun_file"] = summary["failed_rerun_file"]
     if failure_rows:
-        failure_report_path = out_dir / "failure_report.safe.json"
+        failure_report_path = diagnostics_dir / "failure_report.safe.json"
         write_json(
             failure_report_path,
             {
@@ -643,8 +659,8 @@ def run_export(
         summary["failure_report"] = str(failure_report_path)
     else:
         summary["failure_report"] = ""
-    write_json(out_dir / "summary.json", summary)
-    write_json(out_dir / "progress.json", summary)
+    write_json(summary_file, summary)
+    write_json(progress_file, summary)
     if summary["cancelled"]:
         log(f"[cancelled] success={summary['success_count']} failure={summary['failure_count']}")
     else:
