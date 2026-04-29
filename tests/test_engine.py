@@ -178,6 +178,51 @@ class AlwaysRecoverableOtpClient(ProtocolLoginClient):
         )
 
 
+class FlakyEmptyReplyOtpClient(ProtocolLoginClient):
+    attempts_by_email: dict[str, int] = {}
+
+    def login_and_exchange(self, row, *, otp_fetcher, proxies=None):
+        del otp_fetcher, proxies
+        attempt = self.attempts_by_email.get(row.login_email, 0) + 1
+        self.attempts_by_email[row.login_email] = attempt
+        if attempt == 1:
+            return AttemptResult(
+                row=row,
+                status="runtime_error",
+                stage="email_verification",
+                reason=(
+                    "ConnectionError: Failed to perform, curl: (52) Empty reply from server. "
+                    "See https://curl.se/libcurl/c/libcurl-errors.html first for more details."
+                ),
+            )
+        token_json = json.dumps(
+            {
+                "access_token": "a.b.c",
+                "refresh_token": "refresh",
+                "account_id": f"acc-{row.line_no}",
+                "email": row.login_email,
+                "expired": "2026-04-27T00:00:00Z",
+            },
+            ensure_ascii=False,
+        )
+        return AttemptResult(row=row, status="success", stage="callback", token_json=token_json)
+
+
+class AlwaysEmptyReplyOtpClient(ProtocolLoginClient):
+    attempts_by_email: dict[str, int] = {}
+
+    def login_and_exchange(self, row, *, otp_fetcher, proxies=None):
+        del otp_fetcher, proxies
+        attempt = self.attempts_by_email.get(row.login_email, 0) + 1
+        self.attempts_by_email[row.login_email] = attempt
+        return AttemptResult(
+            row=row,
+            status="runtime_error",
+            stage="email_verification",
+            reason="ConnectionError: Failed to perform, curl: (52) Empty reply from server.",
+        )
+
+
 class AccountDeactivatedClient(ProtocolLoginClient):
     attempts_by_email: dict[str, int] = {}
 
@@ -531,6 +576,62 @@ def test_run_export_writes_failed_rerun_for_recoverable_final_failure(tmp_path: 
     assert report["rerunnable_count"] == 1
     assert report["rerun_file"] == "failed_rerun.secret.txt"
     assert "pass" not in json.dumps(report, ensure_ascii=False)
+
+
+def test_run_export_retries_otp_source_empty_reply(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("gpt2json.engine.time.sleep", lambda _seconds: None)
+    out_dir = tmp_path / "out"
+    FlakyEmptyReplyOtpClient.attempts_by_email = {}
+
+    summary = run_export(
+        ExportConfig(
+            input_path="missing.txt",
+            out_dir=str(out_dir),
+            input_text="ok@example.com----pass----https://otp.local/1",
+            concurrency=1,
+            max_attempts=3,
+        ),
+        client_factory=lambda: FlakyEmptyReplyOtpClient(),
+    )
+
+    assert summary["success_count"] == 1
+    assert summary["failure_count"] == 0
+    assert summary["retry_count"] == 1
+    assert FlakyEmptyReplyOtpClient.attempts_by_email["ok@example.com"] == 2
+
+
+def test_run_export_marks_persistent_empty_reply_as_rerunnable(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("gpt2json.engine.time.sleep", lambda _seconds: None)
+    out_dir = tmp_path / "out"
+    AlwaysEmptyReplyOtpClient.attempts_by_email = {}
+    raw_line = "ok@example.com----pass----https://otp.local/1"
+
+    summary = run_export(
+        ExportConfig(
+            input_path="missing.txt",
+            out_dir=str(out_dir),
+            input_text=raw_line,
+            concurrency=1,
+            max_attempts=2,
+            auto_rerun_attempts=0,
+        ),
+        client_factory=lambda: AlwaysEmptyReplyOtpClient(),
+    )
+
+    batch_dir = batch_dir_from(summary)
+    rerun_path = batch_dir / "failed_rerun.secret.txt"
+    assert summary["success_count"] == 0
+    assert summary["failure_count"] == 1
+    assert summary["retry_count"] == 1
+    assert summary["failure_categories"] == {"取码源空响应": 1}
+    assert summary["rerunnable_failure_count"] == 1
+    assert summary["non_rerunnable_failure_count"] == 0
+    assert summary["failed_rerun_file"] == str(rerun_path)
+    assert AlwaysEmptyReplyOtpClient.attempts_by_email["ok@example.com"] == 2
+    assert rerun_path.read_text(encoding="utf-8").splitlines() == [raw_line]
+    report = json.loads(Path(summary["failure_report"]).read_text(encoding="utf-8"))
+    assert report["rerunnable_count"] == 1
+    assert report["failures"][0]["category"] == "取码源空响应"
 
 
 def test_run_export_does_not_retry_terminal_account_state(tmp_path: Path):

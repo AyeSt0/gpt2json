@@ -141,8 +141,12 @@ def _is_recoverable_retryable(result: AttemptResult) -> bool:
         "timed out",
         "read operation timed out",
         "curl: (28)",
+        "curl: (52)",
+        "empty reply from server",
+        "server returned nothing",
         "connection reset",
         "connection aborted",
+        "connectionerror",
         "temporarily unavailable",
         "remote disconnected",
         "http_429",
@@ -186,6 +190,10 @@ def _diagnose_failure(result: AttemptResult) -> tuple[str, str]:
         if "timeout" in lowered or "timed out" in lowered or "curl: (28)" in lowered:
             return "Callback 换 JSON 超时", "客户端已自动重试并进入单账号自动重跑补救；如果仍失败，建议调高 HTTP 请求超时，后续可由批次级自动补跑继续处理。"
         return "Callback 换 JSON 未完成", "登录和验证码已通过，但最后换取 JSON 未完成；客户端会优先对可恢复失败执行自动重跑补救。"
+    if "empty reply from server" in lowered or "curl: (52)" in lowered or "server returned nothing" in lowered:
+        if stage == "email_verification":
+            return "取码源空响应", "取码源连接成功但返回空响应或中途断开；客户端会自动重试和补跑。若仍失败，建议降低并发或稍后再跑。"
+        return "网络空响应", "远端返回空响应或中途断开；客户端会自动重试和补跑。若仍失败，建议降低并发或稍后再跑。"
     if "timeout" in lowered or "timed out" in lowered or "curl: (28)" in lowered:
         return "网络请求超时", "客户端已自动重试并进入单账号自动重跑补救；如果仍失败，请调高 HTTP 请求超时或稍后再运行。"
     if reason.startswith("http_"):

@@ -2551,6 +2551,7 @@ class MainWindow(QMainWindow):
         failure_report = str(summary.get("failure_report") or "")
         failed_rerun_file = str(summary.get("failed_rerun_file") or "")
         rerunnable_failure_count = int(summary.get("rerunnable_failure_count") or 0)
+        non_rerunnable_failure_count = int(summary.get("non_rerunnable_failure_count") or 0)
         failure_categories = summary.get("failure_categories") if isinstance(summary.get("failure_categories"), dict) else {}
         retry_count = int(summary.get("retry_count") or 0)
         auto_rerun_count = int(summary.get("auto_rerun_count") or 0)
@@ -2576,11 +2577,13 @@ class MainWindow(QMainWindow):
             parts = [f"{name} {count} 个" for name, count in failure_categories.items()]
             self.append_log(f"⚠️ 失败诊断：{'；'.join(parts)}。")
             terminal_count = sum(int(failure_categories.get(name, 0) or 0) for name in ("账号状态不可用", "账号被锁定", "账号不存在", "凭据无效"))
-            recoverable_left = max(0, failure_count - terminal_count - cancelled_count)
+            unretryable_count = max(0, non_rerunnable_failure_count - terminal_count - cancelled_count)
             if terminal_count:
                 self.append_log(f"🚫 终态账号：{terminal_count} 个账号已被服务端明确拒绝，客户端不会继续消耗重跑次数。")
-            if recoverable_left and not cancelled and not self._last_failed_rerun_file:
-                self.append_log(f"🟡 可恢复失败：{recoverable_left} 个账号已达到当前自动重试与自动重跑补救上限；可增加自动重跑补救次数或降低并发后再次开始。")
+            if rerunnable_failure_count and not cancelled and not self._last_failed_rerun_file:
+                self.append_log(f"🟡 可恢复失败：{rerunnable_failure_count} 个账号已达到当前自动重试与自动重跑补救上限；可增加自动重跑补救次数或降低并发后再次开始。")
+            if unretryable_count and not cancelled:
+                self.append_log(f"🧯 未自动补跑：{unretryable_count} 个失败暂未归类为可恢复，请查看失败诊断报告后处理。")
         if sub2api_path:
             self.append_log(f"🧰 Sub2API 输出：{sub2api_path}")
         if result_dir:

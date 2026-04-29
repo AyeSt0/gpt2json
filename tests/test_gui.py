@@ -297,6 +297,39 @@ def test_gui_batch_auto_rerun_does_not_loop_after_default_once(tmp_path, monkeyp
     _clear_settings()
 
 
+def test_gui_does_not_call_non_rerunnable_runtime_error_recoverable(tmp_path, monkeypatch):
+    _clear_settings()
+    app = _app()
+    information_calls = []
+    monkeypatch.setattr(gui_module.QMessageBox, "information", lambda *args, **kwargs: information_calls.append(args) or gui_module.QMessageBox.StandardButton.Ok)
+
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+
+    window.on_done(
+        {
+            "success_count": 0,
+            "failure_count": 2,
+            "cancelled": False,
+            "cancelled_count": 0,
+            "failed_rerun_file": "",
+            "rerunnable_failure_count": 0,
+            "non_rerunnable_failure_count": 2,
+            "failure_categories": {"运行异常": 2},
+            "failure_report": str(tmp_path / "failure_report.safe.json"),
+        }
+    )
+
+    log_text = window.log_edit.toPlainText()
+    assert "可恢复失败：2 个账号" not in log_text
+    assert "未自动补跑：2 个失败暂未归类为可恢复" in log_text
+    assert information_calls
+
+    window.close()
+    _clear_settings()
+
+
 def test_gui_rerun_failed_accounts_loads_secret_text_and_autostarts(tmp_path, monkeypatch):
     _clear_settings()
     app = _app()
