@@ -198,6 +198,8 @@ GPT2JSON 的目标是让客户端尽可能自动处理可恢复问题：
 | `GPT2JSON-Setup-v0.1.5.exe` | 普通用户 | 定制安装界面 + 标准安装核心；安装到所选目录下的 `GPT2JSON` 子目录。 |
 | `GPT2JSON-v0.1.5-windows-x64.zip` | 便携 / 临时使用 | 解压后运行 `GPT2JSON.exe`，不需要安装。 |
 
+安装器会读取 Windows 标准卸载项：如果检测到本机已安装 GPT2JSON，会默认使用原安装目录，并切换为升级 / 修复模式。
+
 运行偏好保存到 `%LOCALAPPDATA%\GPT2JSON\settings.ini`。GUI 本身不写入业务注册表；安装器只创建 Windows 标准卸载项和快捷方式。需要完全免安装时，使用 ZIP 便携包即可。
 
 ## ✦ 路线图

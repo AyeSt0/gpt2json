@@ -11,6 +11,7 @@ using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using Microsoft.Win32;
 using Brushes = System.Windows.Media.Brushes;
 using Button = System.Windows.Controls.Button;
 using MessageBox = System.Windows.MessageBox;
@@ -41,11 +42,15 @@ namespace GPT2JSON.Setup
         private readonly TextBlock _status;
         private readonly Button _closeButton;
         private readonly Button _minButton;
+        private readonly InstalledAppInfo _existingInstall;
+        private readonly bool _upgradeMode;
         private bool _installCompleted;
 
         public InstallerWindow()
         {
-            Title = AppName + " " + Version + " 安装";
+            _existingInstall = InstalledAppInfo.Detect();
+            _upgradeMode = _existingInstall != null;
+            Title = AppName + " " + Version + (_upgradeMode ? " 升级" : " 安装");
             Width = 1120;
             Height = 640;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -115,8 +120,7 @@ namespace GPT2JSON.Setup
             _closeButton = FindName("CloseButton") as Button;
             _minButton = FindName("MinButton") as Button;
 
-            if (_dirBox != null)
-                _dirBox.Text = EnsureAppInstallPath(DefaultInstallPath());
+            ApplyInstallMode();
             if (_installButton != null)
                 _installButton.Click += async delegate
                 {
@@ -138,6 +142,48 @@ namespace GPT2JSON.Setup
                 Motion.PlayEntrance(shell, 120);
                 Motion.PulseDropShadow(shellArt.Effect as DropShadowEffect, 0.34, 0.52, 3200, 600);
             };
+        }
+
+        private void ApplyInstallMode()
+        {
+            var title = FindName("ModeTitleText") as TextBlock;
+            var label = FindName("InstallPathLabel") as TextBlock;
+            string installPath = _upgradeMode && !string.IsNullOrWhiteSpace(_existingInstall.InstallLocation)
+                ? _existingInstall.InstallLocation
+                : DefaultInstallPath();
+
+            if (_dirBox != null)
+                _dirBox.Text = EnsureAppInstallPath(installPath);
+
+            if (!_upgradeMode)
+            {
+                if (title != null) title.Text = "安装";
+                if (label != null) label.Text = "安装位置";
+                if (_installButton != null) _installButton.Content = "开始";
+                if (_status != null) _status.Text = "准备就绪：选择目录后即可开始安装。";
+                return;
+            }
+
+            string installedVersion = string.IsNullOrWhiteSpace(_existingInstall.DisplayVersion)
+                ? "旧版本"
+                : NormalizeVersionLabel(_existingInstall.DisplayVersion);
+            bool sameVersion = string.Equals(installedVersion, Version, StringComparison.OrdinalIgnoreCase);
+            if (title != null) title.Text = sameVersion ? "修复" : "升级";
+            if (label != null) label.Text = "安装位置（已检测到）";
+            if (_installButton != null) _installButton.Content = sameVersion ? "修复" : "升级";
+            if (_status != null)
+            {
+                _status.Text = sameVersion
+                    ? "检测到已安装 " + installedVersion + "，可覆盖修复当前安装。"
+                    : "检测到已安装 " + installedVersion + "，将覆盖升级到 " + Version + "。";
+            }
+        }
+
+        private static string NormalizeVersionLabel(string version)
+        {
+            string value = (version ?? string.Empty).Trim();
+            if (value.Length == 0) return "旧版本";
+            return value.StartsWith("v", StringComparison.OrdinalIgnoreCase) ? value : "v" + value;
         }
 
         private Geometry OuterShellGeometry()
@@ -253,12 +299,14 @@ namespace GPT2JSON.Setup
 
             var title = new TextBlock
             {
+                Name = "ModeTitleText",
                 Text = "安装",
                 Foreground = Brushes.White,
                 FontSize = 43,
                 FontWeight = FontWeights.Bold,
                 Effect = new DropShadowEffect { BlurRadius = 18, ShadowDepth = 0, Color = Color.FromRgb(43, 137, 255), Opacity = 0.18 }
             };
+            RegisterName(title.Name, title);
             Canvas.SetLeft(title, 410);
             Canvas.SetTop(title, 154);
             overlay.Children.Add(title);
@@ -273,11 +321,13 @@ namespace GPT2JSON.Setup
 
             var label = new TextBlock
             {
+                Name = "InstallPathLabel",
                 Text = "安装位置",
                 Foreground = new SolidColorBrush(Color.FromRgb(231, 240, 255)),
                 FontSize = 15,
                 FontWeight = FontWeights.SemiBold
             };
+            RegisterName(label.Name, label);
             Canvas.SetLeft(label, 410);
             Canvas.SetTop(label, 292);
             overlay.Children.Add(label);
@@ -522,12 +572,12 @@ namespace GPT2JSON.Setup
             string installDir = EnsureAppInstallPath(_dirBox.Text);
             _dirBox.Text = installDir;
 
-            SetBusy(true, "正在释放安装核心…", 18);
+            SetBusy(true, _upgradeMode ? "正在准备升级核心…" : "正在释放安装核心…", 18);
             try
             {
                 string installerPath = ExtractInstaller();
                 Directory.CreateDirectory(installDir);
-                SetBusy(true, "安装核心已就绪，正在写入文件…", 42);
+                SetBusy(true, _upgradeMode ? "升级核心已就绪，正在覆盖写入文件…" : "安装核心已就绪，正在写入文件…", 42);
                 int code = await Task.Run(delegate
                 {
                     var psi = new ProcessStartInfo
@@ -546,14 +596,14 @@ namespace GPT2JSON.Setup
                     throw new InvalidOperationException("安装核心返回错误码：" + code);
 
                 _installCompleted = true;
-                SetBusy(false, "安装完成：GPT2JSON 已准备好。", 100);
+                SetBusy(false, _upgradeMode ? "升级完成：GPT2JSON 已更新。" : "安装完成：GPT2JSON 已准备好。", 100);
                 SetCompletedState();
                 TryLaunchInstalledApp();
             }
             catch (Exception ex)
             {
-                SetBusy(false, "安装失败：" + ex.Message, 0);
-                MessageBox.Show(ex.Message, AppName + " 安装失败", MessageBoxButton.OK, MessageBoxImage.Error);
+                SetBusy(false, (_upgradeMode ? "升级失败：" : "安装失败：") + ex.Message, 0);
+                MessageBox.Show(ex.Message, AppName + (_upgradeMode ? " 升级失败" : " 安装失败"), MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -618,6 +668,89 @@ namespace GPT2JSON.Setup
                 image.Freeze();
                 return image;
             }
+        }
+    }
+
+    internal sealed class InstalledAppInfo
+    {
+        private const string UninstallSubKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\{F3E03F2D-1CB1-4A63-98D1-0E19E1E20321}_is1";
+
+        public string InstallLocation { get; private set; }
+        public string DisplayVersion { get; private set; }
+
+        public static InstalledAppInfo Detect()
+        {
+            return DetectInView(RegistryHive.CurrentUser, RegistryView.Default)
+                ?? DetectInView(RegistryHive.LocalMachine, RegistryView.Registry64)
+                ?? DetectInView(RegistryHive.LocalMachine, RegistryView.Registry32);
+        }
+
+        private static InstalledAppInfo DetectInView(RegistryHive hive, RegistryView view)
+        {
+            try
+            {
+                using (var root = RegistryKey.OpenBaseKey(hive, view))
+                using (var key = root.OpenSubKey(UninstallSubKey))
+                {
+                    if (key == null) return null;
+
+                    string location = ReadString(key, "InstallLocation");
+                    string uninstall = ReadString(key, "UninstallString");
+                    if (string.IsNullOrWhiteSpace(location))
+                        location = InferInstallLocationFromUninstallString(uninstall);
+                    if (string.IsNullOrWhiteSpace(location))
+                        return null;
+
+                    return new InstalledAppInfo
+                    {
+                        InstallLocation = location.Trim().Trim('"'),
+                        DisplayVersion = ReadString(key, "DisplayVersion")
+                    };
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static string ReadString(RegistryKey key, string name)
+        {
+            object value = key.GetValue(name);
+            return value == null ? string.Empty : Convert.ToString(value);
+        }
+
+        private static string InferInstallLocationFromUninstallString(string uninstall)
+        {
+            string path = ExtractExecutablePath(uninstall);
+            if (string.IsNullOrWhiteSpace(path)) return string.Empty;
+            try
+            {
+                string dir = System.IO.Path.GetDirectoryName(path);
+                if (string.Equals(System.IO.Path.GetFileName(dir), ".uninstall", StringComparison.OrdinalIgnoreCase))
+                    return System.IO.Path.GetDirectoryName(dir);
+                return dir;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private static string ExtractExecutablePath(string command)
+        {
+            string value = (command ?? string.Empty).Trim();
+            if (value.Length == 0) return string.Empty;
+            if (value[0] == '"')
+            {
+                int end = value.IndexOf('"', 1);
+                return end > 1 ? value.Substring(1, end - 1) : string.Empty;
+            }
+
+            int exeIndex = value.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
+            if (exeIndex >= 0)
+                return value.Substring(0, exeIndex + 4).Trim();
+            return value;
         }
     }
 

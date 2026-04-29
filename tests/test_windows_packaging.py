@@ -16,6 +16,8 @@ def test_windows_installer_exposes_default_names_only():
     assert "UninstallFilesDir={app}\\.uninstall" in inno
     assert 'Source: "packaging\\windows\\build\\GPT2JSON-Uninstall.exe"' in inno
     assert "WrapperUninstaller := ExpandConstant('{app}\\GPT2JSON-Uninstall.exe')" in inno
+    assert "RegWriteStringValue(HKCU, UninstallKey, 'InstallLocation', ExpandConstant('{app}'))" in inno
+    assert "RegWriteStringValue(HKCU, UninstallKey, 'DisplayVersion', '{#MyAppVersion}')" in inno
     assert "release\\GPT2JSON-Setup-v$appVersion.exe" in wrapper_builder
     assert "packaging\\windows\\build\\GPT2JSON-CoreSetup-v$appVersion.exe" in wrapper_builder
     assert 'if ($sourceText -notmatch [regex]::Escape(\'"GPT2JSON-CoreSetup-" + Version + ".exe"\'))' in wrapper_builder
@@ -28,6 +30,19 @@ def test_windows_installer_exposes_default_names_only():
     assert "--hidden-import gpt2json.gui" in portable_builder
     assert "--collect-submodules gpt2json" in portable_builder
     assert "gpt2json\\.gui" in portable_builder
+
+
+def test_art_installer_detects_existing_install_for_upgrade_mode():
+    source = (ROOT / "packaging" / "windows" / "artsetup" / "ArtSetup.cs").read_text(encoding="utf-8-sig")
+
+    assert "InstalledAppInfo.Detect()" in source
+    assert "CurrentVersion\\Uninstall\\{F3E03F2D-1CB1-4A63-98D1-0E19E1E20321}_is1" in source
+    assert 'ReadString(key, "InstallLocation")' in source
+    assert 'ReadString(key, "DisplayVersion")' in source
+    assert 'Name = "ModeTitleText"' in source
+    assert 'Name = "InstallPathLabel"' in source
+    assert 'title.Text = sameVersion ? "修复" : "升级"' in source
+    assert '将覆盖升级到 " + Version' in source
 
 
 def test_public_uninstaller_wrapper_delegates_to_private_inno_core():

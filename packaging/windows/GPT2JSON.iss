@@ -153,6 +153,10 @@ begin
     QuotedWrapperUninstaller := '"' + WrapperUninstaller + '"';
     if FileExists(WrapperUninstaller) then
     begin
+      RegWriteStringValue(HKCU, UninstallKey, 'DisplayName', '{#MyAppName}');
+      RegWriteStringValue(HKCU, UninstallKey, 'DisplayVersion', '{#MyAppVersion}');
+      RegWriteStringValue(HKCU, UninstallKey, 'Publisher', '{#MyAppPublisher}');
+      RegWriteStringValue(HKCU, UninstallKey, 'InstallLocation', ExpandConstant('{app}'));
       RegWriteStringValue(HKCU, UninstallKey, 'UninstallString', QuotedWrapperUninstaller);
       RegWriteStringValue(HKCU, UninstallKey, 'QuietUninstallString', QuotedWrapperUninstaller + ' /silent');
     end;

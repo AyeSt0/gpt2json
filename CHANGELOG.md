@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- 安装器外壳新增已安装检测：发现本机已有 GPT2JSON 时会默认使用原安装目录，并切换为“升级 / 修复”模式。
+
 ### Planned
 
 - IMAP / IMAP XOAUTH2、Graph、JMAP、POP3、Provider API 等邮箱取码 backend。
