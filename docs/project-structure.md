@@ -14,7 +14,9 @@ gpt2json/
 │  ├─ engine.py                # 批量导出引擎：并发、重试、输出目录
 │  ├─ formats.py               # Sub2API / CPA JSON 构建与校验
 │  ├─ gui.py                   # PySide6 中文桌面界面
+│  ├─ gui_file_dialog.py       # 非原生文件选择器中文化与样式
 │  ├─ gui_log_style.py         # GUI 日志颜色与分类规则
+│  ├─ gui_paths.py             # GUI 设置路径、默认输出目录和单实例锁路径
 │  ├─ gui_resources.py         # GUI 应用常量与素材路径
 │  ├─ gui_theme.py             # 深浅色主题 token
 │  ├─ mail_backends.py         # IMAP / Graph / JMAP / POP3 / API backend 抽象
