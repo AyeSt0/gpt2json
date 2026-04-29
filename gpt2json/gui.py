@@ -1044,6 +1044,8 @@ class MainWindow(QMainWindow):
         self._last_preflight_source = ""
         self._last_preflight_snapshot_key = ""
         self._last_result_dir = ""
+        self._last_failed_rerun_file = ""
+        self._pending_failed_rerun_autostart = False
         self._preflight_seq = 0
         self._preflight_running = False
         self._log_waiting = True
@@ -1364,6 +1366,11 @@ class MainWindow(QMainWindow):
         self.run_btn = QPushButton("开始导出")
         self.run_btn.setObjectName("PrimaryButton")
         self.run_btn.clicked.connect(self.start_run)
+        self.rerun_failed_btn = QPushButton("重跑失败账号")
+        self.rerun_failed_btn.setObjectName("SecondaryButton")
+        self.rerun_failed_btn.setToolTip("只读取上次生成的 failed_rerun.secret.txt，作为新批次自动重跑可恢复失败账号。")
+        self.rerun_failed_btn.setVisible(False)
+        self.rerun_failed_btn.clicked.connect(self.rerun_failed_accounts)
         self.cancel_btn = QPushButton("取消")
         self.cancel_btn.setObjectName("SecondaryButton")
         self.cancel_btn.setToolTip("请求取消当前导出；已在执行的账号会在安全点收尾。")
@@ -1373,6 +1380,7 @@ class MainWindow(QMainWindow):
         self.open_out_btn.clicked.connect(self.open_output_dir)
         buttons.addWidget(self.preflight_btn, 1)
         buttons.addWidget(self.run_btn, 2)
+        buttons.addWidget(self.rerun_failed_btn, 2)
         buttons.addWidget(self.cancel_btn, 1)
         buttons.addWidget(self.open_out_btn, 1)
         layout.addLayout(buttons)
@@ -2243,6 +2251,41 @@ class MainWindow(QMainWindow):
         self._reset_counts(0)
         self._set_status("就绪", "ready")
 
+    def _read_failed_rerun_text(self) -> str:
+        path_text = str(self._last_failed_rerun_file or "").strip()
+        if not path_text:
+            return ""
+        path = Path(path_text)
+        if not path.exists() or not path.is_file():
+            return ""
+        return path.read_text(encoding="utf-8").strip()
+
+    def rerun_failed_accounts(self) -> None:
+        if self._is_running:
+            return
+        try:
+            text = self._read_failed_rerun_text()
+        except Exception as exc:
+            self._last_failed_rerun_file = ""
+            self._pending_failed_rerun_autostart = False
+            self._refresh_controls_state()
+            QMessageBox.warning(self, "无法读取失败清单", f"失败账号重跑清单读取失败：{type(exc).__name__}: {exc}")
+            return
+        if not text:
+            self._last_failed_rerun_file = ""
+            self._pending_failed_rerun_autostart = False
+            self._refresh_controls_state()
+            QMessageBox.information(self, "没有可重跑账号", "没有找到可恢复失败账号清单，或清单已经不存在。")
+            return
+        count = len([line for line in text.splitlines() if line.strip()])
+        self._pending_failed_rerun_autostart = True
+        self._input_mode = "paste"
+        self.paste_edit.setPlainText(text)
+        self._refresh_input_mode()
+        self._set_status("准备重跑", "warning")
+        self.append_log(f"🔄 已载入 {count} 个可恢复失败账号，预检查通过后会自动作为新批次重跑。")
+        self.preflight(silent=True)
+
     def copy_log(self) -> None:
         QApplication.clipboard().setText(self.log_edit.toPlainText())
         self._set_status("日志已复制", "done")
@@ -2264,9 +2307,13 @@ class MainWindow(QMainWindow):
         has_output = bool(self.output_edit.text().strip())
         has_input = self._has_active_input()
         has_valid_rows = self._last_preflight_count > 0 and not self._last_preflight_error
+        has_failed_rerun = bool(str(getattr(self, "_last_failed_rerun_file", "") or "").strip())
         can_start = (not self._is_running) and (not self._preflight_running) and output_selected and has_output and has_input and has_valid_rows
         self.run_btn.setEnabled(can_start)
         self.run_btn.setText("取消中..." if self._is_cancelling else "开始导出")
+        if hasattr(self, "rerun_failed_btn"):
+            self.rerun_failed_btn.setVisible(has_failed_rerun)
+            self.rerun_failed_btn.setEnabled(has_failed_rerun and not self._is_running and not self._preflight_running and output_selected and has_output)
         self.cancel_btn.setVisible(self._is_running)
         self.cancel_btn.setEnabled(self._is_running and not self._is_cancelling)
         self.cancel_btn.setText("取消中..." if self._is_cancelling else "取消")
@@ -2293,6 +2340,7 @@ class MainWindow(QMainWindow):
             self.otp_timeout_spin,
             self.otp_interval_spin,
             self.max_attempts_spin,
+            self.auto_rerun_spin,
         ):
             widget.setEnabled(not self._is_running)
         self.open_out_btn.setEnabled(bool(has_output))
@@ -2683,6 +2731,7 @@ class MainWindow(QMainWindow):
             self._last_preflight_count = 0
             self._last_preflight_raw_count = 0
             self._last_preflight_error = error
+            self._pending_failed_rerun_autostart = False
             self._set_status("等待修正" if silent else "预检查失败", "warning" if silent else "failed")
             self._refresh_controls_state()
             if not silent:
@@ -2693,6 +2742,7 @@ class MainWindow(QMainWindow):
             self._last_preflight_raw_count = 0
             self._last_preflight_error = ""
             self._reset_counts(0)
+            self._pending_failed_rerun_autostart = False
             self._set_status("就绪", "ready")
             self._refresh_controls_state()
             if not silent:
@@ -2707,6 +2757,15 @@ class MainWindow(QMainWindow):
         else:
             self._set_status("等待有效行" if silent else "无有效行", "warning")
         self._refresh_controls_state()
+        if self._pending_failed_rerun_autostart:
+            if row_count > 0:
+                self._pending_failed_rerun_autostart = False
+                self.append_log(f"✅ 失败账号清单预检查通过：识别到 {row_count} 个账号，开始自动重跑。")
+                QTimer.singleShot(0, self.start_run)
+            else:
+                self._pending_failed_rerun_autostart = False
+                self.append_log("⚠️ 失败账号清单没有识别到有效行，已停止自动重跑。")
+            return
         if not silent:
             outputs = self._selected_output_labels() or "未选择"
             input_format_label = self._input_format_label()
@@ -2752,6 +2811,8 @@ class MainWindow(QMainWindow):
         self._cancel_event = threading.Event()
         self._is_cancelling = False
         self._last_result_dir = ""
+        self._last_failed_rerun_file = ""
+        self._pending_failed_rerun_autostart = False
         self._set_running(True)
         self.sub2api_row.set_path("")
         self.cpa_row.set_path("")
@@ -3088,6 +3149,8 @@ class MainWindow(QMainWindow):
         cpa_dir = str(summary.get("cpa_dir") or "")
         result_dir = str(summary.get("out_dir") or "")
         failure_report = str(summary.get("failure_report") or "")
+        failed_rerun_file = str(summary.get("failed_rerun_file") or "")
+        rerunnable_failure_count = int(summary.get("rerunnable_failure_count") or 0)
         failure_categories = summary.get("failure_categories") if isinstance(summary.get("failure_categories"), dict) else {}
         retry_count = int(summary.get("retry_count") or 0)
         auto_rerun_count = int(summary.get("auto_rerun_count") or 0)
@@ -3096,6 +3159,10 @@ class MainWindow(QMainWindow):
         self.cpa_row.set_path(cpa_path)
         if result_dir:
             self._last_result_dir = result_dir
+        if failed_rerun_file and rerunnable_failure_count > 0 and Path(failed_rerun_file).exists() and not cancelled:
+            self._last_failed_rerun_file = failed_rerun_file
+        else:
+            self._last_failed_rerun_file = ""
         self._refresh_output_format_state()
         self.append_log("")
         if cancelled:
@@ -3111,7 +3178,7 @@ class MainWindow(QMainWindow):
             recoverable_left = max(0, failure_count - terminal_count - cancelled_count)
             if terminal_count:
                 self.append_log(f"🚫 终态账号：{terminal_count} 个账号已被服务端明确拒绝，客户端不会继续消耗重跑次数。")
-            if recoverable_left and not cancelled:
+            if recoverable_left and not cancelled and not self._last_failed_rerun_file:
                 self.append_log(f"🟡 可恢复失败：{recoverable_left} 个账号已达到当前自动处理上限；可增加自动重跑补救次数或降低并发后再次开始。")
         if sub2api_path:
             self.append_log(f"🧰 Sub2API 输出：{sub2api_path}")
@@ -3122,11 +3189,16 @@ class MainWindow(QMainWindow):
                 self.append_log(f"📚 CPA 单账号 JSON 目录：{cpa_dir}")
         if failure_report:
             self.append_log(f"🧾 失败诊断报告：{failure_report}")
+        if self._last_failed_rerun_file:
+            self.append_log(f"🔁 可恢复失败清单：{rerunnable_failure_count} 个账号已写入 {self._last_failed_rerun_file}")
+            self.append_log("🛠️ 需要继续补救时，点击“重跑失败账号”，客户端会只载入这些账号并自动开始新批次。")
         self.append_log("👀 提示：可以打开输出目录检查文件，确认后再导入目标系统。")
+        self._refresh_controls_state()
         if cancelled:
             QMessageBox.information(self, "已取消", f"导出已取消\n成功：{success_count}\n失败/未完成：{failure_count}\n取消：{cancelled_count}")
         else:
-            QMessageBox.information(self, "完成", f"导出完成\n成功：{success_count}\n失败：{failure_count}")
+            extra = f"\n可重跑：{rerunnable_failure_count}" if self._last_failed_rerun_file else ""
+            QMessageBox.information(self, "完成", f"导出完成\n成功：{success_count}\n失败：{failure_count}{extra}")
 
     def on_failed(self, message: str) -> None:
         self._set_running(False)

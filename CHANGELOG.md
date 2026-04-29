@@ -7,12 +7,13 @@
 ### Added
 
 - 安装器外壳新增已安装检测：发现本机已有 GPT2JSON 时会默认使用原安装目录，并切换为“升级 / 修复”模式。
+- 导出引擎新增 `failed_rerun.secret.txt`：仍可恢复的失败账号会保留原始输入行，便于客户端只补跑失败项。
+- GUI 新增“重跑失败账号”：读取 `failed_rerun.secret.txt` 后自动切换到粘贴输入，预检查通过即作为新批次启动。
 
 ### Planned
 
 - IMAP / IMAP XOAUTH2、Graph、JMAP、POP3、Provider API 等邮箱取码 backend。
 - CSV / 表格列映射导入。
-- 失败账号筛选后重跑。
 
 ## [0.1.5] - 2026-04-29
 

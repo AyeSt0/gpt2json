@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import threading
@@ -157,6 +158,78 @@ def test_gui_input_mode_switch_and_clear(tmp_path):
     assert not window.run_btn.isEnabled()
 
     window.output_edit.setText("output")
+    window.close()
+    _clear_settings()
+
+
+def test_gui_shows_failed_rerun_entry_from_summary(tmp_path, monkeypatch):
+    _clear_settings()
+    app = _app()
+    monkeypatch.setattr(gui_module.QMessageBox, "information", lambda *args, **kwargs: gui_module.QMessageBox.StandardButton.Ok)
+    rerun_file = tmp_path / "failed_rerun.secret.txt"
+    rerun_file.write_text("retry@example.com----pass----https://otp.test/{email}\n", encoding="utf-8")
+    failure_report = tmp_path / "failure_report.safe.json"
+    failure_report.write_text(json.dumps({"failures": []}, ensure_ascii=False), encoding="utf-8")
+
+    window = MainWindow()
+    window.output_edit.setText(str(tmp_path / "out"))
+    window.show()
+    app.processEvents()
+
+    window.on_done(
+        {
+            "success_count": 1,
+            "failure_count": 1,
+            "cancelled": False,
+            "cancelled_count": 0,
+            "sub2api_export": "",
+            "cpa_dir": "",
+            "cpa_manifest": "",
+            "out_dir": str(tmp_path / "out" / "GPT2JSON_batch"),
+            "failure_report": str(failure_report),
+            "failed_rerun_file": str(rerun_file),
+            "rerunnable_failure_count": 1,
+            "failure_categories": {"验证码错误或过期": 1},
+        }
+    )
+
+    assert window._last_failed_rerun_file == str(rerun_file)
+    assert window.rerun_failed_btn.isVisible()
+    assert window.rerun_failed_btn.isEnabled()
+    log_text = window.log_edit.toPlainText()
+    assert "可恢复失败清单" in log_text
+    assert "重跑失败账号" in log_text
+
+    window.close()
+    _clear_settings()
+
+
+def test_gui_rerun_failed_accounts_loads_secret_text_and_autostarts(tmp_path, monkeypatch):
+    _clear_settings()
+    app = _app()
+    rerun_file = tmp_path / "failed_rerun.secret.txt"
+    raw_line = "retry@example.com----pass----https://otp.test/{email}"
+    rerun_file.write_text(raw_line + "\n", encoding="utf-8")
+
+    window = MainWindow()
+    window.output_edit.setText(str(tmp_path / "out"))
+    window._last_failed_rerun_file = str(rerun_file)
+    window.show()
+    app.processEvents()
+
+    called = {"start": 0}
+
+    def fake_start_run():
+        called["start"] += 1
+
+    monkeypatch.setattr(window, "start_run", fake_start_run)
+    window.rerun_failed_accounts()
+
+    assert window._input_mode == "paste"
+    assert window.paste_edit.toPlainText().strip() == raw_line
+    assert _wait_until(app, lambda: called["start"] == 1 and not window._pending_failed_rerun_autostart)
+    assert window._last_preflight_count == 1
+
     window.close()
     _clear_settings()
 

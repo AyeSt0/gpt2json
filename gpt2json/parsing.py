@@ -154,6 +154,7 @@ def parse_dash_otp_lines(lines: Iterable[str]) -> list[AccountRow]:
                 password_kind="gpt",
                 otp_email=otp_source if is_email_source(otp_source) else "",
                 source_format="dash_otp",
+                raw_line=line,
             )
         )
     return rows

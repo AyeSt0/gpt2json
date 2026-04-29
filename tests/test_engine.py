@@ -163,6 +163,21 @@ class PersistentOtpClient(ProtocolLoginClient):
         return AttemptResult(row=row, status="success", stage="callback", token_json=token_json)
 
 
+class AlwaysRecoverableOtpClient(ProtocolLoginClient):
+    attempts_by_email: dict[str, int] = {}
+
+    def login_and_exchange(self, row, *, otp_fetcher, proxies=None):
+        del otp_fetcher, proxies
+        attempt = self.attempts_by_email.get(row.login_email, 0) + 1
+        self.attempts_by_email[row.login_email] = attempt
+        return AttemptResult(
+            row=row,
+            status="email_otp_validate_error",
+            stage="email_verification",
+            reason="wrong_email_otp_code",
+        )
+
+
 class AccountDeactivatedClient(ProtocolLoginClient):
     attempts_by_email: dict[str, int] = {}
 
@@ -434,6 +449,40 @@ def test_run_export_auto_reruns_recoverable_failure_after_normal_attempts(tmp_pa
     assert safe["auto_rerun_attempts"] == 2
 
 
+def test_run_export_writes_failed_rerun_for_recoverable_final_failure(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("gpt2json.engine.time.sleep", lambda _seconds: None)
+    out_dir = tmp_path / "out"
+    AlwaysRecoverableOtpClient.attempts_by_email = {}
+    raw_line = "ok@example.com----pass----https://otp.local/1"
+
+    summary = run_export(
+        ExportConfig(
+            input_path="missing.txt",
+            out_dir=str(out_dir),
+            input_text=raw_line,
+            concurrency=1,
+            max_attempts=2,
+            auto_rerun_attempts=1,
+        ),
+        client_factory=lambda: AlwaysRecoverableOtpClient(),
+    )
+
+    batch_dir = batch_dir_from(summary)
+    rerun_path = batch_dir / "failed_rerun.secret.txt"
+    assert summary["success_count"] == 0
+    assert summary["failure_count"] == 1
+    assert summary["retry_count"] == 1
+    assert summary["auto_rerun_count"] == 1
+    assert summary["rerunnable_failure_count"] == 1
+    assert summary["failed_rerun_file"] == str(rerun_path)
+    assert AlwaysRecoverableOtpClient.attempts_by_email["ok@example.com"] == 3
+    assert rerun_path.read_text(encoding="utf-8").splitlines() == [raw_line]
+    report = json.loads(Path(summary["failure_report"]).read_text(encoding="utf-8"))
+    assert report["rerunnable_count"] == 1
+    assert report["rerun_file"] == "failed_rerun.secret.txt"
+    assert "pass" not in json.dumps(report, ensure_ascii=False)
+
+
 def test_run_export_does_not_retry_terminal_account_state(tmp_path: Path):
     out_dir = tmp_path / "out"
     AccountDeactivatedClient.attempts_by_email = {}
@@ -461,6 +510,9 @@ def test_run_export_does_not_retry_terminal_account_state(tmp_path: Path):
     assert failure["category"] == "账号状态不可用"
     assert "自动重试无法修复" in failure["suggestion"]
     assert failure["attempt"] == 1
+    assert summary["rerunnable_failure_count"] == 0
+    assert summary["failed_rerun_file"] == ""
+    assert not (batch_dir_from(summary) / "failed_rerun.secret.txt").exists()
 
 
 def test_run_export_keeps_previous_generated_artifacts_in_output_root(tmp_path: Path):

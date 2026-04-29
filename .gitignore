@@ -23,6 +23,7 @@ output/
 exports/
 gpt2json_output/
 *.secret.json
+*.secret.txt
 *.log
 *.sqlite
 *.db

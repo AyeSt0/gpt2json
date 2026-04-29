@@ -78,6 +78,7 @@ flowchart LR
 | Sub2API 导出 | ✅ 已实现 | 生成 `sub2api_accounts.secret.json` 总包。 |
 | CPA 导出 | ✅ 已实现 | 每个账号一个 JSON，统一放在唯一 `CPA_<批次>/` 文件夹，并生成 manifest。 |
 | 输出追踪 | ✅ 已实现 | `summary.json`、`results.safe.jsonl`、`failure_report.safe.json` 均为脱敏诊断信息。 |
+| 失败补救 | ✅ 已实现 | 仍可恢复的失败账号会写入 `failed_rerun.secret.txt`，GUI 可一键只重跑失败账号。 |
 | 邮箱协议 backend | 🧭 规划中 | IMAP / IMAP XOAUTH2 / Graph / JMAP / POP3 / Provider API。 |
 
 > GPT2JSON 只负责生成 JSON 文件，不直接导入 Sub2API 后台。这样更安全，也更适合批量交付前检查。
@@ -159,6 +160,7 @@ output/
    │  ├─ user01@example.test.json
    │  └─ user02@example.test.json
    ├─ cpa_manifest.json
+   ├─ failed_rerun.secret.txt        # 可选：仍有可恢复失败时生成
    ├─ failure_report.safe.json
    ├─ progress.json
    ├─ results.safe.jsonl
@@ -171,6 +173,7 @@ output/
 | `sub2api_accounts.secret.json` | Sub2API 导入用总包。 |
 | `CPA_<批次>/<account-email>.json` | CPA 单账号 token 文件；一个账号一个 JSON；目录名随批次唯一化，避免误覆盖。 |
 | `cpa_manifest.json` | CPA 文件夹索引，只记录 CPA 目录名、文件列表和脱敏元数据。 |
+| `failed_rerun.secret.txt` | 可恢复失败账号的原始行清单，仅在仍有可补救失败时生成；包含敏感账号信息，供 GUI “重跑失败账号”使用。 |
 | `failure_report.safe.json` | 失败诊断报告，不包含原始密码、token 或取码源明文。 |
 | `summary.json` | 本次统计；包含输出根目录、结果目录、批次 ID 和导出路径。 |
 | `results.safe.jsonl` | 脱敏过程记录，方便定位每个账号的阶段和最终状态。 |
@@ -185,7 +188,7 @@ GPT2JSON 的目标是让客户端尽可能自动处理可恢复问题：
 | Callback / OAuth 换 JSON 超时 | 视为可恢复失败，按配置继续自动处理。 |
 | HTTP 429 / 5xx / 临时网络错误 | 自动重试或自动重跑，避免用户手动重跑整批。 |
 | 账号停用、锁定、不存在、凭据无效 | 归类为终态失败，不继续消耗重跑次数。 |
-| 仍失败的账号 | 写入 `failure_report.safe.json`，只保留脱敏账号、阶段、分类和建议。 |
+| 仍失败的账号 | 终态失败只写入 `failure_report.safe.json`；可恢复失败额外写入 `failed_rerun.secret.txt`，GUI 会显示“重跑失败账号”。 |
 
 ## ✦ Windows 发行包
 
@@ -210,10 +213,10 @@ GPT2JSON 的长期方向是 **backend-first**：优先沉到 IMAP / Graph / JMAP
 - [x] 中文 GUI：粘贴 / 文件输入、深浅色主题、输出目录打开
 - [x] 自动并发、自动重试、自动重跑补救、失败诊断报告
 - [x] 唯一批次输出目录与唯一 CPA 子目录，避免覆盖历史导出
+- [x] 可恢复失败账号单独重跑入口
 - [ ] IMAP / IMAP XOAUTH2 取码 backend
 - [ ] Graph / JMAP / POP3 backend
 - [ ] CSV / 表格列映射导入
-- [ ] 失败账号单独重跑入口
 
 更完整的 backend 规划见 [`docs/mail-backends.md`](docs/mail-backends.md)。
 
@@ -221,7 +224,7 @@ GPT2JSON 的长期方向是 **backend-first**：优先沉到 IMAP / Graph / JMAP
 
 - 不要把真实账号、密码、token、cookie、导出 JSON、邮箱内容提交到 GitHub。
 - 日志、失败报告、manifest 默认只写脱敏信息。
-- `*.secret.json`、`output/`、本地构建产物已经加入 `.gitignore`。
+- `*.secret.json`、`*.secret.txt`、`output/`、本地构建产物已经加入 `.gitignore`。
 - 反馈问题请使用合成示例，或先完成脱敏。
 
 更多见 [`SECURITY.md`](SECURITY.md) 与 [`docs/privacy.md`](docs/privacy.md)。

@@ -288,6 +288,21 @@ def _safe_result_row(result: AttemptResult, *, row_index: int = 0) -> dict[str, 
     }
 
 
+def _rerun_secret_line(result: AttemptResult) -> str:
+    """Return the original sensitive account line for a rerun-only artifact.
+
+    Safe reports must never include this value.  The only writer is
+    `failed_rerun.secret.txt`, which is intentionally named and documented as a
+    sensitive local helper file so the GUI can rerun recoverable failures
+    without asking users to hand-copy credentials from their source file.
+    """
+
+    raw_line = str(getattr(result.row, "raw_line", "") or "").strip()
+    if raw_line:
+        return raw_line
+    return f"{result.row.login_email}----{result.row.password}----{result.row.otp_source}"
+
+
 def run_export(
     config: ExportConfig,
     *,
@@ -547,6 +562,10 @@ def run_export(
     retry_count = len([result for result in results if int((result.meta or {}).get("attempt") or 1) > 1])
     auto_rerun_count = len([result for result in results if int((result.meta or {}).get("attempt") or 1) > max_attempts])
     failed_results = [result for result in results if not result.ok]
+    rerunnable_results = sorted(
+        [result for result in failed_results if _is_recoverable_retryable(result)],
+        key=lambda result: int((result.meta or {}).get("row_index") or result.row.line_no or 0),
+    )
     failure_rows = [_failure_report_row(result) for result in failed_results]
     failure_categories: dict[str, int] = {}
     for item in failure_rows:
@@ -560,6 +579,16 @@ def run_export(
     summary["retry_count"] = retry_count
     summary["auto_rerun_count"] = auto_rerun_count
     summary["failure_categories"] = failure_categories
+    summary["rerunnable_failure_count"] = len(rerunnable_results)
+    summary["non_rerunnable_failure_count"] = max(0, len(failed_results) - len(rerunnable_results) - int(summary["cancelled_count"]))
+    summary["terminal_failure_count"] = summary["non_rerunnable_failure_count"]
+    if rerunnable_results:
+        rerun_path = out_dir / "failed_rerun.secret.txt"
+        rerun_lines = [_rerun_secret_line(result) for result in rerunnable_results]
+        rerun_path.write_text("\n".join(rerun_lines) + "\n", encoding="utf-8")
+        summary["failed_rerun_file"] = str(rerun_path)
+    else:
+        summary["failed_rerun_file"] = ""
     if failure_rows:
         failure_report_path = out_dir / "failure_report.safe.json"
         write_json(
@@ -567,6 +596,10 @@ def run_export(
             {
                 "exported_at": utc_now_iso(),
                 "count": len(failure_rows),
+                "rerunnable_count": len(rerunnable_results),
+                "non_rerunnable_count": summary["non_rerunnable_failure_count"],
+                "terminal_count": summary["terminal_failure_count"],
+                "rerun_file": "failed_rerun.secret.txt" if rerunnable_results else "",
                 "note": "Safe report only: credentials and raw OTP sources are not included.",
                 "categories": failure_categories,
                 "failures": failure_rows,

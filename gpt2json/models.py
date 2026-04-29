@@ -29,6 +29,10 @@ class AccountRow:
     email_extra: dict[str, str] = field(default_factory=dict, compare=False)
     otp_email: str = ""
     source_format: str = ""
+    # Original valid input line. This is intentionally excluded from equality
+    # comparisons and never written to safe logs/reports; it is used only when
+    # the user explicitly wants to rerun still-recoverable failed accounts.
+    raw_line: str = field(default="", compare=False, repr=False)
 
     @property
     def gpt_password(self) -> str:

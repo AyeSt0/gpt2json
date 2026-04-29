@@ -22,6 +22,8 @@ GPT2JSON_<时间戳>_<短编码>/
 
 其中 `sub2api_accounts.secret.json` 和 `CPA_<批次>/` 目录中的单账号 JSON 包含可用 token，应当按敏感文件处理。
 
+如果仍有可恢复失败，客户端还会生成 `failed_rerun.secret.txt`。它包含失败账号的原始输入行，用于 GUI “重跑失败账号”，可能包含 GPT 登录密码和完整取码源，也必须按敏感文件处理。
+
 ## 日志与诊断
 
 运行日志和失败报告尽量使用：
@@ -42,6 +44,7 @@ GPT2JSON_<时间戳>_<短编码>/
 - GPT 密码或邮箱密码；
 - access token / refresh token / cookie；
 - `*.secret.json`；
+- `*.secret.txt`；
 - 邮箱正文；
 - 带本机用户名的完整路径。
 
