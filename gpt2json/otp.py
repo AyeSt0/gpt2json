@@ -445,10 +445,10 @@ class OtpFetcher:
     def has_backend_for_row(self, row: AccountRow) -> bool:
         if self.has_backend_for_source(row.otp_source):
             return True
-        # Mailbox backends are intentionally routed through row-level methods
-        # so future IMAP/Graph/JMAP/POP3/API implementations do not touch the
-        # OAuth login protocol code. Returning False today keeps current
-        # behavior unchanged until a concrete adapter is implemented.
+        # Mailbox-style sources are intentionally routed through row-level
+        # methods so future supplier-format adapters do not touch the OAuth
+        # login code. Returning False today keeps current behavior unchanged
+        # until a concrete adapter is implemented.
         _plan = backend_plan_for_row(row)
         return False
 
@@ -513,9 +513,9 @@ class OtpFetcher:
         code = self.fetch_source_once(row.otp_source, row.login_email, proxies=proxies)
         if code:
             return code
-        # Future mailbox backend adapters plug in here based on
+        # Future supplier-format adapters plug in here based on
         # backend_plan_for_row(row). Current release intentionally only
-        # executes URL and command backends.
+        # executes URL and command sources.
         return ""
 
     def poll_source(self, source: str, fallback_email: str, proxies: Any = None) -> str:

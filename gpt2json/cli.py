@@ -12,7 +12,7 @@ from .protocol import DEFAULT_IMPERSONATE
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="GPT2JSON：协议优先的 Sub2API / CPA JSON 导出工具。")
+    parser = argparse.ArgumentParser(description="GPT2JSON：Sub2API / CPA JSON 导出工具。")
     supported_formats = ", ".join(["auto", *(fmt.id for fmt in list_input_formats())])
     parser.add_argument("--version", action="version", version=f"GPT2JSON {__version__}")
     parser.add_argument("--input", help="账号文本文件：GPT邮箱----GPT登录密码----免登录取码源")

@@ -1,56 +1,33 @@
-# 邮箱 OTP backend 规划
+# 取码适配规划
 
-GPT2JSON 的 OTP 获取是 **backend-first**。核心抽象是 IMAP、Graph、JMAP、POP3、API 这类能力；provider/domain 检测只用来排序 backend 候选，不进入 OAuth 登录主流程。
+GPT2JSON 后续格式适配以 **号商实际提供的交付格式** 为准，而不是先对外承诺某一类抽象协议。
 
-## Backend 注册表
+当前公开版本暂时只支持卡网 <https://pay.ldxp.cn/shop/plus7> 提供的三段式格式：
 
-`gpt2json/mail_backends.py` 定义能力注册表：
+```text
+GPT邮箱----GPT登录密码----免登录取码源
+```
 
-| Backend | 状态 | 凭据类型 | 用途 |
-| --- | --- | --- | --- |
-| HTTP 免登录 URL | 已实现 | url | 请求 JSON/text 接口并提取 6 位验证码，支持 `{email}` 模板。 |
-| 外部命令 | 已实现 | command | 调用外部脚本/命令获取验证码。 |
-| IMAP | 规划中 | password、app_password | 通用邮箱轮询和邮件搜索。 |
-| IMAP XOAUTH2 | 规划中 | token、refresh_token、oauth2 | token 型 IMAP 访问。 |
-| Graph | 规划中 | token、refresh_token、oauth2 | Graph 兼容邮箱查询。 |
-| JMAP | 规划中 | token、app_password、api_key | JMAP 兼容邮箱查询。 |
-| POP3 | 规划中 | password、app_password | 简单邮箱访问兜底。 |
-| API | 规划中 | token、refresh_token、cookie、api_key、password、app_password | 自定义 provider API 接入位。 |
+## 适配原则
 
-每个 backend 声明自己接受的凭据类型。`BackendPlan` 会根据当前账号行的邮箱凭据，选择第一个支持的候选 backend。
+1. **先看号商格式**：号商给什么字段，客户端就围绕这类字段设计 parser 和取码流程。
+2. **字段语义明确**：GPT 登录密码、邮箱密码、邮箱令牌、取码链接、取码令牌必须分开建模，不能混用。
+3. **用户侧讲格式**：README、Release、GUI 下拉栏优先描述“某号商格式 / 某类交付字段”，不把内部实现方式当作卖点。
+4. **内部实现可复用**：如果某个号商格式需要邮箱访问、令牌访问或专用取码入口，再在内部选择合适的实现方式复用。
+5. **默认不开放未实现格式**：未来预制项可以展示路线，但未实现时必须置灰，不允许用户选中。
 
-## Domain/provider hint
+## 后续可能出现的格式类型
 
-`gpt2json/mail_providers.py` 是次级提示层，只负责把域名映射到有序 backend 列表：
+| 类型 | 说明 |
+| --- | --- |
+| 号商邮箱账密格式 | 账号文本里同时包含 GPT 账密和邮箱侧账号密码 / 应用密码。 |
+| 号商邮箱令牌格式 | 账号文本里包含邮箱侧 access token、refresh token 或其它令牌字段。 |
+| 号商自定义取码格式 | 账号文本里包含取码链接、取码 token、专用取码入口或其它供应商字段。 |
+| 表格整理格式 | 使用 CSV / 表格列映射，把多来源账号整理成统一输入。 |
 
-- token 型邮箱可优先尝试 `Graph` 或 `IMAP XOAUTH2`；
-- app password 型邮箱可优先尝试 `IMAP` 或 `JMAP`；
-- 普通邮箱可尝试 `IMAP` 再 `POP3`；
-- 自定义服务可优先尝试 `API`，再回退协议 backend。
+## 开发约定
 
-这样可以把 provider 差异限制在 hint 层，真正实现尽量沉到可复用的 backend。
-
-## Adapter 要求
-
-一个 backend adapter 应该：
-
-1. 接收 `AccountRow` 或 mailbox context；
-2. 不修改 GPT 凭据；
-3. 复用全局 timeout / interval；
-4. 复用 `gpt2json/otp.py` 中的验证码提取函数；
-5. 不输出或记录敏感凭据；
-6. 使用合成数据补单元测试；
-7. 在 `mail_backends.py` 中声明状态和支持的凭据类型。
-
-## 推荐实现顺序
-
-1. IMAP：支持 app-password/password。
-2. IMAP XOAUTH2：支持 token/refresh-token。
-3. Graph：支持 token/refresh-token。
-4. JMAP：适合 JMAP 能力更完整的邮箱。
-5. POP3：作为简单兜底。
-6. API：接入 service-specific token/cookie 格式。
-
-## UI 命名约定
-
-界面和文档优先展示协议 / backend 名称，例如 IMAP、Graph、JMAP、POP3、API；具体 provider（outlook、hotmail、gmail、atomicmail、fastmail、icloud、qq、163、luckmail 等）只作为自动排序 hint 或输入格式说明出现，避免把产品能力绑定到某一家服务商。
+- 新格式先补 `gpt2json/parsing.py` parser，并使用合成数据补测试。
+- 如果需要新的取码能力，再补内部取码实现，不在用户侧提前暴露实现名称。
+- GUI 下拉栏文案使用“号商 / 格式 / 字段”语言，例如“号商邮箱令牌格式”，避免写成内部技术名。
+- 文档和 Release 只写当前已经可用的格式；未完成能力统一写“后续格式适配敬请期待”。
