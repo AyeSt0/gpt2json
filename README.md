@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/AyeSt0/gpt2json/releases/latest"><img alt="最新版本" src="https://img.shields.io/badge/version-v0.1.6-60A5FA?style=for-the-badge"></a>
+  <a href="https://github.com/AyeSt0/gpt2json/releases/latest"><img alt="最新版本" src="https://img.shields.io/badge/version-v0.1.7-60A5FA?style=for-the-badge"></a>
   <a href="https://github.com/AyeSt0/gpt2json/releases/latest"><img alt="下载 Windows 安装器" src="https://img.shields.io/badge/Windows-%E5%AE%89%E8%A3%85%E5%99%A8-38BDF8?style=for-the-badge&logo=windows11&logoColor=white"></a>
   <a href="https://github.com/AyeSt0/gpt2json/releases/latest"><img alt="下载 ZIP 便携包" src="https://img.shields.io/badge/ZIP-%E4%BE%BF%E6%90%BA%E5%8C%85-8B5CF6?style=for-the-badge&logo=github&logoColor=white"></a>
   <a href="https://github.com/AyeSt0/gpt2json/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/AyeSt0/gpt2json/ci.yml?branch=main&style=for-the-badge&label=tests"></a>
@@ -18,7 +18,7 @@
 
 <p align="center">
   <a href="#-为什么用-gpt2json">为什么用</a> ·
-  <a href="#-v015-更新重点">更新重点</a> ·
+  <a href="#-v017-更新重点">更新重点</a> ·
   <a href="#-界面预览">界面预览</a> ·
   <a href="#-快速开始">快速开始</a> ·
   <a href="#-当前支持的输入">输入格式</a> ·
@@ -55,16 +55,16 @@ flowchart LR
   H --> I
 ```
 
-## ✦ v0.1.6 更新重点
+## ✦ v0.1.7 更新重点
 
 | 类型 | 变化 |
 | --- | --- |
 | 安装体验 | 安装器可识别本机已有 GPT2JSON，自动切换为升级 / 修复模式并沿用原安装目录。 |
 | 账号级恢复 | 可恢复失败会先执行自动重试；仍未成功时进入单账号自动重跑补救。 |
-| 批次级自动补跑 | 批次结束后若生成 `failed_rerun.secret.txt`，客户端会默认最多读取一次，只把可恢复失败账号作为新批次补跑。 |
-| 手动补跑入口 | GUI 仍保留“重跑失败账号”，自动补跑后仍失败时可继续手动读取同一清单。 |
+| 批次级自动补跑 | 批次结束后若生成 `failed_rerun.secret.txt`，客户端默认自动读取 1 次，只把可恢复失败账号作为新批次补跑；高级选项可关闭或调到最多 3 次。 |
+| 手动补跑入口 | GUI 仍保留“重跑失败账号”，批次级自动补跑后仍失败时可继续手动读取同一清单。 |
 | 终态收敛 | 账号停用、锁定、不存在、凭据无效等服务端明确终态不写入重跑清单，避免无意义消耗。 |
-| 文档与素材 | README、GUI 预览图、Hero 图和版本号同步到 v0.1.6。 |
+| 文档与素材 | README、GUI 预览图、Hero 图和版本号同步到 v0.1.7。 |
 
 ## ✦ 当前能力
 
@@ -79,7 +79,7 @@ flowchart LR
 | CPA 导出 | ✅ 已实现 | 每个账号一个 JSON，统一放在唯一 `CPA_<批次>/` 文件夹，并生成 manifest。 |
 | 导出校验 | ✅ 已实现 | 导出完成后校验 Sub2API / CPA JSON 结构，日志标记“可导入”或“不建议导入”。 |
 | 输出追踪 | ✅ 已实现 | 默认输出到程序目录下的 `output/`；手动改过输出目录后会记住。`summary.json`、`results.safe.jsonl`、`failure_report.safe.json` 均为脱敏诊断信息。 |
-| 失败清单 | ✅ 已实现 | 仍可恢复的失败账号会写入 `failed_rerun.secret.txt`；批次级自动补跑默认最多一次，GUI “重跑失败账号”可继续手动补跑同一清单。 |
+| 失败清单 | ✅ 已实现 | 仍可恢复的失败账号会写入 `failed_rerun.secret.txt`；批次级自动补跑默认 1 次，GUI “重跑失败账号”可继续手动补跑同一清单。 |
 | 取码源解析 | ✅ 持续增强 | 支持 JSON / 文本 / HTML API 取码；多验证码会优先选择最新验证码，并过滤登录前旧码。 |
 | 邮箱协议 backend | 🧭 规划中 | IMAP / IMAP XOAUTH2 / Graph / JMAP / POP3 / Provider API。 |
 
@@ -101,8 +101,8 @@ flowchart LR
 ### 方式 A：下载 Windows 发行包（推荐）
 
 1. 打开 [GitHub Releases](https://github.com/AyeSt0/gpt2json/releases/latest)。
-2. 普通用户下载 `GPT2JSON-Setup-v0.1.6.exe`。
-3. 免安装用户下载 `GPT2JSON-v0.1.6-windows-x64.zip`。
+2. 普通用户下载 `GPT2JSON-Setup-v0.1.7.exe`。
+3. 免安装用户下载 `GPT2JSON-v0.1.7-windows-x64.zip`。
 4. 启动后粘贴账号文本，选择 `Sub2API JSON`、`CPA JSON` 或二者同时导出。
 5. 任务完成后点击“所在位置”，检查本次结果目录后再导入目标系统。
 
@@ -184,13 +184,13 @@ output/
 
 ## ✦ 自动重试与失败诊断
 
-GPT2JSON 的目标是让客户端尽可能自动处理可恢复问题：
+GPT2JSON 的目标是让客户端尽可能通过自动重试、自动重跑补救和批次级自动补跑处理可恢复问题：
 
 ### 术语说明
 
 - **自动重试**：单账号常规 retry，用于同一次账号处理中的网络波动、验证码等待等短暂问题。
 - **自动重跑补救**：单账号额外补救 attempt；只有自动重试仍未成功、且失败仍属于可恢复失败时才会进入。
-- **批次级自动补跑**：批次结束后自动读取本批次 `failed_rerun.secret.txt`，只把可恢复失败账号作为新批次补跑，默认最多一次。
+- **批次级自动补跑**：批次结束后自动读取本批次 `failed_rerun.secret.txt`，只把可恢复失败账号作为新批次补跑；默认 1 次，高级选项可关闭或调到最多 3 次。
 - **重跑失败账号**：GUI 手动入口，读取同一份 `failed_rerun.secret.txt`；批次级自动补跑结束后仍可保留给用户手动触发。
 - **可恢复失败 / 终态失败**：前者适合继续补救，例如验证码旧码、OTP 超时、Callback 超时、HTTP 429/5xx；后者是账号停用、锁定、不存在、凭据无效等服务端明确结论。
 - **导出校验 / 可导入 / 不建议导入**：导出完成后检查 Sub2API / CPA JSON 结构；通过时显示“可导入”，发现结构问题时显示“不建议导入”。
@@ -198,12 +198,12 @@ GPT2JSON 的目标是让客户端尽可能自动处理可恢复问题：
 | 场景 | 处理方式 |
 | --- | --- |
 | 取码源慢、验证码旧码、OTP 超时 | 先走自动重试，再进入自动重跑补救。 |
-| Callback / OAuth 换 JSON 超时 | 视为可恢复失败，按配置继续自动处理。 |
+| Callback / OAuth 换 JSON 超时 | 视为可恢复失败，按配置继续自动重试；仍未成功时进入自动重跑补救，批次结束后可由批次级自动补跑接手。 |
 | HTTP 429 / 5xx / 临时网络错误 | 先自动重试；必要时进入自动重跑补救，批次结束后还可由批次级自动补跑接手，避免用户手动重跑整批。 |
 | 账号停用、锁定、不存在、凭据无效 | 归类为终态失败，不写入 `failed_rerun.secret.txt`，也不消耗批次级自动补跑次数。 |
 | 仍失败的账号 | 终态失败只写入 `failure_report.safe.json`；可恢复失败额外写入 `failed_rerun.secret.txt`，供批次级自动补跑和 GUI “重跑失败账号”读取。 |
 
-批次级自动补跑不会重新处理整批账号，只读取 `failed_rerun.secret.txt` 中的可恢复失败账号并创建新批次；默认最多一次。若补跑后仍有可恢复失败，用户仍可通过 GUI “重跑失败账号”手动入口继续处理同一类清单。
+批次级自动补跑不会重新处理整批账号，只读取 `failed_rerun.secret.txt` 中的可恢复失败账号并创建新批次；默认 1 次，高级选项可关闭或调到最多 3 次。若批次级自动补跑后仍有可恢复失败，用户仍可通过 GUI “重跑失败账号”手动入口继续补跑同一份失败清单。
 
 取码源如果一次返回多个验证码，GPT2JSON 会优先按 `created_at` / `received_at` / `timestamp` 等时间字段选择最新验证码；没有时间字段时优先选择更靠后的验证码，避免误提交历史旧码。
 
@@ -215,8 +215,8 @@ GPT2JSON 的目标是让客户端尽可能自动处理可恢复问题：
 
 | 产物 | 适合场景 | 说明 |
 | --- | --- | --- |
-| `GPT2JSON-Setup-v0.1.6.exe` | 普通用户 | 定制安装界面 + 标准安装核心；安装到所选目录下的 `GPT2JSON` 子目录。 |
-| `GPT2JSON-v0.1.6-windows-x64.zip` | 便携 / 临时使用 | 解压后运行 `GPT2JSON.exe`，不需要安装。 |
+| `GPT2JSON-Setup-v0.1.7.exe` | 普通用户 | 定制安装界面 + 标准安装核心；安装到所选目录下的 `GPT2JSON` 子目录。 |
+| `GPT2JSON-v0.1.7-windows-x64.zip` | 便携 / 临时使用 | 解压后运行 `GPT2JSON.exe`，不需要安装。 |
 
 安装器会读取 Windows 标准卸载项：如果检测到本机已安装 GPT2JSON，会默认使用原安装目录，并切换为升级 / 修复模式。
 
@@ -230,7 +230,7 @@ GPT2JSON 的长期方向是 **backend-first**：优先沉到 IMAP / Graph / JMAP
 - [x] 中文 GUI：粘贴 / 文件输入、深浅色主题、输出目录打开
 - [x] 自动并发、自动重试、自动重跑补救、批次级自动补跑、失败诊断报告
 - [x] 唯一批次输出目录与唯一 CPA 子目录，避免覆盖历史导出
-- [x] 可恢复失败账号单独重跑入口（GUI “重跑失败账号”）
+- [x] 可恢复失败账号手动补跑入口（GUI “重跑失败账号”）
 - [ ] IMAP / IMAP XOAUTH2 取码 backend
 - [ ] Graph / JMAP / POP3 backend
 - [ ] CSV / 表格列映射导入

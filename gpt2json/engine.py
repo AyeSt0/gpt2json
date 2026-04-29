@@ -184,7 +184,7 @@ def _diagnose_failure(result: AttemptResult) -> tuple[str, str]:
         return "验证码提交失败", "验证码接口拒绝了当前验证码；通常是旧码、过期码或取码源延迟。"
     if stage == "finalize" or status == "finalize_error":
         if "timeout" in lowered or "timed out" in lowered or "curl: (28)" in lowered:
-            return "Callback 换 JSON 超时", "客户端已自动重试并进入单账号自动重跑补救；如果仍失败，建议调高 HTTP 请求超时或稍后再让客户端自动处理。"
+            return "Callback 换 JSON 超时", "客户端已自动重试并进入单账号自动重跑补救；如果仍失败，建议调高 HTTP 请求超时，后续可由批次级自动补跑继续处理。"
         return "Callback 换 JSON 未完成", "登录和验证码已通过，但最后换取 JSON 未完成；客户端会优先对可恢复失败执行自动重跑补救。"
     if "timeout" in lowered or "timed out" in lowered or "curl: (28)" in lowered:
         return "网络请求超时", "客户端已自动重试并进入单账号自动重跑补救；如果仍失败，请调高 HTTP 请求超时或稍后再运行。"
@@ -193,7 +193,7 @@ def _diagnose_failure(result: AttemptResult) -> tuple[str, str]:
     if status == "export_prepare_error":
         return "JSON 整理失败", "登录返回的数据格式不符合预期，当前账号已跳过。"
     if status == "runtime_error":
-        return "运行异常", "当前账号发生非预期异常，已隔离；可重跑失败账号或查看安全日志。"
+        return "运行异常", "当前账号发生非预期异常，已隔离；可通过 GUI “重跑失败账号”手动补跑，或查看安全日志。"
     return "未分类失败", "请复制安全日志或失败报告用于排查。"
 
 

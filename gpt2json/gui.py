@@ -1066,7 +1066,9 @@ class MainWindow(QMainWindow):
         self._pending_failed_rerun_autostart = False
         self._failed_rerun_autostart_silent = False
         self._starting_failed_rerun_batch = False
-        self._batch_auto_rerun_used = False
+        self._failed_rerun_start_retries = 0
+        self._batch_auto_rerun_count = 0
+        self._batch_auto_rerun_accumulated_success = 0
         self._output_dir_custom = False
         self._preflight_seq = 0
         self._preflight_running = False
@@ -1347,7 +1349,15 @@ class MainWindow(QMainWindow):
         self.otp_interval_spin = self._spin(1, 60, 3)
         self.max_attempts_spin = self._spin(1, 5, 3)
         self.auto_rerun_spin = self._spin(0, 5, 2)
-        for spin in (self.timeout_spin, self.otp_timeout_spin, self.otp_interval_spin, self.max_attempts_spin, self.auto_rerun_spin):
+        self.batch_auto_rerun_spin = self._spin(0, 3, 1)
+        for spin in (
+            self.timeout_spin,
+            self.otp_timeout_spin,
+            self.otp_interval_spin,
+            self.max_attempts_spin,
+            self.auto_rerun_spin,
+            self.batch_auto_rerun_spin,
+        ):
             spin.setVisible(False)
         layout.addStretch(1)
         return card
@@ -2174,6 +2184,7 @@ class MainWindow(QMainWindow):
         self.otp_interval_spin.setValue(int_setting("otp_interval", 3, 1, 60))
         self.max_attempts_spin.setValue(int_setting("max_attempts", 3, 1, 5))
         self.auto_rerun_spin.setValue(int_setting("auto_rerun_attempts", 2, 0, 5))
+        self.batch_auto_rerun_spin.setValue(int_setting("batch_auto_rerun_attempts", 1, 0, 3))
         self.advanced_btn.setText("高级选项（弹窗配置）  ›")
 
     def _save_settings(self) -> None:
@@ -2192,6 +2203,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("otp_interval", int(self.otp_interval_spin.value()))
         self.settings.setValue("max_attempts", int(self.max_attempts_spin.value()))
         self.settings.setValue("auto_rerun_attempts", int(self.auto_rerun_spin.value()))
+        self.settings.setValue("batch_auto_rerun_attempts", int(self.batch_auto_rerun_spin.value()))
         self.settings.sync()
 
     def _schedule_preflight(self) -> None:
@@ -2309,6 +2321,12 @@ class MainWindow(QMainWindow):
         self._pending_failed_rerun_autostart = False
         self._failed_rerun_autostart_silent = False
         self._starting_failed_rerun_batch = False
+        self._failed_rerun_start_retries = 0
+
+    def _batch_auto_rerun_limit(self) -> int:
+        if hasattr(self, "batch_auto_rerun_spin"):
+            return max(0, min(3, int(self.batch_auto_rerun_spin.value())))
+        return 1
 
     def rerun_failed_accounts(self, *, automatic: bool = False) -> None:
         if self._is_running:
@@ -2341,7 +2359,12 @@ class MainWindow(QMainWindow):
         self._failed_rerun_autostart_silent = bool(automatic)
         self._starting_failed_rerun_batch = True
         self._input_mode = "paste"
-        self.paste_edit.setPlainText(text)
+        previous_blocked = self.paste_edit.blockSignals(True)
+        try:
+            self.paste_edit.setPlainText(text)
+        finally:
+            self.paste_edit.blockSignals(previous_blocked)
+        self._preflight_timer.stop()
         self._refresh_input_mode()
         self._set_status("准备补跑", "warning")
         self.append_log(f"🔄 {label}：已载入 {count} 个可恢复失败账号，预检查通过后作为新批次执行。")
@@ -2369,20 +2392,32 @@ class MainWindow(QMainWindow):
         has_input = self._has_active_input()
         has_valid_rows = self._last_preflight_count > 0 and not self._last_preflight_error
         has_failed_rerun = bool(str(getattr(self, "_last_failed_rerun_file", "") or "").strip())
-        can_start = (not self._is_running) and (not self._preflight_running) and output_selected and has_output and has_input and has_valid_rows
+        pending_failed_rerun = bool(self._pending_failed_rerun_autostart or self._starting_failed_rerun_batch)
+        interaction_locked = bool(self._is_running or pending_failed_rerun)
+        can_start = (
+            (not self._is_running)
+            and (not self._preflight_running)
+            and (not pending_failed_rerun)
+            and output_selected
+            and has_output
+            and has_input
+            and has_valid_rows
+        )
         self.run_btn.setEnabled(can_start)
         self.run_btn.setText("取消中..." if self._is_cancelling else "开始导出")
         if hasattr(self, "rerun_failed_btn"):
             self.rerun_failed_btn.setVisible(has_failed_rerun)
-            self.rerun_failed_btn.setEnabled(has_failed_rerun and not self._is_running and not self._preflight_running and output_selected and has_output)
+            self.rerun_failed_btn.setEnabled(
+                has_failed_rerun and not self._is_running and not self._preflight_running and not pending_failed_rerun and output_selected and has_output
+            )
         self.cancel_btn.setVisible(self._is_running)
         self.cancel_btn.setEnabled(self._is_running and not self._is_cancelling)
         self.cancel_btn.setText("取消中..." if self._is_cancelling else "取消")
         self.preflight_btn.setText("预检查中..." if self._preflight_running else "预检查")
-        self.preflight_btn.setEnabled((not self._is_running) and (not self._preflight_running) and has_input)
-        self.clear_input_btn.setEnabled(not self._is_running and (bool(self._paste_text()) or bool(self._input_path())))
+        self.preflight_btn.setEnabled((not self._is_running) and (not self._preflight_running) and (not pending_failed_rerun) and has_input)
+        self.clear_input_btn.setEnabled(not interaction_locked and (bool(self._paste_text()) or bool(self._input_path())))
         if hasattr(self, "clear_log_btn"):
-            self.clear_log_btn.setEnabled(not self._is_running)
+            self.clear_log_btn.setEnabled(not interaction_locked)
         if hasattr(self, "copy_log_btn"):
             self.copy_log_btn.setEnabled(True)
         for widget in (
@@ -2402,8 +2437,9 @@ class MainWindow(QMainWindow):
             self.otp_interval_spin,
             self.max_attempts_spin,
             self.auto_rerun_spin,
+            self.batch_auto_rerun_spin,
         ):
-            widget.setEnabled(not self._is_running)
+            widget.setEnabled(not interaction_locked)
         self.open_out_btn.setEnabled(bool(has_output))
 
     def _set_running(self, running: bool) -> None:
@@ -2526,7 +2562,7 @@ class MainWindow(QMainWindow):
         dialog.setWindowTitle("高级选项")
         dialog.setModal(True)
         dialog.setObjectName("AdvancedDialog")
-        dialog.setFixedSize(500, 336)
+        dialog.setFixedSize(540, 392)
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(20, 18, 20, 16)
         layout.setSpacing(10)
@@ -2541,7 +2577,8 @@ class MainWindow(QMainWindow):
         interval_spin = self._spin(1, 60, int(self.otp_interval_spin.value()))
         attempts_spin = self._spin(1, 5, int(self.max_attempts_spin.value()))
         auto_rerun_spin = self._spin(0, 5, int(self.auto_rerun_spin.value()))
-        for spin in (http_spin, otp_spin, interval_spin, attempts_spin, auto_rerun_spin):
+        batch_auto_spin = self._spin(0, 3, int(self.batch_auto_rerun_spin.value()))
+        for spin in (http_spin, otp_spin, interval_spin, attempts_spin, auto_rerun_spin, batch_auto_spin):
             spin.setFixedWidth(110)
         grid = QGridLayout()
         grid.setHorizontalSpacing(14)
@@ -2564,7 +2601,8 @@ class MainWindow(QMainWindow):
         add_row(1, "验证码等待超时（秒）", "触发邮箱验证码后，最多轮询取码源多久。", otp_spin)
         add_row(2, "验证码轮询间隔（秒）", "两次取码请求之间的间隔，过低可能触发限流。", interval_spin)
         add_row(3, "自动重试次数", "单账号遇到可恢复失败时最多尝试几次，默认 3。", attempts_spin)
-        add_row(4, "单账号自动重跑补救次数", "自动重试仍未成功时，仅对可恢复失败额外重跑；账号停用等终态不会重跑。", auto_rerun_spin)
+        add_row(4, "单账号自动重跑补救次数", "自动重试仍未成功时，进入单账号自动重跑补救；账号停用等终态失败不会重跑。", auto_rerun_spin)
+        add_row(5, "批次级自动补跑次数", "批次结束后读取失败清单重新开批；0 表示关闭，默认 1。", batch_auto_spin)
         grid.setColumnStretch(0, 1)
         layout.addLayout(grid)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -2591,6 +2629,7 @@ class MainWindow(QMainWindow):
             self.otp_interval_spin.setValue(interval_spin.value())
             self.max_attempts_spin.setValue(attempts_spin.value())
             self.auto_rerun_spin.setValue(auto_rerun_spin.value())
+            self.batch_auto_rerun_spin.setValue(batch_auto_spin.value())
             self._save_settings()
 
     def _set_status(self, text: str, mode: str) -> None:
@@ -2856,7 +2895,13 @@ class MainWindow(QMainWindow):
 
         if self._worker_thread and self._worker_thread.is_alive():
             if silent_autostart:
-                stop_silent_autostart("当前任务还没有结束，已停止本次自动触发。")
+                if self._failed_rerun_start_retries < 20:
+                    self._failed_rerun_start_retries += 1
+                    if self._failed_rerun_start_retries == 1:
+                        self.append_log("🔄 批次级自动补跑：上一批任务正在收尾，稍等片刻后自动继续。")
+                    QTimer.singleShot(80, self.start_run)
+                    return
+                stop_silent_autostart("上一批任务长时间未完成收尾，已停止本次自动触发；可稍后点击“重跑失败账号”。")
                 return
             QMessageBox.information(self, "正在运行", "当前任务还没有结束。")
             return
@@ -2896,7 +2941,8 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "预检查中", "输入内容需要先完成预检查。请稍等识别完成后再开始导出。")
             return
         if not from_failed_rerun:
-            self._batch_auto_rerun_used = False
+            self._batch_auto_rerun_count = 0
+            self._batch_auto_rerun_accumulated_success = 0
         self._reset_counts(self._total)
         if from_failed_rerun and not self._log_waiting and self.log_edit.toPlainText().strip():
             label = "批次级自动补跑" if silent_autostart else "重跑失败账号"
@@ -2910,6 +2956,11 @@ class MainWindow(QMainWindow):
         self.append_log(f"🧩 运行配置：输入格式={self._input_format_label()}；导出={self._selected_output_labels()}；并发={'自动' if int(self.concurrency_spin.value()) == 0 else self.concurrency_spin.value()}。")
         total_attempts = int(self.max_attempts_spin.value()) + int(self.auto_rerun_spin.value())
         self.append_log(f"🔁 稳定性策略：可恢复失败先自动重试 {int(self.max_attempts_spin.value())} 次；仍未成功时进入单账号自动重跑补救 {int(self.auto_rerun_spin.value())} 次，最多 {total_attempts} 次。")
+        batch_auto_limit = self._batch_auto_rerun_limit()
+        if batch_auto_limit:
+            self.append_log(f"🔄 批次级自动补跑：批次结束后最多自动补跑 {batch_auto_limit} 次，只处理 failed_rerun.secret.txt 中的可恢复失败账号。")
+        else:
+            self.append_log("🔄 批次级自动补跑：当前已关闭；仍会生成失败清单并保留“重跑失败账号”手动入口。")
         self.append_log("🧭 执行流程：OAuth 初始化 → 账号密码验证 → 按需获取邮箱验证码 → Callback 换取 JSON。")
         self.append_log("🔎 登录策略：优先账密登录；只有出现验证码页面时才启用取码源；全程不拉起浏览器。")
         self.append_log(f"📁 输出根目录：{Path(output_dir).resolve()}（本次会自动新建唯一批次目录，不覆盖旧文件）")
@@ -2917,6 +2968,8 @@ class MainWindow(QMainWindow):
         self._is_cancelling = False
         self._last_result_dir = ""
         self._last_failed_rerun_file = ""
+        if from_failed_rerun and silent_autostart:
+            self._batch_auto_rerun_count += 1
         self._reset_failed_rerun_autostart_state()
         self._set_running(True)
         self.sub2api_row.set_path("")
@@ -3136,14 +3189,14 @@ class MainWindow(QMainWindow):
             backend = self._backend_display(event.get("backend"))
             if bool(event.get("code_present")):
                 return f"📬 {account}：已获取验证码（来源：{backend}，{status}），准备提交验证。"
-            return f"⌛ {account}：本轮未拿到新验证码（来源：{backend}，{status}），将按自动重试 / 自动重跑补救策略处理。"
+            return f"⌛ {account}：本轮未拿到新验证码（来源：{backend}，{status}），将先自动重试；仍未成功时进入自动重跑补救。"
         if stage == "email_otp_validate":
             try:
                 code = int(event.get("status_code") or 0)
             except Exception:
                 code = 0
             final_attempt = int(event.get("attempt") or 1) >= int(event.get("max_attempts") or 1)
-            tail = "已到自动处理上限，将写入失败诊断" if final_attempt else "稍后会按策略自动处理"
+            tail = "已到自动重试与自动重跑补救上限，将写入失败诊断" if final_attempt else "稍后会按自动重试 / 自动重跑补救策略处理"
             if code == 401:
                 return f"🧾 {account}：验证码提交后被拒绝（{status}），可能是旧码/过期码，{tail}。"
             if code == 403:
@@ -3224,7 +3277,10 @@ class MainWindow(QMainWindow):
                 else:
                     detail = f"；原因：{self._reason_display(reason)}" if reason else ""
                     if attempt >= max_attempts and max_attempts > 1:
-                        self.append_log(f"⚠️ 可恢复失败：{account} 已自动处理 {attempt}/{max_attempts} 次，仍停在「{self._stage_display(stage or status)}」{detail}。")
+                        self.append_log(
+                            f"⚠️ 可恢复失败：{account} 已自动重试 / 自动重跑补救 {attempt}/{max_attempts} 次，"
+                            f"仍停在「{self._stage_display(stage or status)}」{detail}。"
+                        )
                     else:
                         self.append_log(f"⚠️ 失败：{account} 停在「{self._stage_display(stage or status)}」{detail}。")
             self.success_stat.set_value(self._success)
@@ -3298,7 +3354,7 @@ class MainWindow(QMainWindow):
         else:
             self.append_log(f"🎉 任务完成：成功 {success_count} 个，失败 {failure_count} 个。")
         if retry_count or auto_rerun_count:
-            self.append_log(f"🧮 自动处理统计：{retry_count} 个账号触发恢复策略，其中 {auto_rerun_count} 个进入额外自动重跑补救。")
+            self.append_log(f"🧮 自动重试 / 自动重跑补救统计：{retry_count} 个账号触发自动重试，其中 {auto_rerun_count} 个进入自动重跑补救。")
         self._append_export_validation_logs(summary.get("export_validation"))
         if failure_categories:
             parts = [f"{name} {count} 个" for name, count in failure_categories.items()]
@@ -3308,7 +3364,7 @@ class MainWindow(QMainWindow):
             if terminal_count:
                 self.append_log(f"🚫 终态账号：{terminal_count} 个账号已被服务端明确拒绝，客户端不会继续消耗重跑次数。")
             if recoverable_left and not cancelled and not self._last_failed_rerun_file:
-                self.append_log(f"🟡 可恢复失败：{recoverable_left} 个账号已达到当前自动处理上限；可增加自动重跑补救次数或降低并发后再次开始。")
+                self.append_log(f"🟡 可恢复失败：{recoverable_left} 个账号已达到当前自动重试与自动重跑补救上限；可增加自动重跑补救次数或降低并发后再次开始。")
         if sub2api_path:
             self.append_log(f"🧰 Sub2API 输出：{sub2api_path}")
         if result_dir:
@@ -3321,30 +3377,50 @@ class MainWindow(QMainWindow):
         if self._last_failed_rerun_file:
             self.append_log(f"🔁 可恢复失败清单：{rerunnable_failure_count} 个账号已写入 {self._last_failed_rerun_file}")
             self.append_log("🛠️ 这份清单可用于批次级自动补跑，也可点击“重跑失败账号”手动补跑。")
+        batch_auto_limit = self._batch_auto_rerun_limit()
         should_batch_auto_rerun = (
             bool(self._last_failed_rerun_file)
             and rerunnable_failure_count > 0
             and not cancelled
-            and not self._batch_auto_rerun_used
+            and self._batch_auto_rerun_count < batch_auto_limit
         )
         if should_batch_auto_rerun:
-            self._batch_auto_rerun_used = True
+            next_batch_auto_rerun = self._batch_auto_rerun_count + 1
+            self._batch_auto_rerun_accumulated_success += success_count
+            self._failed_rerun_autostart_silent = True
+            self._starting_failed_rerun_batch = True
             self.append_log(
                 f"🔄 批次级自动补跑：检测到 {rerunnable_failure_count} 个可恢复失败账号，"
-                "将默认自动补跑 1 次；本轮之后若仍失败，将保留“重跑失败账号”入口，不再自动循环。"
+                f"将执行第 {next_batch_auto_rerun}/{batch_auto_limit} 次批次级自动补跑；"
+                "达到上限后若仍失败，将保留“重跑失败账号”入口，不再自动循环。"
             )
             self._refresh_controls_state()
             QTimer.singleShot(0, lambda: self.rerun_failed_accounts(automatic=True))
             return
-        if self._last_failed_rerun_file and self._batch_auto_rerun_used and not cancelled:
-            self.append_log("🟡 批次级自动补跑：已达到默认 1 次上限；仍有可恢复失败时，请点击“重跑失败账号”手动继续。")
+        if self._last_failed_rerun_file and not cancelled:
+            if batch_auto_limit <= 0:
+                self.append_log("🟡 批次级自动补跑：当前已关闭；仍有可恢复失败账号时，请点击“重跑失败账号”手动补跑。")
+            elif self._batch_auto_rerun_count >= batch_auto_limit:
+                self.append_log(
+                    f"🟡 批次级自动补跑：已达到当前 {batch_auto_limit} 次上限；"
+                    "仍有可恢复失败账号时，请点击“重跑失败账号”手动补跑。"
+                )
         self.append_log("👀 提示：导出校验为“可导入”后再导入目标系统；标记为“不建议导入”的文件请先修正或重新导出。")
         self._refresh_controls_state()
         if cancelled:
             QMessageBox.information(self, "已取消", f"导出已取消\n成功：{success_count}\n失败/未完成：{failure_count}\n取消：{cancelled_count}")
         else:
             extra = f"\n可重跑：{rerunnable_failure_count}" if self._last_failed_rerun_file else ""
-            QMessageBox.information(self, "完成", f"导出完成\n成功：{success_count}\n失败：{failure_count}{extra}")
+            if self._batch_auto_rerun_accumulated_success:
+                total_success = self._batch_auto_rerun_accumulated_success + success_count
+                QMessageBox.information(
+                    self,
+                    "自动补跑批次完成",
+                    f"自动补跑批次完成\n本次补跑成功：{success_count}\n本次补跑失败：{failure_count}{extra}\n累计成功：{total_success}\n当前仍失败：{failure_count}",
+                )
+                self._batch_auto_rerun_accumulated_success = 0
+            else:
+                QMessageBox.information(self, "完成", f"导出完成\n成功：{success_count}\n失败：{failure_count}{extra}")
 
     def on_failed(self, message: str) -> None:
         self._set_running(False)

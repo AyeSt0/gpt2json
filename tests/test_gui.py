@@ -110,6 +110,7 @@ def test_gui_enables_run_only_after_valid_preflight(tmp_path):
     assert window.concurrency_spin.value() == 128
     assert window.max_attempts_spin.value() == 3
     assert window.auto_rerun_spin.value() == 2
+    assert window.batch_auto_rerun_spin.value() == 1
     window.max_attempts_spin.setValue(3)
     assert window.max_attempts_spin.value() == 3
     window.output_edit.setText("output")
@@ -235,8 +236,9 @@ def test_gui_shows_failed_rerun_entry_from_summary(tmp_path, monkeypatch):
 
     assert window._last_failed_rerun_file == str(rerun_file)
     assert window.rerun_failed_btn.isVisible()
-    assert window.rerun_failed_btn.isEnabled()
-    assert window._batch_auto_rerun_used
+    assert not window.rerun_failed_btn.isEnabled()
+    assert window._batch_auto_rerun_count == 0
+    assert window._starting_failed_rerun_batch
     assert len(scheduled_callbacks) == 1
     assert information_calls == []
     log_text = window.log_edit.toPlainText()
@@ -260,7 +262,7 @@ def test_gui_batch_auto_rerun_does_not_loop_after_default_once(tmp_path, monkeyp
 
     window = MainWindow()
     window.output_edit.setText(str(tmp_path / "out"))
-    window._batch_auto_rerun_used = True
+    window._batch_auto_rerun_count = window._batch_auto_rerun_limit()
     window.show()
     app.processEvents()
 
@@ -278,7 +280,7 @@ def test_gui_batch_auto_rerun_does_not_loop_after_default_once(tmp_path, monkeyp
     assert scheduled_callbacks == []
     assert information_calls
     log_text = window.log_edit.toPlainText()
-    assert "已达到默认 1 次上限" in log_text
+    assert "已达到当前 1 次上限" in log_text
     assert "重跑失败账号" in log_text
 
     window.close()
@@ -350,6 +352,74 @@ def test_gui_batch_auto_rerun_loads_secret_text_silently(tmp_path, monkeypatch):
     assert "批次级自动补跑" in log_text
     assert "预检查通过" in log_text
 
+    window.close()
+    _clear_settings()
+
+
+def test_gui_batch_auto_rerun_waits_for_previous_worker_to_exit(tmp_path, monkeypatch):
+    _clear_settings()
+    app = _app()
+    scheduled = []
+    monkeypatch.setattr(gui_module.QTimer, "singleShot", lambda msec, callback: scheduled.append((msec, callback)))
+
+    window = MainWindow()
+    window.output_edit.setText(str(tmp_path / "out"))
+    window.paste_edit.setPlainText("retry@example.com----pass----https://otp.test/{email}")
+    window.show()
+    assert _wait_until(app, lambda: window._last_preflight_count == 1)
+
+    class AliveThread:
+        def is_alive(self):
+            return True
+
+    window._worker_thread = AliveThread()
+    window._failed_rerun_autostart_silent = True
+    window._starting_failed_rerun_batch = True
+
+    window.start_run()
+
+    assert scheduled and scheduled[-1][0] == 80
+    assert window._starting_failed_rerun_batch
+    assert window._failed_rerun_start_retries == 1
+    assert window._batch_auto_rerun_count == 0
+    assert "上一批任务正在收尾" in window.log_edit.toPlainText()
+
+    window.close()
+    _clear_settings()
+
+
+def test_gui_batch_auto_rerun_count_increments_only_after_batch_starts(tmp_path, monkeypatch):
+    _clear_settings()
+    app = _app()
+
+    class DummyThread:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+        def is_alive(self):
+            return False
+
+    window = MainWindow()
+    window.output_edit.setText(str(tmp_path / "out"))
+    window.paste_edit.setPlainText("retry@example.com----pass----https://otp.test/{email}")
+    window.show()
+    assert _wait_until(app, lambda: window._last_preflight_count == 1)
+    monkeypatch.setattr(gui_module.threading, "Thread", DummyThread)
+    window.log_edit.setPlainText("上一批日志")
+    window._log_waiting = False
+    window._failed_rerun_autostart_silent = True
+    window._starting_failed_rerun_batch = True
+
+    window.start_run()
+
+    assert window._batch_auto_rerun_count == 1
+    assert not window._starting_failed_rerun_batch
+    assert "批次级自动补跑：新批次开始" in window.log_edit.toPlainText()
+
+    window._set_running(False)
     window.close()
     _clear_settings()
 
@@ -598,11 +668,11 @@ def test_log_line_classification_for_semantic_colors():
     assert classify_log_line("🚀 开始导出：配置已确认") == "start"
     assert classify_log_line("🔁 自动重试：账号 #001 正在进行第 2/2 次尝试。") == "warning"
     assert classify_log_line("🔄 自动重跑补救：账号 #001 正在进行第 4/5 次尝试。") == "warning"
-    assert classify_log_line("🧮 自动处理统计：2 个账号触发恢复策略") == "info"
+    assert classify_log_line("🧮 自动重试 / 自动重跑补救统计：2 个账号触发自动重试") == "info"
     assert classify_log_line("🔍 导出校验：已检查导出的 JSON 是否可导入。") == "info"
     assert classify_log_line("✅ 导出校验：Sub2API JSON 可导入（2 个账号）。") == "success"
     assert classify_log_line("⚠️ 导出校验：Sub2API JSON 不建议导入（1 个问题）。") == "error"
-    assert classify_log_line("🟡 可恢复失败：1 个账号已达到当前自动处理上限") == "warning"
+    assert classify_log_line("🟡 可恢复失败：1 个账号已达到当前自动重试与自动重跑补救上限") == "warning"
     assert classify_log_line("🚫 终态失败：账号 #001 服务端返回账号已停用") == "error"
     assert classify_log_line("🧾 失败诊断报告：failure_report.safe.json") == "output"
     assert classify_log_line("📦 任务已启动：共 3 个账号，并发=3。") == "start"
