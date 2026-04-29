@@ -146,7 +146,7 @@ def install_qt_translations(app: QApplication | None) -> None:
     _QT_TRANSLATIONS_INSTALLED = installed
 
 
-READY_LOG = "🟢 等待开始：请粘贴账号文本，或导入账号文件。\n📄 当前支持：卡网 https://pay.ldxp.cn/shop/plus7 提供的格式，后续格式适配敬请期待。\n📮 说明：程序会优先尝试账密登录；只有服务端要求验证码时，才会访问输入里的取码源。"
+READY_LOG = "🟢 等待开始：请粘贴账号文本，或导入账号文件。\n📄 当前支持：号商页面 https://pay.ldxp.cn/shop/plus7 提供的账号格式，后续格式适配敬请期待。\n📮 说明：程序会优先尝试账密登录；只有服务端要求验证码时，才会访问输入里的取码源。"
 _UI_FONT_FAMILY = ""
 _QT_TRANSLATORS: list[QTranslator] = []
 _QT_TRANSLATIONS_INSTALLED = False

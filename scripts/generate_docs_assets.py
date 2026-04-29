@@ -136,7 +136,7 @@ def create_hero() -> None:
     # Minimal capability row: fine separators instead of heavy badges.
     cap_layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
     cap_draw = ImageDraw.Draw(cap_layer)
-    cap_specs = [(151, "Plus7", "#60A5FA"), (286, "本地导出", "#22D3EE"), (452, "Sub2API", "#A78BFA"), (628, "CPA", "#34D399"), (738, "批次隔离", "#93C5FD")]
+    cap_specs = [(151, "号商格式", "#60A5FA"), (318, "本地导出", "#22D3EE"), (484, "Sub2API", "#A78BFA"), (660, "CPA", "#34D399"), (770, "批次隔离", "#93C5FD")]
     for index, (x, label, color) in enumerate(cap_specs):
         cap_draw.ellipse((x, 584, x + 10, 594), fill=color)
         cap_draw.text((x + 19, 574), label, font=font(22, bold=True), fill=(226, 239, 255, 218))
