@@ -23,6 +23,7 @@ from gpt2json.gui import (  # noqa: E402
     build_unified_file_dialog_stylesheet,
     classify_log_line,
     create_app_settings,
+    default_output_dir,
     rounded_pixmap,
 )
 
@@ -119,6 +120,42 @@ def test_gui_enables_run_only_after_valid_preflight(tmp_path):
     assert window.height() == 900
     assert window.input_stack.height() > initial_stack_height
     window.close()
+    _clear_settings()
+
+
+def test_gui_default_output_dir_uses_app_output_until_user_changes(tmp_path):
+    _clear_settings()
+    app = _app()
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+
+    assert window.output_edit.text() == str(default_output_dir())
+    assert not window._output_dir_custom
+
+    window.close()
+    _clear_settings()
+
+
+def test_gui_output_dir_manual_choice_is_remembered(tmp_path):
+    _clear_settings()
+    app = _app()
+    custom_out = tmp_path / "custom-out"
+
+    window = MainWindow()
+    window.output_edit.setText(str(custom_out))
+    window._mark_output_dir_custom()
+    window._save_settings()
+    window.close()
+
+    restored = MainWindow()
+    restored.show()
+    app.processEvents()
+
+    assert restored.output_edit.text() == str(custom_out)
+    assert restored._output_dir_custom
+
+    restored.close()
     _clear_settings()
 
 

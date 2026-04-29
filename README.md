@@ -76,7 +76,7 @@ flowchart LR
 | 并发与重试 | ✅ 已实现 | 默认自动并发；高级选项可调整并发、超时、重试和自动重跑补救。 |
 | Sub2API 导出 | ✅ 已实现 | 生成 `sub2api_accounts.secret.json` 总包。 |
 | CPA 导出 | ✅ 已实现 | 每个账号一个 JSON，统一放在唯一 `CPA_<批次>/` 文件夹，并生成 manifest。 |
-| 输出追踪 | ✅ 已实现 | `summary.json`、`results.safe.jsonl`、`failure_report.safe.json` 均为脱敏诊断信息。 |
+| 输出追踪 | ✅ 已实现 | 默认输出到程序目录下的 `output/`；手动改过输出目录后会记住。`summary.json`、`results.safe.jsonl`、`failure_report.safe.json` 均为脱敏诊断信息。 |
 | 失败补救 | ✅ 已实现 | 仍可恢复的失败账号会写入 `failed_rerun.secret.txt`，GUI 可一键只重跑失败账号。 |
 | 邮箱协议 backend | 🧭 规划中 | IMAP / IMAP XOAUTH2 / Graph / JMAP / POP3 / Provider API。 |
 
@@ -150,7 +150,7 @@ user@example.test----example-gpt-password----https://otp-service.test/latest?mai
 
 ## ✦ 输出结果
 
-每次运行都会在你选择的输出根目录下创建唯一批次目录：
+桌面版默认会把结果放到程序所在目录下的 `output/`；如果你手动选择过其它输出目录，之后会记住该目录。每次运行都会在输出根目录下创建唯一批次目录：
 
 ```text
 output/

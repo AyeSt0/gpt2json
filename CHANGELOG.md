@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- 桌面版输出目录默认改为程序所在目录下的 `output/`；用户手动选择或编辑输出目录后会记住该目录。
+
 ### Planned
 
 - IMAP / IMAP XOAUTH2、Graph、JMAP、POP3、Provider API 等邮箱取码 backend。

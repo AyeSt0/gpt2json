@@ -129,6 +129,24 @@ def create_app_settings() -> QSettings:
     return QSettings(str(path), QSettings.Format.IniFormat)
 
 
+def app_base_dir() -> Path:
+    """Return the user-visible application directory.
+
+    Packaged builds use the folder that contains GPT2JSON.exe, which is the
+    install directory for the installer and the extracted folder for the ZIP.
+    Source runs use the repository root so the default export path is stable
+    instead of depending on the shell's current working directory.
+    """
+
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[1]
+
+
+def default_output_dir() -> Path:
+    return app_base_dir() / "output"
+
+
 def install_qt_translations(app: QApplication | None) -> None:
     """Load Qt's Simplified Chinese translations for built-in dialogs.
 
@@ -1046,6 +1064,7 @@ class MainWindow(QMainWindow):
         self._last_result_dir = ""
         self._last_failed_rerun_file = ""
         self._pending_failed_rerun_autostart = False
+        self._output_dir_custom = False
         self._preflight_seq = 0
         self._preflight_running = False
         self._log_waiting = True
@@ -1300,9 +1319,11 @@ class MainWindow(QMainWindow):
         output_grid.addWidget(self._field_label("输出目录"), 0, 0, 1, 2)
         self.output_edit = DropLineEdit(directory=True)
         self.output_edit.setObjectName("PathEdit")
-        self.output_edit.setText("output")
+        self.output_edit.setText(str(default_output_dir()))
         self.output_edit.setPlaceholderText("选择输出目录")
         self.output_edit.textChanged.connect(self._refresh_controls_state)
+        self.output_edit.textEdited.connect(self._mark_output_dir_custom)
+        self.output_edit.dropped.connect(lambda _path: self._mark_output_dir_custom())
         self.output_btn = QPushButton("浏览")
         self.output_btn.setObjectName("BrowseButton")
         self.output_btn.clicked.connect(self.pick_output)
@@ -2106,6 +2127,18 @@ class MainWindow(QMainWindow):
         self.append_log(f"✅ 更新检查：当前已经是最新发布版 {latest or APP_VERSION}。")
         QMessageBox.information(self, "检查更新", f"当前已经是最新发布版：{latest or APP_VERSION}")
 
+    def _setting_bool(self, key: str, default: bool = False) -> bool:
+        value = self.settings.value(key, default)
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+    def _default_output_dir_text(self) -> str:
+        return str(default_output_dir())
+
+    def _mark_output_dir_custom(self, *_args: Any) -> None:
+        self._output_dir_custom = True
+
     def _restore_settings(self) -> None:
         def int_setting(key: str, default: int, minimum: int, maximum: int | None = None) -> int:
             try:
@@ -2117,7 +2150,12 @@ class MainWindow(QMainWindow):
 
         theme = str(self.settings.value("theme", "light") or "light")
         self._theme = "dark" if theme == "dark" else "light"
-        output_dir = str(self.settings.value("output_dir", "output") or "output")
+        saved_output_dir = str(self.settings.value("output_dir", "") or "").strip()
+        has_saved_output_dir = bool(self.settings.contains("output_dir") and saved_output_dir)
+        explicit_custom = self._setting_bool("output_dir_custom", False)
+        legacy_custom = has_saved_output_dir and saved_output_dir != "output"
+        self._output_dir_custom = bool(explicit_custom or legacy_custom)
+        output_dir = saved_output_dir if self._output_dir_custom else self._default_output_dir_text()
         self.output_edit.setText(output_dir)
         input_format = str(self.settings.value("input_format", "auto") or "auto")
         for index in range(self.input_format_combo.count()):
@@ -2137,7 +2175,11 @@ class MainWindow(QMainWindow):
 
     def _save_settings(self) -> None:
         self.settings.setValue("theme", self._theme)
-        self.settings.setValue("output_dir", self.output_edit.text().strip() or "output")
+        self.settings.setValue("output_dir_custom", self._output_dir_custom)
+        if self._output_dir_custom:
+            self.settings.setValue("output_dir", self.output_edit.text().strip() or self._default_output_dir_text())
+        else:
+            self.settings.remove("output_dir")
         self.settings.setValue("input_format", self._input_format())
         self.settings.setValue("export_sub2api", self.sub2api_check.isChecked())
         self.settings.setValue("export_cpa", self.cpa_check.isChecked())
@@ -2364,7 +2406,7 @@ class MainWindow(QMainWindow):
         self._refresh_controls_state()
 
     def _validate_output_dir(self, *, create: bool = False) -> tuple[bool, str]:
-        raw = self.output_edit.text().strip() or "output"
+        raw = self.output_edit.text().strip() or self._default_output_dir_text()
         path = Path(raw)
         if path.exists() and path.is_file():
             return False, "输出目录不能是已有文件。"
@@ -2561,17 +2603,18 @@ class MainWindow(QMainWindow):
             selected = Path(dialog.selectedFiles()[0])
             if selected.is_file():
                 selected = selected.parent
+            self._output_dir_custom = True
             self.output_edit.setText(str(selected))
             self._save_settings()
 
     def open_output_dir(self) -> None:
-        path = Path(self._last_result_dir or self.output_edit.text().strip() or "output")
+        path = Path(self._last_result_dir or self.output_edit.text().strip() or self._default_output_dir_text())
         ok, message = self._validate_output_dir(create=True)
         if not ok:
             QMessageBox.warning(self, "输出目录不可用", message)
             return
         if not path.exists():
-            path = Path(self.output_edit.text().strip() or "output")
+            path = Path(self.output_edit.text().strip() or self._default_output_dir_text())
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
 
     def _paste_text(self) -> str:
@@ -2779,7 +2822,7 @@ class MainWindow(QMainWindow):
             return
         input_path = self._input_path() if self._input_mode == "file" else ""
         paste_text = self._paste_text() if self._input_mode == "paste" else ""
-        output_dir = self.output_edit.text().strip()
+        output_dir = self.output_edit.text().strip() or self._default_output_dir_text()
         if not paste_text and not input_path:
             QMessageBox.warning(self, "缺少输入", "请粘贴账号文本，或导入账号文件。")
             return
