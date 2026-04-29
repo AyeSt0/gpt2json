@@ -23,9 +23,12 @@ def test_windows_installer_exposes_default_names_only():
     assert 'if ($sourceText -notmatch [regex]::Escape(\'"GPT2JSON-CoreSetup-" + Version + ".exe"\'))' in wrapper_builder
     assert 'Join-Path $outDir "GPT2JSON-Uninstall.exe"' in uninstaller_builder
     assert "GPT2JSON-ArtSetup-v{version}.exe" not in release_check
+    assert "README.md mentions current release asset names" in release_check
     assert '"release/GPT2JSON-ArtSetup' not in workflow
     assert "GPT2JSON-ArtSetup" not in readme
     assert ".\\packaging\\windows\\build-portable.ps1" in workflow
+    assert "Tag/version mismatch" in workflow
+    assert "github.ref_name" in workflow
     assert '--paths "$root"' in portable_builder
     assert "--hidden-import gpt2json.gui" in portable_builder
     assert "--collect-submodules gpt2json" in portable_builder

@@ -22,6 +22,12 @@ out/
 output/
 exports/
 gpt2json_output/
+GPT2JSON_*/
+CPA_*/
+cpa_tokens_*.zip
+*.safe.json
+*.safe.jsonl
+_diagnostics/
 *.secret.json
 *.secret.txt
 *.log

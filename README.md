@@ -268,6 +268,13 @@ python -m ruff check gpt2json tests scripts
 python -m pytest -q
 ```
 
+清理本地构建缓存和旧 release 暂存产物：
+
+```bash
+python scripts/clean_workspace.py --release-old      # 仅预览
+python scripts/clean_workspace.py --release-old --apply
+```
+
 重新生成 README 视觉素材：
 
 ```bash

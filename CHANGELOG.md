@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- 新增 `scripts/clean_workspace.py`，用于安全清理本地构建缓存、旧 release 暂存产物和工具缓存；默认 dry-run，需显式 `--apply` 才会删除。
+
+### Changed
+
+- GUI 日志颜色与分类规则、主题 token 拆成独立模块，降低 `gui.py` 维护成本；日志术语继续保持“自动重试 / 自动重跑补救 / 批次级自动补跑 / 重跑失败账号”。
+- `.gitignore` 增加 `GPT2JSON_*/`、`CPA_*/`、`_diagnostics/`、`*.safe.jsonl` 等兜底规则，避免误把导出结果放在仓库根目录后被提交。
+
 ### Planned
 
 - IMAP / IMAP XOAUTH2、Graph、JMAP、POP3、Provider API 等邮箱取码 backend。

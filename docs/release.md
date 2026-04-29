@@ -10,12 +10,13 @@
 - `packaging/windows/GPT2JSON.iss`：`MyAppVersion`
 - `CHANGELOG.md`：新增 `## [X.Y.Z] - YYYY-MM-DD`
 
-`python scripts/check_release.py` 会检查 Python 包版本、Inno Setup 版本和 CHANGELOG 标题是否一致。
+`python scripts/check_release.py` 会检查 Python 包版本、Inno Setup 版本、CHANGELOG 标题和 README 下载文件名是否一致。
 
 ## 本地检查
 
 ```powershell
 python -m pip install -e .[dev,gui,release]
+python scripts/clean_workspace.py --release-old
 python scripts/generate_docs_assets.py
 python -m ruff check gpt2json tests scripts
 python -m pytest -q
@@ -31,6 +32,13 @@ Compress-Archive -Path dist\GPT2JSON\* -DestinationPath release\GPT2JSON-vX.Y.Z-
 python scripts/check_release.py --require-assets
 ```
 
+本地 `release/` 只是构建暂存目录。发布前如果残留旧版本资产，可先预览并清理：
+
+```powershell
+python scripts/clean_workspace.py --release-old
+python scripts/clean_workspace.py --release-old --apply
+```
+
 ## GitHub Release
 
 1. 确认 `main` 分支 CI 通过。
@@ -44,6 +52,8 @@ python scripts/check_release.py --require-assets
 3. GitHub Actions 会自动构建并上传面向普通用户的 Windows 资产：
    - `GPT2JSON-Setup-vX.Y.Z.exe`
    - `GPT2JSON-vX.Y.Z-windows-x64.zip`
+
+   Release workflow 会校验 tag 与 `gpt2json.__version__` 是否一致，例如 `v0.1.7` 必须对应 `__version__ = "0.1.7"`，避免 tag 和包版本错配。
 
 4. Release 发布后，下载资产并校验：
 

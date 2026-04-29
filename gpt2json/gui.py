@@ -72,31 +72,31 @@ from PySide6.QtWidgets import (
 
 from . import __version__
 from .engine import ExportConfig, run_export
+from .gui_log_style import DARK_LOG_COLORS, LIGHT_LOG_COLORS, classify_log_line
+from .gui_resources import (
+    APP_ICON_PATH,
+    APP_NAME,
+    APP_SUBTITLE,
+    APP_VERSION,
+    ICON_DARK_PATH,
+    ICON_LIGHT_PATH,
+    ICON_PATH,
+    STAT_FAILED_PATH,
+    STAT_RUNNING_PATH,
+    STAT_SUCCESS_PATH,
+    STAT_TOTAL_PATH,
+    THEME_MOON_PATH,
+    THEME_SUN_PATH,
+    UI_CHEVRON_DOWN_PATH,
+    UI_INPUT_PATH,
+    UI_LOG_PATH,
+    UI_OUTPUT_PATH,
+    UI_SETTINGS_PATH,
+    UI_UPLOAD_PATH,
+)
+from .gui_theme import DARK_THEME, LIGHT_THEME
 from .parsing import decode_text_file, list_future_input_format_presets, list_input_formats, parse_by_format
 from .updater import RELEASES_PAGE_URL, check_latest_release
-
-APP_NAME = "GPT2JSON"
-APP_VERSION = f"v{__version__}"
-APP_SUBTITLE = "Sub2API / CPA JSON 导出工具"
-ORG_NAME = "GPT2JSON"
-ASSET_DIR = Path(__file__).resolve().parent / "assets"
-ICON_PATH = ASSET_DIR / "gpt2json_icon.png"
-ICON_ICO_PATH = ASSET_DIR / "gpt2json_icon.ico"
-ICON_LIGHT_PATH = ASSET_DIR / "gpt2json_icon_light.png"
-ICON_DARK_PATH = ASSET_DIR / "gpt2json_icon_dark.png"
-APP_ICON_PATH = ICON_ICO_PATH if ICON_ICO_PATH.exists() else ICON_PATH
-THEME_SUN_PATH = ASSET_DIR / "theme_sun.png"
-THEME_MOON_PATH = ASSET_DIR / "theme_moon.png"
-UI_INPUT_PATH = ASSET_DIR / "ui_input.png"
-UI_SETTINGS_PATH = ASSET_DIR / "ui_settings.png"
-UI_OUTPUT_PATH = ASSET_DIR / "ui_output.png"
-UI_LOG_PATH = ASSET_DIR / "ui_log.png"
-UI_UPLOAD_PATH = ASSET_DIR / "ui_upload.png"
-UI_CHEVRON_DOWN_PATH = ASSET_DIR / "ui_chevron_down.png"
-STAT_TOTAL_PATH = ASSET_DIR / "stat_total.png"
-STAT_SUCCESS_PATH = ASSET_DIR / "stat_success.png"
-STAT_FAILED_PATH = ASSET_DIR / "stat_failed.png"
-STAT_RUNNING_PATH = ASSET_DIR / "stat_running.png"
 
 
 def settings_file_path() -> Path:
@@ -198,96 +198,6 @@ READY_LOG = "🟢 等待开始：请粘贴账号文本，或导入账号文件�
 _UI_FONT_FAMILY = ""
 _QT_TRANSLATORS: list[QTranslator] = []
 _QT_TRANSLATIONS_INSTALLED = False
-
-LIGHT_THEME = {
-    "shell": "#F6F8FC",
-    "card": "#FFFFFF",
-    "soft": "#F8FAFD",
-    "input": "#FFFFFF",
-    "border": "#D9E2EF",
-    "border2": "#CBD8EA",
-    "text": "#0F172A",
-    "muted": "#64748B",
-    "muted2": "#94A3B8",
-    "progress": "#E2E8F0",
-    "log": "#FBFCFE",
-    "shadow": "#8FA2BD",
-    "status_bg": "#DCFCE7",
-    "status_fg": "#15803D",
-    "status_bd": "#B7E4C7",
-}
-
-DARK_THEME = {
-    "shell": "#08111F",
-    "card": "#0F1A29",
-    "soft": "#142235",
-    "input": "#101B2A",
-    "border": "#26364A",
-    "border2": "#334760",
-    "text": "#F8FAFC",
-    "muted": "#94A3B8",
-    "muted2": "#64748B",
-    "progress": "#334155",
-    "log": "#0C1624",
-    "shadow": "#000000",
-    "status_bg": "#123B2A",
-    "status_fg": "#86EFAC",
-    "status_bd": "#1F6B43",
-}
-
-LIGHT_LOG_COLORS = {
-    "default": "#475569",
-    "info": "#2563EB",
-    "start": "#7C3AED",
-    "account": "#334155",
-    "otp": "#B45309",
-    "output": "#0F766E",
-    "success": "#15803D",
-    "warning": "#B45309",
-    "error": "#DC2626",
-    "cancel": "#EA580C",
-}
-
-DARK_LOG_COLORS = {
-    "default": "#CBD5E1",
-    "info": "#93C5FD",
-    "start": "#C4B5FD",
-    "account": "#E2E8F0",
-    "otp": "#FCD34D",
-    "output": "#5EEAD4",
-    "success": "#86EFAC",
-    "warning": "#FBBF24",
-    "error": "#FCA5A5",
-    "cancel": "#FDBA74",
-}
-
-
-def classify_log_line(text: str) -> str:
-    line = str(text or "").strip()
-    if not line:
-        return "default"
-    if line.startswith(("✅", "🎉")) or line.startswith("成功：") or "任务完成：" in line:
-        return "success"
-    if line.startswith(("⚠️", "💥", "🚫")) or line.startswith(("失败：", "主流程异常：")):
-        return "error"
-    if line.startswith("🛑") or line.startswith("取消"):
-        return "cancel"
-    if line.startswith(("🔁", "🔄 自动重跑补救", "🔄 批次级自动补跑", "🔄 重跑失败账号", "🟡")):
-        return "warning"
-    if line.startswith(("🚀", "🧩", "📦 任务")) or line.startswith(("开始导出：", "运行配置：")):
-        return "start"
-    if line.startswith(("👤", "🚪", "🛡️", "📨", "🔑", "🎫", "📦")):
-        return "account"
-    if line.startswith(("🧭", "🔎", "🔍", "🧪", "🔄", "ℹ️", "✨", "👀", "🟢", "📄", "🧮")):
-        return "info"
-    if line.startswith(("🧾 失败诊断报告", "🧾 诊断目录")):
-        return "output"
-    if line.startswith(("📮", "📫", "📬", "🧾", "⌛")) or "验证码" in line:
-        return "otp"
-    if line.startswith(("📁", "🗂️", "🧰", "📘", "📚")) or "输出：" in line or "输出目录：" in line or "输出根目录：" in line:
-        return "output"
-    return "default"
-
 
 class LogHighlighter(QSyntaxHighlighter):
     def __init__(self, document: Any, *, theme: str = "light") -> None:

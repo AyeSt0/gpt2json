@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 INIT_FILE = ROOT / "gpt2json" / "__init__.py"
 INNO_FILE = ROOT / "packaging" / "windows" / "GPT2JSON.iss"
 CHANGELOG_FILE = ROOT / "CHANGELOG.md"
+README_FILE = ROOT / "README.md"
 RELEASE_DIR = ROOT / "release"
 
 EXPECTED_RELEASE_PATTERNS = (
@@ -48,6 +49,16 @@ def changelog_has_version(version: str, path: Path = CHANGELOG_FILE) -> bool:
     text = path.read_text(encoding="utf-8")
     pattern = rf"^##\s+\[{re.escape(version)}\](?:\s+-\s+\d{{4}}-\d{{2}}-\d{{2}})?\s*$"
     return re.search(pattern, text, re.MULTILINE) is not None
+
+
+def readme_mentions_release_assets(version: str, path: Path = README_FILE) -> bool:
+    text = path.read_text(encoding="utf-8")
+    required = (
+        f"version-v{version}",
+        f"GPT2JSON-Setup-v{version}.exe",
+        f"GPT2JSON-v{version}-windows-x64.zip",
+    )
+    return all(item in text for item in required)
 
 
 def sha256_file(path: Path) -> str:
@@ -97,6 +108,11 @@ def run_checks(require_assets: bool = False) -> int:
         print(f"OK: CHANGELOG.md contains heading for [{package_version}]")
     else:
         failures.append(f"CHANGELOG.md does not contain a heading for [{package_version}]")
+
+    if readme_mentions_release_assets(package_version):
+        print("OK: README.md mentions current release asset names")
+    else:
+        failures.append(f"README.md does not mention all current release assets for [{package_version}]")
 
     expected_assets = expected_release_assets(package_version)
     existing_expected = [path for path in expected_assets if path.exists()]
