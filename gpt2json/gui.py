@@ -273,7 +273,7 @@ def classify_log_line(text: str) -> str:
         return "start"
     if line.startswith(("👤", "🚪", "🛡️", "📨", "🔑", "🎫", "📦")):
         return "account"
-    if line.startswith(("🧭", "🔎", "🧪", "🔄", "ℹ️", "✨", "👀", "🟢", "📄", "🧮")):
+    if line.startswith(("🧭", "🔎", "🔍", "🧪", "🔄", "ℹ️", "✨", "👀", "🟢", "📄", "🧮")):
         return "info"
     if line.startswith("🧾 失败诊断报告"):
         return "output"
@@ -3170,6 +3170,29 @@ class MainWindow(QMainWindow):
             self.running_stat.set_value(self._running)
             self._update_progress()
 
+    def _append_export_validation_logs(self, validation: Any) -> None:
+        if not isinstance(validation, dict) or not validation.get("checked"):
+            return
+        status = str(validation.get("status") or ("可导入" if validation.get("ok", True) else "不建议导入"))
+        self.append_log(f"🔍 导出校验：已检查导出的 JSON 是否可导入，整体状态：{status}。")
+        sub = validation.get("sub2api") if isinstance(validation.get("sub2api"), dict) else {}
+        if sub.get("selected"):
+            count = int(sub.get("count") or 0)
+            if bool(sub.get("ok")):
+                self.append_log(f"✅ 导出校验：Sub2API JSON 可导入（{count} 个账号）。")
+            else:
+                issue_count = int(sub.get("issue_count") or len(sub.get("errors") or []))
+                self.append_log(f"⚠️ 导出校验：Sub2API JSON 不建议导入（{issue_count} 个问题）；详情见 summary.json。")
+        cpa = validation.get("cpa") if isinstance(validation.get("cpa"), dict) else {}
+        if cpa.get("selected"):
+            count = int(cpa.get("count") or 0)
+            issue_count = int(cpa.get("issue_count") or len(cpa.get("errors") or []))
+            if bool(cpa.get("ok")):
+                self.append_log(f"✅ 导出校验：CPA 单账号 JSON 可导入 {count}/{count} 个。")
+            else:
+                not_recommended = min(count, issue_count) if count else issue_count
+                self.append_log(f"⚠️ 导出校验：CPA 单账号 JSON 不建议导入 {not_recommended}/{count} 个；详情见 summary.json。")
+
     def on_done(self, summary: dict) -> None:
         self._set_running(False)
         success_count = int(summary.get("success_count", 0) or 0)
@@ -3214,6 +3237,7 @@ class MainWindow(QMainWindow):
             self.append_log(f"🎉 任务完成：成功 {success_count} 个，失败 {failure_count} 个。")
         if retry_count or auto_rerun_count:
             self.append_log(f"🧮 自动处理统计：{retry_count} 个账号触发恢复策略，其中 {auto_rerun_count} 个进入额外自动重跑补救。")
+        self._append_export_validation_logs(summary.get("export_validation"))
         if failure_categories:
             parts = [f"{name} {count} 个" for name, count in failure_categories.items()]
             self.append_log(f"⚠️ 失败诊断：{'；'.join(parts)}。")
@@ -3235,7 +3259,7 @@ class MainWindow(QMainWindow):
         if self._last_failed_rerun_file:
             self.append_log(f"🔁 可恢复失败清单：{rerunnable_failure_count} 个账号已写入 {self._last_failed_rerun_file}")
             self.append_log("🛠️ 需要继续补救时，点击“重跑失败账号”，客户端会只载入这些账号并自动开始新批次。")
-        self.append_log("👀 提示：可以打开输出目录检查文件，确认后再导入目标系统。")
+        self.append_log("👀 提示：导出校验为“可导入”后再导入目标系统；标记为“不建议导入”的文件请先修正或重新导出。")
         self._refresh_controls_state()
         if cancelled:
             QMessageBox.information(self, "已取消", f"导出已取消\n成功：{success_count}\n失败/未完成：{failure_count}\n取消：{cancelled_count}")

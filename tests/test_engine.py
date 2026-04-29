@@ -251,6 +251,16 @@ def test_run_export_writes_cpa_and_sub2api(tmp_path: Path):
     assert manifest["directory"] == cpa_dir.name
     assert len(manifest["files"]) == 2
     assert "accounts" not in manifest
+    validation = summary["export_validation"]
+    assert validation["checked"] is True
+    assert validation["status"] == "可导入"
+    assert validation["sub2api"]["selected"] is True
+    assert validation["sub2api"]["status"] == "可导入"
+    assert validation["sub2api"]["count"] == 2
+    assert validation["cpa"]["selected"] is True
+    assert validation["cpa"]["status"] == "可导入"
+    assert validation["cpa"]["count"] == 2
+    assert validation["cpa"]["issue_count"] == 0
 
 
 def test_run_export_accepts_pasted_input_and_auto_concurrency(tmp_path: Path):
@@ -289,6 +299,9 @@ def test_run_export_cpa_only(tmp_path: Path):
     assert (batch_dir / "cpa_manifest.json").exists()
     assert not list(batch_dir.glob("cpa_tokens_*.zip"))
     assert not (batch_dir / "sub2api_accounts.secret.json").exists()
+    assert summary["export_validation"]["sub2api"]["selected"] is False
+    assert summary["export_validation"]["sub2api"]["status"] == ""
+    assert summary["export_validation"]["cpa"]["status"] == "可导入"
 
 
 def test_run_export_sub2api_only(tmp_path: Path):
@@ -312,6 +325,9 @@ def test_run_export_sub2api_only(tmp_path: Path):
     assert not list(batch_dir.glob("CPA_*"))
     assert (batch_dir / "sub2api_accounts.secret.json").exists()
     assert not (batch_dir / "cpa_manifest.json").exists()
+    assert summary["export_validation"]["sub2api"]["status"] == "可导入"
+    assert summary["export_validation"]["cpa"]["selected"] is False
+    assert summary["export_validation"]["cpa"]["status"] == ""
 
 
 def test_run_export_isolates_single_account_runtime_errors(tmp_path: Path):
@@ -621,6 +637,8 @@ def test_run_export_reports_cancelled_rows_without_outputs(tmp_path: Path):
     assert summary["success_count"] == 0
     assert summary["failure_count"] == 3
     assert summary["cancelled_count"] == 3
+    assert summary["export_validation"]["checked"] is False
+    assert summary["export_validation"]["status"] == ""
     safe_rows = safe_rows_from(summary)
     assert {row["status"] for row in safe_rows} == {"cancelled"}
     batch_dir = batch_dir_from(summary)

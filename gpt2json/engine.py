@@ -10,7 +10,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .formats import build_cpa_token_json, build_export, convert_current_token_to_sub, write_json
+from .formats import (
+    build_cpa_token_json,
+    build_export,
+    convert_current_token_to_sub,
+    validate_cpa_token_json,
+    validate_sub2api_export,
+    write_json,
+)
 from .models import AttemptResult, utc_now_iso
 from .otp import OtpFetcher
 from .parsing import mask_email, mask_source, parse_by_format, read_account_file, secret_hash
@@ -519,12 +526,18 @@ def run_export(
     successes.sort(key=lambda item: str(item.get("email") or ""))
     sub_accounts: list[dict[str, Any]] = []
     cpa_files: list[dict[str, Any]] = []
+    cpa_validation_errors: list[str] = []
     cpa_dir_name = f"CPA_{run_stamp}"
     cpa_dir = out_dir / cpa_dir_name
     for index, token_payload in enumerate(successes, 1):
         email = str(token_payload.get("email") or "").strip()
         if export_cpa:
             cpa_payload = build_cpa_token_json(token_payload)
+            cpa_validation = validate_cpa_token_json(cpa_payload)
+            if not bool(cpa_validation.get("ok")):
+                label = email or f"token_{index:03d}"
+                for error in list(cpa_validation.get("errors") or []):
+                    cpa_validation_errors.append(f"{label}: {error}")
             cpa_filename = f"{email}.json" if email else f"token_{run_stamp}_{index:03d}.json"
             cpa_path = _unique_child_file_path(cpa_dir, cpa_filename)
             write_json(cpa_path, cpa_payload)
@@ -540,6 +553,13 @@ def run_export(
             sub_account = _build_sub_account(token_payload, pool=config.pool, index=index)
             sub_accounts.append(sub_account)
 
+    export_validation: dict[str, Any] = {
+        "ok": True,
+        "checked": bool(successes),
+        "status": "",
+        "sub2api": {"selected": export_sub2api, "ok": True, "status": "", "count": 0, "issue_count": 0, "errors": []},
+        "cpa": {"selected": export_cpa, "ok": True, "status": "", "count": 0, "issue_count": 0, "errors": []},
+    }
     if successes and export_cpa:
         write_json(
             out_dir / "cpa_manifest.json",
@@ -551,8 +571,22 @@ def run_export(
                 "files": cpa_files,
             },
         )
+        export_validation["cpa"] = {
+            "selected": True,
+            "ok": not cpa_validation_errors,
+            "status": "可导入" if not cpa_validation_errors else "不建议导入",
+            "count": len(cpa_files),
+            "issue_count": len(cpa_validation_errors),
+            "errors": cpa_validation_errors,
+        }
     if successes and export_sub2api:
-        write_json(out_dir / "sub2api_accounts.secret.json", build_export(sub_accounts))
+        sub_export = build_export(sub_accounts)
+        sub_validation = validate_sub2api_export(sub_export)
+        export_validation["sub2api"] = {"selected": True, **sub_validation}
+        write_json(out_dir / "sub2api_accounts.secret.json", sub_export)
+    if successes:
+        export_validation["ok"] = bool(export_validation["sub2api"].get("ok")) and bool(export_validation["cpa"].get("ok"))
+        export_validation["status"] = "可导入" if export_validation["ok"] else "不建议导入"
 
     summary["finished_at"] = utc_now_iso()
     summary["success_count"] = len(successes)
@@ -579,6 +613,7 @@ def run_export(
     summary["retry_count"] = retry_count
     summary["auto_rerun_count"] = auto_rerun_count
     summary["failure_categories"] = failure_categories
+    summary["export_validation"] = export_validation
     summary["rerunnable_failure_count"] = len(rerunnable_results)
     summary["non_rerunnable_failure_count"] = max(0, len(failed_results) - len(rerunnable_results) - int(summary["cancelled_count"]))
     summary["terminal_failure_count"] = summary["non_rerunnable_failure_count"]

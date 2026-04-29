@@ -76,8 +76,10 @@ flowchart LR
 | 并发与重试 | ✅ 已实现 | 默认自动并发；高级选项可调整并发、超时、重试和自动重跑补救。 |
 | Sub2API 导出 | ✅ 已实现 | 生成 `sub2api_accounts.secret.json` 总包。 |
 | CPA 导出 | ✅ 已实现 | 每个账号一个 JSON，统一放在唯一 `CPA_<批次>/` 文件夹，并生成 manifest。 |
+| 导出校验 | ✅ 已实现 | 导出完成后校验 Sub2API / CPA JSON 结构，日志标记“可导入”或“不建议导入”。 |
 | 输出追踪 | ✅ 已实现 | 默认输出到程序目录下的 `output/`；手动改过输出目录后会记住。`summary.json`、`results.safe.jsonl`、`failure_report.safe.json` 均为脱敏诊断信息。 |
 | 失败补救 | ✅ 已实现 | 仍可恢复的失败账号会写入 `failed_rerun.secret.txt`，GUI 可一键只重跑失败账号。 |
+| 取码源解析 | ✅ 持续增强 | 支持 JSON / 文本 / HTML API 取码；多验证码会优先选择最新验证码，并过滤登录前旧码。 |
 | 邮箱协议 backend | 🧭 规划中 | IMAP / IMAP XOAUTH2 / Graph / JMAP / POP3 / Provider API。 |
 
 > GPT2JSON 只负责生成 JSON 文件，不直接导入 Sub2API 后台。这样更安全，也更适合批量交付前检查。
@@ -177,6 +179,8 @@ output/
 | `summary.json` | 本次统计；包含输出根目录、结果目录、批次 ID 和导出路径。 |
 | `results.safe.jsonl` | 脱敏过程记录，方便定位每个账号的阶段和最终状态。 |
 
+`summary.json` 中还会写入 `export_validation`：GUI 会把结果翻译成“导出校验：可导入 / 不建议导入”。如果出现“不建议导入”，请先查看 `summary.json` 中的问题列表，修正后重新导出。
+
 ## ✦ 自动重试与失败诊断
 
 GPT2JSON 的目标是让客户端尽可能自动处理可恢复问题：
@@ -188,6 +192,8 @@ GPT2JSON 的目标是让客户端尽可能自动处理可恢复问题：
 | HTTP 429 / 5xx / 临时网络错误 | 自动重试或自动重跑，避免用户手动重跑整批。 |
 | 账号停用、锁定、不存在、凭据无效 | 归类为终态失败，不继续消耗重跑次数。 |
 | 仍失败的账号 | 终态失败只写入 `failure_report.safe.json`；可恢复失败额外写入 `failed_rerun.secret.txt`，GUI 会显示“重跑失败账号”。 |
+
+取码源如果一次返回多个验证码，GPT2JSON 会优先按 `created_at` / `received_at` / `timestamp` 等时间字段选择最新验证码；没有时间字段时优先选择更靠后的验证码，避免误提交历史旧码。
 
 ## ✦ Windows 发行包
 

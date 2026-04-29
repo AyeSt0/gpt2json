@@ -8,6 +8,7 @@ import threading
 import time
 import urllib.parse
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from curl_cffi import requests
@@ -24,31 +25,110 @@ FETCH_URL_RE = re.compile(
 )
 STRING_API_URL_RE = re.compile(r"[`'\"]([^`'\"]*(?:otp|code|verify|mail|email)[^`'\"]{0,220})[`'\"]", re.IGNORECASE)
 CURRENT_EMAIL_RE = re.compile(r"\bcurrentEmail\b\s*=\s*[`'\"]([^`'\"]+@[^`'\"]+)[`'\"]", re.IGNORECASE)
+CODE_KEYS = (
+    "latest_code",
+    "latestCode",
+    "code",
+    "otp",
+    "oai_code",
+    "verification_code",
+    "verificationCode",
+    "pin",
+    "verifyCode",
+    "verify_code",
+)
+EXPLICIT_CODE_KEYS = {
+    "latest_code",
+    "latestCode",
+    "otp",
+    "oai_code",
+    "verification_code",
+    "verificationCode",
+    "pin",
+    "verifyCode",
+    "verify_code",
+}
+CONTAINER_KEYS = ("data", "result", "mail", "message", "latest", "item", "emails", "items", "list", "records")
+TIME_KEYS = (
+    "created_at",
+    "createdAt",
+    "received_at",
+    "receivedAt",
+    "updated_at",
+    "updatedAt",
+    "timestamp",
+    "time",
+    "date",
+    "sent_at",
+    "sentAt",
+)
+
+
+@dataclass(frozen=True)
+class OtpCandidate:
+    code: str
+    timestamp: float = 0.0
+    position: int = 0
+    explicit: bool = False
+
+
+def _parse_otp_timestamp(value: Any) -> float:
+    if value is None or value == "":
+        return 0.0
+    if isinstance(value, (int, float)):
+        number = float(value)
+        if number > 10_000_000_000:
+            number /= 1000.0
+        return number if number > 0 else 0.0
+    text = str(value or "").strip()
+    if not text:
+        return 0.0
+    if text.isdigit():
+        return _parse_otp_timestamp(int(text))
+    try:
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        return datetime.fromisoformat(text).timestamp()
+    except Exception:
+        return 0.0
+
+
+def _select_latest_otp(candidates: list[OtpCandidate]) -> str:
+    if not candidates:
+        return ""
+    best = max(candidates, key=lambda item: (item.timestamp > 0, item.timestamp, item.explicit, item.position))
+    return best.code
+
+
+def _extract_otp_candidates_from_text(text: Any, *, position_start: int = 0, timestamp: float = 0.0, explicit: bool = False) -> list[OtpCandidate]:
+    raw = str(text or "")
+    return [
+        OtpCandidate(match.group(1), timestamp=timestamp, position=position_start + index, explicit=explicit)
+        for index, match in enumerate(OTP_RE.finditer(raw), 1)
+    ]
 
 
 def extract_otp_from_text(text: Any) -> str:
-    raw = str(text or "")
-    if not raw:
-        return ""
-    match = OTP_RE.search(raw)
-    return match.group(1) if match else ""
+    return _select_latest_otp(_extract_otp_candidates_from_text(text))
 
 
-def extract_otp_from_json(payload: Any) -> str:
+def _extract_otp_candidates_from_json(payload: Any, *, position_start: int = 0) -> list[OtpCandidate]:
     if payload is None:
-        return ""
+        return []
     if isinstance(payload, str):
-        return extract_otp_from_text(payload)
+        return _extract_otp_candidates_from_text(payload, position_start=position_start)
     if isinstance(payload, (int, float)):
-        return extract_otp_from_text(str(payload))
+        return _extract_otp_candidates_from_text(str(payload), position_start=position_start)
     if isinstance(payload, list):
+        candidates: list[OtpCandidate] = []
+        position = position_start
         for item in payload:
-            code = extract_otp_from_json(item)
-            if code:
-                return code
-        return ""
+            nested = _extract_otp_candidates_from_json(item, position_start=position)
+            candidates.extend(nested)
+            position = max([position, *(candidate.position for candidate in nested)], default=position) + 1
+        return candidates
     if not isinstance(payload, dict):
-        return ""
+        return []
 
     # A number of no-login mail pages return structured error payloads with
     # fields like trace_id/status/code.  Do not recursively mine those for any
@@ -56,37 +136,41 @@ def extract_otp_from_json(payload: Any) -> str:
     # be considered.
     success_value = payload.get("success")
     if success_value is False:
-        explicit_error_safe_keys = (
-            "latest_code",
-            "latestCode",
-            "verification_code",
-            "verificationCode",
-            "otp",
-            "oai_code",
-            "pin",
-        )
-        for key in explicit_error_safe_keys:
+        candidates: list[OtpCandidate] = []
+        for key in CODE_KEYS:
             if key in payload:
-                code = extract_otp_from_json(payload.get(key))
-                if code:
-                    return code
-        return ""
+                candidates.extend(
+                    _extract_otp_candidates_from_text(
+                        payload.get(key),
+                        position_start=position_start + len(candidates) + 1,
+                        timestamp=max(_parse_otp_timestamp(payload.get(time_key)) for time_key in TIME_KEYS if time_key in payload) if any(time_key in payload for time_key in TIME_KEYS) else 0.0,
+                        explicit=True,
+                    )
+                )
+        return candidates
 
-    for key in ("latest_code", "latestCode", "code", "otp", "oai_code", "verification_code", "verificationCode", "pin"):
+    object_timestamp = max(_parse_otp_timestamp(payload.get(key)) for key in TIME_KEYS if key in payload) if any(key in payload for key in TIME_KEYS) else 0.0
+    candidates: list[OtpCandidate] = []
+    for key in CODE_KEYS:
         if key in payload:
-            code = extract_otp_from_json(payload.get(key))
-            if code:
-                return code
-    for key in ("data", "result", "mail", "message", "latest", "item"):
+            candidates.extend(
+                _extract_otp_candidates_from_text(
+                    payload.get(key),
+                    position_start=position_start + len(candidates) + 1,
+                    timestamp=object_timestamp,
+                    explicit=key in EXPLICIT_CODE_KEYS,
+                )
+            )
+    for key in CONTAINER_KEYS:
         if key in payload:
-            code = extract_otp_from_json(payload.get(key))
-            if code:
-                return code
+            candidates.extend(_extract_otp_candidates_from_json(payload.get(key), position_start=position_start + len(candidates) + 1))
     for value in payload.values():
-        code = extract_otp_from_json(value)
-        if code:
-            return code
-    return ""
+        candidates.extend(_extract_otp_candidates_from_json(value, position_start=position_start + len(candidates) + 1))
+    return candidates
+
+
+def extract_otp_from_json(payload: Any) -> str:
+    return _select_latest_otp(_extract_otp_candidates_from_json(payload))
 
 
 def _json_response(response: Any) -> Any:
@@ -242,6 +326,7 @@ def fetch_otp_fetch_details_via_url(
     text = getattr(response, "text", "") or ""
     content_type = str((getattr(response, "headers", {}) or {}).get("content-type") or "")
     if _looks_like_html(text, content_type):
+        empty_api_details = OtpFetchDetails()
         for api_url in _discover_api_urls_from_html(str(getattr(response, "url", "") or url), text, email):
             try:
                 api_response = request_once(api_url, referer=str(getattr(response, "url", "") or url))
@@ -251,24 +336,27 @@ def fetch_otp_fetch_details_via_url(
             api_payload = _json_response(api_response)
             if api_payload is not None:
                 api_code = extract_otp_from_json(api_payload)
-                return OtpFetchDetails(
-                    code=api_code,
-                    signature=_canonical_hash(api_payload),
-                    backend="html_api_json",
-                    status_code=api_status,
-                )
+                api_signature = _canonical_hash(api_payload)
+                details = OtpFetchDetails(code=api_code, signature=api_signature, backend="html_api_json", status_code=api_status)
+                if api_code:
+                    return details
+                if api_signature:
+                    empty_api_details = details
+                continue
             api_text = getattr(api_response, "text", "") or ""
             api_code = extract_otp_from_text(api_text)
-            if api_code or api_text:
-                return OtpFetchDetails(
-                    code=api_code,
-                    signature=secret_hash(api_text),
-                    backend="html_api_text",
-                    status_code=api_status,
-                )
+            api_signature = secret_hash(api_text) if api_text else ""
+            details = OtpFetchDetails(code=api_code, signature=api_signature, backend="html_api_text", status_code=api_status)
+            if api_code:
+                return details
+            if api_signature:
+                empty_api_details = details
+            continue
         # HTML application shells frequently contain unrelated six-digit
         # constants in scripts/styles.  If an API endpoint was not usable, do
         # not guess from the raw page.
+        if empty_api_details.signature:
+            return empty_api_details
         return OtpFetchDetails(code="", signature=secret_hash(text) if text else "", backend="html", status_code=status_code)
 
     code = extract_otp_from_text(text)

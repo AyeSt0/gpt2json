@@ -33,6 +33,41 @@ def test_extract_otp_ignores_error_trace_digits():
     )
 
 
+def test_extract_text_multiple_codes_prefers_last():
+    assert otp.extract_otp_from_text("old code 111111\nnew code 222222") == "222222"
+
+
+def test_extract_json_selects_latest_code_by_timestamp():
+    payload = {
+        "emails": [
+            {"code": "111111", "created_at": "2026-04-29T01:00:00Z"},
+            {"code": "222222", "created_at": "2026-04-29T01:05:00Z"},
+        ]
+    }
+
+    assert otp.extract_otp_from_json(payload) == "222222"
+
+
+def test_extract_json_latest_code_beats_nested_old_code():
+    payload = {
+        "latest_code": "222222",
+        "emails": [{"code": "111111"}],
+    }
+
+    assert otp.extract_otp_from_json(payload) == "222222"
+
+
+def test_extract_json_multiple_codes_without_time_prefers_last():
+    payload = {
+        "emails": [
+            {"code": "111111"},
+            {"code": "222222"},
+        ]
+    }
+
+    assert otp.extract_otp_from_json(payload) == "222222"
+
+
 def test_fetch_otp_discovers_no_login_html_api(monkeypatch):
     html = """
     <html><script>
@@ -60,6 +95,34 @@ def test_fetch_otp_discovers_no_login_html_api(monkeypatch):
     assert details.code == "123456"
     assert details.backend == "html_api_json"
     assert len(calls) == 2
+
+
+def test_fetch_html_api_continues_after_empty_json(monkeypatch):
+    html = """
+    <html><script>
+      fetch('/api/status?email={email}');
+      fetch('/api/latest-code?email={email}');
+    </script></html>
+    """
+    calls = []
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        if url.endswith("/otp-page"):
+            return FakeResponse(url=url, text=html, content_type="text/html")
+        if "/api/status" in url:
+            return FakeResponse(url=url, payload={"success": True, "message": "ok"})
+        if "/api/latest-code" in url:
+            return FakeResponse(url=url, payload={"success": True, "latest_code": "222222"})
+        raise AssertionError(url)
+
+    monkeypatch.setattr(otp.requests, "get", fake_get)
+
+    details = otp.fetch_otp_fetch_details_via_url("probe@example.com", "https://otp.local/otp-page")
+
+    assert details.code == "222222"
+    assert details.backend == "html_api_json"
+    assert len(calls) == 3
 
 
 def test_otp_prime_row_renders_email_placeholder(monkeypatch):

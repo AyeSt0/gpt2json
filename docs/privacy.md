@@ -36,6 +36,8 @@ GPT2JSON_<时间戳>_<短编码>/
 
 它们不应包含明文密码、token、cookie 或完整取码源。
 
+`summary.json` 会包含 `export_validation` 导出校验结果，只记录结构状态和问题说明；不会额外写入明文账号密码。
+
 ## GitHub 反馈建议
 
 提交 issue / PR 时请不要粘贴：

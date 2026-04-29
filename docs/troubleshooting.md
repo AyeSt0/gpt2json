@@ -32,6 +32,8 @@ GPT邮箱----GPT密码----OTP取码源
 5. 检查 `failure_report.safe.json` 的分类和建议；
 6. 确认取码 URL 能返回当前账号的新验证码。
 
+如果取码源一次返回多个验证码，客户端会优先按时间字段选择最新验证码；没有时间字段时会更偏向后出现的验证码，并继续过滤登录前预取到的旧码。
+
 ## Callback 换 JSON 超时
 
 客户端会自动重试可恢复的网络超时，并追加自动重跑补救。若仍失败，可以：
@@ -40,6 +42,15 @@ GPT邮箱----GPT密码----OTP取码源
 - 增大 HTTP 请求超时；
 - 增加自动重跑补救次数；
 - 降低并发数。
+
+## 导出校验显示“不建议导入”
+
+导出完成后，客户端会检查 Sub2API / CPA JSON 的关键结构：
+
+- Sub2API：`accounts`、`credentials.access_token`、`credentials.refresh_token`、`client_id`、`expires_at`、`model_mapping` 等；
+- CPA：`type=codex`、`email`、`expired`、`access_token`、`refresh_token` 等。
+
+如果日志提示“不建议导入”，先不要导入目标系统。打开本次结果目录中的 `summary.json`，查看 `export_validation.errors`，然后重新导出或调整输入数据。
 
 ## `failed_rerun.secret.txt` 是什么
 

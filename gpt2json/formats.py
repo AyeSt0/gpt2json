@@ -215,6 +215,84 @@ def build_cpa_token_json(source_data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _missing_required_string(payload: dict[str, Any], key: str, *, prefix: str = "") -> list[str]:
+    value = payload.get(key)
+    if isinstance(value, str) and value.strip():
+        return []
+    path = f"{prefix}.{key}" if prefix else key
+    return [f"{path} 缺少有效字符串"]
+
+
+def _validation_result(*, ok: bool, errors: list[str], **extra: Any) -> dict[str, Any]:
+    return {
+        "ok": ok,
+        "status": "可导入" if ok else "不建议导入",
+        "issue_count": len(errors),
+        "errors": errors,
+        **extra,
+    }
+
+
+def validate_sub2api_export(payload: Any) -> dict[str, Any]:
+    """Validate the generated Sub2API import JSON shape.
+
+    The result is intentionally JSON-serializable so it can be embedded into
+    `summary.json` and surfaced by the GUI as a user-facing “导出校验” result.
+    """
+
+    errors: list[str] = []
+    account_count = 0
+    if not isinstance(payload, dict):
+        errors = ["Sub2API 顶层必须是 JSON 对象"]
+        return _validation_result(ok=False, errors=errors, count=0)
+    accounts = payload.get("accounts")
+    if not isinstance(accounts, list):
+        errors.append("accounts 必须是数组")
+        accounts = []
+    account_count = len(accounts)
+    if not account_count:
+        errors.append("accounts 不能为空")
+    for index, account in enumerate(accounts, 1):
+        prefix = f"accounts[{index}]"
+        if not isinstance(account, dict):
+            errors.append(f"{prefix} 必须是对象")
+            continue
+        if str(account.get("platform") or "").strip() != "openai":
+            errors.append(f"{prefix}.platform 应为 openai")
+        if str(account.get("type") or "").strip() != "oauth":
+            errors.append(f"{prefix}.type 应为 oauth")
+        credentials = account.get("credentials")
+        if not isinstance(credentials, dict):
+            errors.append(f"{prefix}.credentials 必须是对象")
+            continue
+        cred_prefix = f"{prefix}.credentials"
+        for key in ("access_token", "refresh_token", "client_id"):
+            errors.extend(_missing_required_string(credentials, key, prefix=cred_prefix))
+        expires_at = credentials.get("expires_at")
+        if not isinstance(expires_at, int) or expires_at <= 0:
+            errors.append(f"{cred_prefix}.expires_at 必须是有效时间戳")
+        if not isinstance(credentials.get("model_mapping"), dict) or not credentials.get("model_mapping"):
+            errors.append(f"{cred_prefix}.model_mapping 不能为空")
+    return _validation_result(ok=not errors, errors=errors, count=account_count)
+
+
+def validate_cpa_token_json(payload: Any) -> dict[str, Any]:
+    """Validate one CPA/Codex auth JSON file."""
+
+    errors: list[str] = []
+    if not isinstance(payload, dict):
+        errors = ["CPA JSON 顶层必须是对象"]
+        return _validation_result(ok=False, errors=errors)
+    if str(payload.get("type") or "").strip() != "codex":
+        errors.append("type 应为 codex")
+    for key in ("email", "access_token", "refresh_token", "expired"):
+        errors.extend(_missing_required_string(payload, key))
+    expired = payload.get("expired")
+    if isinstance(expired, str) and expired.strip() and parse_expired_time(expired) <= 0:
+        errors.append("expired 必须是有效时间")
+    return _validation_result(ok=not errors, errors=errors)
+
+
 def write_json(path: str | Path, payload: Any, *, indent: int = 2) -> None:
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
