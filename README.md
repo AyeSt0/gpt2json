@@ -257,6 +257,7 @@ GPT2JSON 的长期方向是 **backend-first**：优先沉到 IMAP / Graph / JMAP
 | [`docs/mail-backends.md`](docs/mail-backends.md) | IMAP / Graph / JMAP / POP3 / API 取码 backend 规划。 |
 | [`docs/troubleshooting.md`](docs/troubleshooting.md) | 常见失败、验证码超时、输出目录和注册表说明。 |
 | [`docs/privacy.md`](docs/privacy.md) | 本地保存、输出文件、日志脱敏和 GitHub 反馈注意事项。 |
+| [`docs/project-structure.md`](docs/project-structure.md) | 仓库层级、本地生成目录和维护约定。 |
 | [`docs/release.md`](docs/release.md) | 本地检查、Windows 打包、GitHub Release 流程。 |
 
 ## ✦ 开发与发版

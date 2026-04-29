@@ -29,6 +29,8 @@ python scripts/generate_docs_assets.py
 
 ## 代码方向
 
+项目层级、生成目录和维护约定见 [`docs/project-structure.md`](docs/project-structure.md)。真实生效的 GitHub workflow 只维护 `.github/workflows/`，不要在 `docs/` 中保留第二份拷贝。
+
 ### 输入格式
 
 1. 在 `gpt2json/parsing.py` 中新增 parser。
