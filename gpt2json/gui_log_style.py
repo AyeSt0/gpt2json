@@ -48,7 +48,7 @@ def classify_log_line(text: str) -> str:
         return "start"
     if line.startswith(("👤", "🚪", "🛡️", "📨", "🔑", "🎫", "📦")):
         return "account"
-    if line.startswith(("🧭", "🔎", "🔍", "🧪", "🔄", "ℹ️", "✨", "👀", "🟢", "📄", "🧮")):
+    if line.startswith(("🧭", "🔎", "🔍", "🧪", "🔄", "ℹ️", "✨", "👀", "🟢", "📄", "🧮", "⏱️")):
         return "info"
     if line.startswith(("🧾 失败诊断报告", "🧾 诊断目录")):
         return "output"

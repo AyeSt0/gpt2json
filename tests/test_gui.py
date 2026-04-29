@@ -119,7 +119,8 @@ def test_gui_enables_run_only_after_valid_preflight(tmp_path):
     window.concurrency_spin.setEditText("128")
     assert window.concurrency_spin.value() == 128
     assert window.max_attempts_spin.value() == 3
-    assert window.auto_rerun_spin.value() == 2
+    assert window.otp_timeout_spin.value() == 75
+    assert window.auto_rerun_spin.value() == 1
     assert window.batch_auto_rerun_spin.value() == 1
     window.max_attempts_spin.setValue(3)
     assert window.max_attempts_spin.value() == 3
@@ -756,6 +757,23 @@ def test_gui_runtime_logs_include_account_sequence(tmp_path):
     otp_refetch_text = window.log_edit.toPlainText()
     assert "当前验证码页重新取码 1/1" in otp_refetch_text
     assert "旧码/过期码" in otp_refetch_text
+    assert "。。" not in otp_refetch_text
+
+    window.log_edit.clear()
+    window.on_event(
+        {
+            "type": "row_stage",
+            "row_index": 3,
+            "line_no": 9,
+            "email_masked": "te***@example.com",
+            "stage": "email_otp_validate",
+            "status_code": 403,
+            "page_type": "invalid_request_error",
+            "error_code": "account_deactivated",
+        }
+    )
+    terminal_stage_text = window.log_edit.toPlainText()
+    assert "服务端返回账号状态异常（account_deactivated）" in terminal_stage_text
 
     window.log_edit.clear()
     window.on_event(

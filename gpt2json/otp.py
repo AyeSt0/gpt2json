@@ -384,7 +384,7 @@ class OtpFetcher:
         *,
         mode: str = "auto",
         command: str = "",
-        timeout: int = 180,
+        timeout: int = 75,
         interval: int = 3,
         impersonate: str = "chrome136",
         verify: bool = True,
@@ -392,7 +392,7 @@ class OtpFetcher:
     ) -> None:
         self.mode = str(mode or "auto").strip().lower()
         self.command = str(command or "").strip()
-        self.timeout = max(5, int(timeout or 180))
+        self.timeout = max(5, int(timeout or 75))
         self.interval = max(1, int(interval or 3))
         self.impersonate = str(impersonate or "chrome136").strip() or "chrome136"
         self.verify = bool(verify)

@@ -147,6 +147,12 @@ def install_qt_translations(app: QApplication | None) -> None:
 
 
 READY_LOG = "🟢 等待开始：请粘贴账号文本，或导入账号文件。\n📄 当前支持：号商格式（GPT 账密 + 免登录接码）：https://pay.ldxp.cn/shop/plus7，后续格式适配敬请期待。\n📮 说明：程序会优先尝试 GPT 账密登录；只有服务端要求验证码时，才会访问输入里的接码源。"
+DEFAULT_HTTP_TIMEOUT = 30
+DEFAULT_OTP_TIMEOUT = 75
+DEFAULT_MAX_ATTEMPTS = 3
+DEFAULT_AUTO_RERUN_ATTEMPTS = 1
+DEFAULT_BATCH_AUTO_RERUN_ATTEMPTS = 1
+SETTINGS_SCHEMA_VERSION = 2
 _UI_FONT_FAMILY = ""
 _QT_TRANSLATORS: list[QTranslator] = []
 _QT_TRANSLATIONS_INSTALLED = False
@@ -557,12 +563,12 @@ class MainWindow(QMainWindow):
         self.advanced_btn.clicked.connect(self.open_advanced_dialog)
         layout.addWidget(self.advanced_btn)
 
-        self.timeout_spin = self._spin(10, 600, 30)
-        self.otp_timeout_spin = self._spin(10, 600, 180)
+        self.timeout_spin = self._spin(10, 600, DEFAULT_HTTP_TIMEOUT)
+        self.otp_timeout_spin = self._spin(10, 600, DEFAULT_OTP_TIMEOUT)
         self.otp_interval_spin = self._spin(1, 60, 3)
-        self.max_attempts_spin = self._spin(1, 5, 3)
-        self.auto_rerun_spin = self._spin(0, 5, 2)
-        self.batch_auto_rerun_spin = self._spin(0, 3, 1)
+        self.max_attempts_spin = self._spin(1, 5, DEFAULT_MAX_ATTEMPTS)
+        self.auto_rerun_spin = self._spin(0, 5, DEFAULT_AUTO_RERUN_ATTEMPTS)
+        self.batch_auto_rerun_spin = self._spin(0, 3, DEFAULT_BATCH_AUTO_RERUN_ATTEMPTS)
         for spin in (
             self.timeout_spin,
             self.otp_timeout_spin,
@@ -1374,6 +1380,8 @@ class MainWindow(QMainWindow):
             value = max(minimum, value)
             return min(maximum, value) if maximum is not None else value
 
+        settings_schema = int_setting("settings_schema_version", 1, 1, SETTINGS_SCHEMA_VERSION)
+        migrate_speed_defaults = settings_schema < SETTINGS_SCHEMA_VERSION
         theme = str(self.settings.value("theme", "light") or "light")
         self._theme = "dark" if theme == "dark" else "light"
         saved_output_dir = str(self.settings.value("output_dir", "") or "").strip()
@@ -1392,13 +1400,20 @@ class MainWindow(QMainWindow):
         self.sub2api_check.setChecked(str(self.settings.value("export_sub2api", "true")).lower() != "false")
         self.cpa_check.setChecked(str(self.settings.value("export_cpa", "true")).lower() != "false")
         self.concurrency_spin.setValue(int_setting("concurrency", 0, 0))
-        self.timeout_spin.setValue(int_setting("timeout", 30, 10, 600))
-        self.otp_timeout_spin.setValue(int_setting("otp_timeout", 180, 10, 600))
+        self.timeout_spin.setValue(int_setting("timeout", DEFAULT_HTTP_TIMEOUT, 10, 600))
+        saved_otp_timeout = int_setting("otp_timeout", DEFAULT_OTP_TIMEOUT, 10, 600)
+        if migrate_speed_defaults and saved_otp_timeout >= 180:
+            saved_otp_timeout = DEFAULT_OTP_TIMEOUT
+        self.otp_timeout_spin.setValue(saved_otp_timeout)
         self.otp_interval_spin.setValue(int_setting("otp_interval", 3, 1, 60))
-        self.max_attempts_spin.setValue(int_setting("max_attempts", 3, 1, 5))
-        self.auto_rerun_spin.setValue(int_setting("auto_rerun_attempts", 2, 0, 5))
-        self.batch_auto_rerun_spin.setValue(int_setting("batch_auto_rerun_attempts", 1, 0, 3))
+        self.max_attempts_spin.setValue(int_setting("max_attempts", DEFAULT_MAX_ATTEMPTS, 1, 5))
+        saved_auto_rerun = int_setting("auto_rerun_attempts", DEFAULT_AUTO_RERUN_ATTEMPTS, 0, 5)
+        if migrate_speed_defaults and saved_auto_rerun >= 2:
+            saved_auto_rerun = DEFAULT_AUTO_RERUN_ATTEMPTS
+        self.auto_rerun_spin.setValue(saved_auto_rerun)
+        self.batch_auto_rerun_spin.setValue(int_setting("batch_auto_rerun_attempts", DEFAULT_BATCH_AUTO_RERUN_ATTEMPTS, 0, 3))
         self.advanced_btn.setText("高级选项（弹窗配置）  ›")
+        self.settings.setValue("settings_schema_version", SETTINGS_SCHEMA_VERSION)
 
     def _save_settings(self) -> None:
         self.settings.setValue("theme", self._theme)
@@ -1417,6 +1432,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("max_attempts", int(self.max_attempts_spin.value()))
         self.settings.setValue("auto_rerun_attempts", int(self.auto_rerun_spin.value()))
         self.settings.setValue("batch_auto_rerun_attempts", int(self.batch_auto_rerun_spin.value()))
+        self.settings.setValue("settings_schema_version", SETTINGS_SCHEMA_VERSION)
         self.settings.sync()
 
     def _schedule_preflight(self) -> None:
@@ -2172,6 +2188,7 @@ class MainWindow(QMainWindow):
             f"🔁 稳定性策略：Callback 超时、旧验证码会先做会话内快速补救；仍未成功再自动重试 {int(self.max_attempts_spin.value())} 次，"
             f"最后进入单账号自动重跑补救 {int(self.auto_rerun_spin.value())} 次，最多 {total_attempts} 次。"
         )
+        self.append_log(f"⏱️ 速度策略：验证码默认最多等待 {int(self.otp_timeout_spin.value())} 秒；旧码/取码超时只追加一次完整重试，避免整批被慢账号拖住。")
         batch_auto_limit = self._batch_auto_rerun_limit()
         if batch_auto_limit:
             self.append_log(f"🔄 批次级自动补跑：批次结束后最多自动补跑 {batch_auto_limit} 次，只处理 failed_rerun.secret.txt 中的可恢复失败账号。")
@@ -2343,6 +2360,12 @@ class MainWindow(QMainWindow):
             return raw[:180] + "…"
         return raw
 
+    def _reason_clause(self, value: Any, *, prefix: str = "；原因：") -> str:
+        reason = self._reason_display(value).strip()
+        if not reason:
+            return ""
+        return f"{prefix}{reason.rstrip('。.!！')}"
+
     def _is_terminal_reason(self, value: Any) -> bool:
         return str(value or "").strip().lower() in {
             "account_deactivated",
@@ -2458,14 +2481,19 @@ class MainWindow(QMainWindow):
                 code = int(event.get("status_code") or 0)
             except Exception:
                 code = 0
+            error_code = str(event.get("error_code") or "").strip()
+            error_text = self._reason_display(error_code)
             final_attempt = int(event.get("attempt") or 1) >= int(event.get("max_attempts") or 1)
             tail = "已到自动重试与自动重跑补救上限，将写入失败诊断" if final_attempt else "稍后会按自动重试 / 自动重跑补救策略处理"
             if code == 401:
                 return f"🧾 {account}：验证码提交后被拒绝（{status}），可能是旧码/过期码，{tail}。"
             if code == 403:
+                if error_code and self._is_terminal_reason(error_code):
+                    return f"🚫 {account}：验证码提交后服务端返回账号状态异常（{error_code}）：{error_text}"
                 return f"🚫 {account}：验证码提交后被服务端拒绝（{status}），优先按账号状态问题诊断。"
             if code >= 400:
-                return f"🧾 {account}：验证码提交接口返回异常（{status}），等待失败诊断。"
+                suffix = f"；服务端错误码：{error_code}" if error_code else ""
+                return f"🧾 {account}：验证码提交接口返回异常（{status}{suffix}），等待失败诊断。"
             if bool(event.get("callback_url_present")):
                 return f"🧾 {account}：验证码提交成功（{status}），已获得 Callback。"
             return f"🧾 {account}：验证码已提交（{status}），正在进入收尾流程。"
@@ -2486,13 +2514,12 @@ class MainWindow(QMainWindow):
                 return f"🧾 {account}：验证码链路自动修复后仍返回异常（{status}），稍后会按自动重试策略处理。"
             return f"✅ {account}：验证码链路自动修复成功（{status}），继续进入收尾流程。"
         if stage == "otp_refetch":
-            reason = self._reason_display(event.get("reason"))
             try:
                 current = int(event.get("otp_refetch_attempt") or 1)
                 total = int(event.get("max_otp_refetch_attempts") or current)
             except Exception:
                 current, total = 1, 1
-            suffix = f"；原因：{reason}" if reason else ""
+            suffix = self._reason_clause(event.get("reason"))
             return f"🔁 {account}：验证码可能是旧码/过期码，先不重走登录，正在当前验证码页重新取码 {current}/{total}{suffix}。"
         if stage == "email_otp_resend":
             if event.get("error"):
@@ -2507,13 +2534,12 @@ class MainWindow(QMainWindow):
         if stage == "finalize":
             return f"🎫 {account}：正在完成 Callback 跳转并换取最终 JSON。"
         if stage == "finalize_retry":
-            reason = self._reason_display(event.get("reason"))
             try:
                 current = int(event.get("next_finalize_attempt") or 2)
                 total = int(event.get("max_finalize_attempts") or current)
             except Exception:
                 current, total = 2, 2
-            suffix = f"；原因：{reason}" if reason else ""
+            suffix = self._reason_clause(event.get("reason"))
             return f"⚡ {account}：Callback 响应偏慢，先不重走登录，正在当前会话内快速重试 {current}/{total}{suffix}。"
         if stage == "callback":
             return f"📦 {account}：Callback 完成，JSON 已获取。"
@@ -2580,7 +2606,7 @@ class MainWindow(QMainWindow):
                     self.append_log(f"🛑 取消：{account} 已停止，等待其它运行中的账号收尾。")
                 elif self._is_terminal_reason(reason):
                     detail = self._reason_display(reason)
-                    self.append_log(f"🚫 终态失败：{account} {detail} 客户端不会继续消耗重跑次数。")
+                    self.append_log(f"🚫 终态失败：{account}：{detail.rstrip('。')}，已停止自动重试。")
                 else:
                     detail = f"；原因：{self._reason_display(reason)}" if reason else ""
                     if attempt >= max_attempts and max_attempts > 1:

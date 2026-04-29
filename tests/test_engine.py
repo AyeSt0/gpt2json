@@ -190,6 +190,33 @@ class PersistentOtpClient(ProtocolLoginClient):
         return AttemptResult(row=row, status="success", stage="callback", token_json=token_json)
 
 
+class PersistentProtocolRepairClient(ProtocolLoginClient):
+    attempts_by_email: dict[str, int] = {}
+
+    def login_and_exchange(self, row, *, otp_fetcher, proxies=None):
+        del otp_fetcher, proxies
+        attempt = self.attempts_by_email.get(row.login_email, 0) + 1
+        self.attempts_by_email[row.login_email] = attempt
+        if attempt <= 3:
+            return AttemptResult(
+                row=row,
+                status="password_error",
+                stage="password_verify",
+                reason="invalid_auth_step",
+            )
+        token_json = json.dumps(
+            {
+                "access_token": "a.b.c",
+                "refresh_token": "refresh",
+                "account_id": f"acc-{row.line_no}",
+                "email": row.login_email,
+                "expired": "2026-04-27T00:00:00Z",
+            },
+            ensure_ascii=False,
+        )
+        return AttemptResult(row=row, status="success", stage="callback", token_json=token_json)
+
+
 class AlwaysRecoverableOtpClient(ProtocolLoginClient):
     attempts_by_email: dict[str, int] = {}
 
@@ -202,6 +229,21 @@ class AlwaysRecoverableOtpClient(ProtocolLoginClient):
             status="email_otp_validate_error",
             stage="email_verification",
             reason="wrong_email_otp_code",
+        )
+
+
+class AlwaysFinalizeTimeoutClient(ProtocolLoginClient):
+    attempts_by_email: dict[str, int] = {}
+
+    def login_and_exchange(self, row, *, otp_fetcher, proxies=None):
+        del otp_fetcher, proxies
+        attempt = self.attempts_by_email.get(row.login_email, 0) + 1
+        self.attempts_by_email[row.login_email] = attempt
+        return AttemptResult(
+            row=row,
+            status="finalize_error",
+            stage="finalize",
+            reason="TimeoutError: The read operation timed out",
         )
 
 
@@ -568,7 +610,7 @@ def test_run_export_retries_recoverable_stale_otp(tmp_path: Path):
 def test_run_export_auto_reruns_recoverable_failure_after_normal_attempts(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("gpt2json.engine.time.sleep", lambda _seconds: None)
     out_dir = tmp_path / "out"
-    PersistentOtpClient.attempts_by_email = {}
+    PersistentProtocolRepairClient.attempts_by_email = {}
     events = []
     summary = run_export(
         ExportConfig(
@@ -579,7 +621,7 @@ def test_run_export_auto_reruns_recoverable_failure_after_normal_attempts(tmp_pa
             max_attempts=3,
             auto_rerun_attempts=2,
         ),
-        client_factory=lambda: PersistentOtpClient(),
+        client_factory=lambda: PersistentProtocolRepairClient(),
         on_event=events.append,
     )
 
@@ -587,7 +629,7 @@ def test_run_export_auto_reruns_recoverable_failure_after_normal_attempts(tmp_pa
     assert summary["failure_count"] == 0
     assert summary["auto_rerun_count"] == 1
     assert summary["total_attempt_limit"] == 5
-    assert PersistentOtpClient.attempts_by_email["ok@example.com"] == 4
+    assert PersistentProtocolRepairClient.attempts_by_email["ok@example.com"] == 4
     retry_events = [event for event in events if event.get("type") == "row_retry"]
     assert len(retry_events) == 3
     assert retry_events[-1]["auto_rerun"] is True
@@ -601,7 +643,7 @@ def test_run_export_auto_reruns_recoverable_failure_after_normal_attempts(tmp_pa
 def test_run_export_writes_failed_rerun_for_recoverable_final_failure(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("gpt2json.engine.time.sleep", lambda _seconds: None)
     out_dir = tmp_path / "out"
-    AlwaysRecoverableOtpClient.attempts_by_email = {}
+    AlwaysFinalizeTimeoutClient.attempts_by_email = {}
     raw_line = "ok@example.com----pass----https://otp.local/1"
 
     summary = run_export(
@@ -613,7 +655,7 @@ def test_run_export_writes_failed_rerun_for_recoverable_final_failure(tmp_path: 
             max_attempts=2,
             auto_rerun_attempts=1,
         ),
-        client_factory=lambda: AlwaysRecoverableOtpClient(),
+        client_factory=lambda: AlwaysFinalizeTimeoutClient(),
     )
 
     batch_dir = batch_dir_from(summary)
@@ -624,12 +666,42 @@ def test_run_export_writes_failed_rerun_for_recoverable_final_failure(tmp_path: 
     assert summary["auto_rerun_count"] == 1
     assert summary["rerunnable_failure_count"] == 1
     assert summary["failed_rerun_file"] == str(rerun_path)
-    assert AlwaysRecoverableOtpClient.attempts_by_email["ok@example.com"] == 3
+    assert AlwaysFinalizeTimeoutClient.attempts_by_email["ok@example.com"] == 3
     assert rerun_path.read_text(encoding="utf-8").splitlines() == [raw_line]
     report = json.loads(Path(summary["failure_report"]).read_text(encoding="utf-8"))
     assert report["rerunnable_count"] == 1
     assert report["rerun_file"] == "failed_rerun.secret.txt"
     assert "pass" not in json.dumps(report, ensure_ascii=False)
+
+
+def test_run_export_caps_stale_otp_retries_for_speed(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("gpt2json.engine.time.sleep", lambda _seconds: None)
+    out_dir = tmp_path / "out"
+    AlwaysRecoverableOtpClient.attempts_by_email = {}
+
+    summary = run_export(
+        ExportConfig(
+            input_path="missing.txt",
+            out_dir=str(out_dir),
+            input_text="ok@example.com----pass----https://otp.local/1",
+            concurrency=1,
+            max_attempts=3,
+            auto_rerun_attempts=2,
+        ),
+        client_factory=lambda: AlwaysRecoverableOtpClient(),
+    )
+
+    safe = safe_rows_from(summary)[0]
+    assert summary["success_count"] == 0
+    assert summary["failure_count"] == 1
+    assert summary["retry_count"] == 1
+    assert summary["auto_rerun_count"] == 0
+    assert AlwaysRecoverableOtpClient.attempts_by_email["ok@example.com"] == 2
+    assert safe["status"] == "email_otp_validate_error"
+    assert safe["reason"] == "wrong_email_otp_code"
+    assert safe["attempt"] == 2
+    assert summary["rerunnable_failure_count"] == 0
+    assert summary["failed_rerun_file"] == ""
 
 
 def test_run_export_retries_otp_source_empty_reply(tmp_path: Path, monkeypatch):

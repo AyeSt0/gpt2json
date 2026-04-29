@@ -538,6 +538,9 @@ def _compact_transition_event(stage: str, transition: dict[str, Any], **extra: A
         "continue_url": str(transition.get("continue_url") or "").strip()[:300],
         "callback_url_present": bool(transition.get("callback_url")),
     }
+    error_code = str(transition.get("error_code") or "").strip()
+    if error_code:
+        event["error_code"] = error_code
     if transition.get("error"):
         event["error"] = str(transition.get("error") or "")[:180]
     event.update(extra)
@@ -653,8 +656,37 @@ class ProtocolLoginClient:
             value = 1
         return max(0, min(3, value))
 
+    def _otp_refetch_timeout(self) -> int:
+        raw = os.getenv("GPT2JSON_OTP_REFETCH_TIMEOUT", "").strip()
+        try:
+            value = int(raw) if raw else 20
+        except ValueError:
+            value = 20
+        return max(5, min(60, value))
+
     def _local_retry_sleep(self, attempt: int) -> None:
         time.sleep(min(2.0, 0.45 + max(0, attempt - 1) * 0.35))
+
+    def _poll_otp_row(self, otp_fetcher: OtpFetcher, row: AccountRow, *, proxies: Any = None, timeout: int | None = None) -> str:
+        """Poll OTP, optionally with a temporary shorter timeout.
+
+        The first OTP wait can use the user-configured value.  A same-session
+        refetch after a known stale code should be fast: if the no-login source
+        still does not expose a new code shortly after `/email-otp/send`, it is
+        cheaper to leave the current attempt than to pin a worker for minutes.
+        """
+
+        if timeout is None or not hasattr(otp_fetcher, "timeout"):
+            return otp_fetcher.poll_row(row, proxies=proxies)
+        old_timeout = otp_fetcher.timeout
+        try:
+            otp_fetcher.timeout = max(5, min(int(old_timeout or timeout), int(timeout)))
+            return otp_fetcher.poll_row(row, proxies=proxies)
+        finally:
+            try:
+                otp_fetcher.timeout = old_timeout
+            except Exception:
+                pass
 
     def _request(self, session: requests.Session, method: str, url: str, *, proxies: Any = None, headers: dict[str, Any] | None = None, json_body: Any = None, data: Any = None, allow_redirects: bool = False, timeout: int | None = None) -> Any:
         kwargs = {
@@ -1247,7 +1279,7 @@ class ProtocolLoginClient:
                 otp_plan = otp_fetcher.backend_plan_for_row(row)
                 result.events.append({"stage": "otp_backend_plan", **otp_plan})
                 self._emit_stage("otp_backend_plan", **otp_plan)
-                code = otp_fetcher.poll_row(row, proxies=proxies)
+                code = self._poll_otp_row(otp_fetcher, row, proxies=proxies)
                 if not code:
                     otp_details = otp_fetcher.last_details_for_row(row)
                     result.events.append(
@@ -1314,12 +1346,10 @@ class ProtocolLoginClient:
 
                 otp_resp = post_email_otp_validate(otp_sentinel, otp_referer)
                 current_transition = _extract_transition_targets_from_response(otp_resp, request_url="https://auth.openai.com/api/accounts/email-otp/validate")
-                result.events.append({"stage": "email_otp_validate", "status_code": current_transition["status_code"], "page_type": current_transition["page_type"], "continue_url": current_transition["continue_url"][:300], "callback_url_present": bool(current_transition["callback_url"])})
+                result.events.append(_compact_transition_event("email_otp_validate", current_transition))
                 self._emit_stage(
                     "email_otp_validate",
-                    status_code=current_transition["status_code"],
-                    page_type=current_transition["page_type"],
-                    callback_url_present=bool(current_transition["callback_url"]),
+                    **{k: v for k, v in _compact_transition_event("email_otp_validate", current_transition).items() if k != "stage"},
                 )
                 if _should_repair_email_otp_validate(current_transition):
                     result.meta["otp_validate_repair_attempted"] = True
@@ -1383,7 +1413,7 @@ class ProtocolLoginClient:
                     )
                     if resend_transition:
                         result.events.append(_compact_transition_event("email_otp_resend", resend_transition))
-                    code = otp_fetcher.poll_row(row, proxies=proxies)
+                    code = self._poll_otp_row(otp_fetcher, row, proxies=proxies, timeout=self._otp_refetch_timeout())
                     if not code:
                         otp_details = otp_fetcher.last_details_for_row(row)
                         result.events.append(
@@ -1425,22 +1455,10 @@ class ProtocolLoginClient:
                     retry_otp_sentinel = self._sentinel_for_flow(did, flow="email_otp_validate", proxies=proxies, fallback=resend_sentinel or otp_sentinel or password_sentinel or sentinel)
                     otp_resp = post_email_otp_validate(retry_otp_sentinel, otp_referer)
                     current_transition = _extract_transition_targets_from_response(otp_resp, request_url="https://auth.openai.com/api/accounts/email-otp/validate")
-                    result.events.append(
-                        {
-                            "stage": "email_otp_validate",
-                            "status_code": current_transition["status_code"],
-                            "page_type": current_transition["page_type"],
-                            "continue_url": current_transition["continue_url"][:300],
-                            "callback_url_present": bool(current_transition["callback_url"]),
-                            "otp_refetch_attempt": otp_refetch_count,
-                        }
-                    )
+                    result.events.append(_compact_transition_event("email_otp_validate", current_transition, otp_refetch_attempt=otp_refetch_count))
                     self._emit_stage(
                         "email_otp_validate",
-                        status_code=current_transition["status_code"],
-                        page_type=current_transition["page_type"],
-                        callback_url_present=bool(current_transition["callback_url"]),
-                        otp_refetch_attempt=otp_refetch_count,
+                        **{k: v for k, v in _compact_transition_event("email_otp_validate", current_transition, otp_refetch_attempt=otp_refetch_count).items() if k != "stage"},
                     )
                 if current_transition["status_code"] >= 400:
                     result.status = "email_otp_validate_error"

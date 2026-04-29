@@ -39,14 +39,14 @@ class ExportConfig:
     export_cpa: bool = True
     otp_mode: str = "auto"
     otp_command: str = ""
-    otp_timeout: int = 180
+    otp_timeout: int = 75
     otp_interval: int = 3
     timeout: int = 30
     verify_ssl: bool = True
     impersonate: str = DEFAULT_IMPERSONATE
     input_format: str = "auto"
     max_attempts: int = 3
-    auto_rerun_attempts: int = 2
+    auto_rerun_attempts: int = 1
 
 
 def resolve_concurrency(requested: int, row_count: int) -> int:
@@ -107,6 +107,8 @@ def _cancelled_result(row: Any, *, row_index: int = 0, max_attempts: int = 1) ->
 def _is_recoverable_retryable(result: AttemptResult) -> bool:
     if result.ok or result.status == "cancelled":
         return False
+    if (result.meta or {}).get("fast_retry_exhausted"):
+        return False
     status = str(result.status or "").strip()
     stage = str(result.stage or "").strip()
     reason = str(result.reason or "").strip().lower()
@@ -166,6 +168,22 @@ def _is_recoverable_retryable(result: AttemptResult) -> bool:
     if status == "finalize_error" and (reason in {"callback_error", "finalize_unresolved"} or any(marker in reason for marker in transient_markers)):
         return True
     return False
+
+
+def _fast_retry_limit_for_result(result: AttemptResult, *, total_attempt_limit: int) -> int:
+    """Return a smaller retry budget for slow OTP-only failures.
+
+    Full 3+N account reruns are useful for protocol/session problems, but they
+    are expensive for no-login OTP sources: each retry can wait the whole OTP
+    timeout again.  Give stale/late OTP one extra full attempt, then stop and
+    surface the diagnosis instead of pinning a worker for minutes.
+    """
+
+    reason = str(result.reason or "").strip().lower()
+    status = str(result.status or "").strip()
+    if status == "otp_timeout" or reason in {"otp_timeout", "wrong_email_otp_code", "email_otp_expired"}:
+        return min(max(1, int(total_attempt_limit or 1)), 2)
+    return max(1, int(total_attempt_limit or 1))
 
 
 def _diagnose_failure(result: AttemptResult) -> tuple[str, str]:
@@ -463,7 +481,11 @@ def run_export(
                 result.reason = "user_cancelled"
                 result.events.append({"stage": "cancelled", "reason": "user_cancelled"})
                 return result
-            if result.ok or attempt >= total_attempt_limit or not _is_recoverable_retryable(result):
+            effective_attempt_limit = _fast_retry_limit_for_result(result, total_attempt_limit=total_attempt_limit)
+            if not result.ok and _is_recoverable_retryable(result) and attempt >= effective_attempt_limit and effective_attempt_limit < total_attempt_limit:
+                result.meta["fast_retry_exhausted"] = True
+                result.meta["effective_attempt_limit"] = effective_attempt_limit
+            if result.ok or attempt >= effective_attempt_limit or not _is_recoverable_retryable(result):
                 return result
             is_auto_rerun = attempt >= max_attempts
             emit(
