@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -46,10 +45,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QLineEdit,
     QListView,
     QMainWindow,
-    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
@@ -90,9 +87,19 @@ from .gui_resources import (
     UI_LOG_PATH,
     UI_OUTPUT_PATH,
     UI_SETTINGS_PATH,
-    UI_UPLOAD_PATH,
 )
+from .gui_text_menu import build_chinese_text_context_menu as build_chinese_text_context_menu
+from .gui_text_menu import install_chinese_text_context_menu
 from .gui_theme import DARK_THEME, LIGHT_THEME
+from .gui_widgets import (
+    DropLineEdit,
+    FileDropBox,
+    FileOutputRow,
+    FormatCombo,
+    InlineStat,
+    PresetNumberCombo,
+    SectionHeader,
+)
 from .parsing import decode_text_file, list_future_input_format_presets, list_input_formats, parse_by_format
 from .updater import RELEASES_PAGE_URL, check_latest_release
 
@@ -221,387 +228,6 @@ class WorkerBridge(QObject):
     failed = Signal(str)
     update_checked = Signal(dict)
     preflight_done = Signal(dict)
-
-
-def _text_widget_has_selection(widget: Any) -> bool:
-    if isinstance(widget, QLineEdit):
-        return bool(widget.hasSelectedText())
-    if isinstance(widget, QPlainTextEdit):
-        return bool(widget.textCursor().hasSelection())
-    return False
-
-
-def _text_widget_delete_selection(widget: Any) -> None:
-    if isinstance(widget, QLineEdit):
-        if not widget.hasSelectedText():
-            return
-        text = widget.text()
-        start = max(0, int(widget.selectionStart()))
-        selected = widget.selectedText()
-        widget.setText(text[:start] + text[start + len(selected) :])
-        widget.setCursorPosition(start)
-        return
-    if isinstance(widget, QPlainTextEdit):
-        cursor = widget.textCursor()
-        if cursor.hasSelection():
-            cursor.removeSelectedText()
-            widget.setTextCursor(cursor)
-
-
-def _context_menu_palette(widget: Any) -> dict[str, str]:
-    window = widget.window() if hasattr(widget, "window") else None
-    if window is not None and hasattr(window, "_theme") and callable(getattr(window, "palette", None)):
-        palette = window.palette()
-        if isinstance(palette, dict):
-            return palette
-    return DARK_THEME if bool(getattr(window, "_theme", "") == "dark") else LIGHT_THEME
-
-
-def _style_text_context_menu(menu: QMenu, widget: Any) -> None:
-    p = _context_menu_palette(widget)
-    menu.setObjectName("TextContextMenu")
-    menu.setStyleSheet(
-        f"""
-        QMenu#TextContextMenu {{
-            background:{p['card']};
-            color:{p['text']};
-            border:1px solid {p['border']};
-            border-radius:10px;
-            padding:6px;
-            font-size:13px;
-            font-weight:700;
-        }}
-        QMenu#TextContextMenu::item {{
-            min-width:118px;
-            min-height:28px;
-            padding:5px 24px 5px 14px;
-            border-radius:7px;
-            background:transparent;
-        }}
-        QMenu#TextContextMenu::item:selected {{
-            color:white;
-            background:#2563EB;
-        }}
-        QMenu#TextContextMenu::item:disabled {{
-            color:{p['muted2']};
-            background:transparent;
-        }}
-        QMenu#TextContextMenu::separator {{
-            height:1px;
-            margin:6px 8px;
-            background:{p['border']};
-        }}
-        """
-    )
-
-
-def build_chinese_text_context_menu(widget: Any) -> QMenu:
-    menu = QMenu(widget)
-    _style_text_context_menu(menu, widget)
-    read_only = bool(getattr(widget, "isReadOnly", lambda: False)())
-    has_selection = _text_widget_has_selection(widget)
-    clipboard_data = QApplication.clipboard().mimeData()
-    clipboard_has_text = bool(clipboard_data is not None and clipboard_data.hasText())
-
-    undo_available = bool(getattr(widget, "isUndoAvailable", lambda: False)())
-    redo_available = bool(getattr(widget, "isRedoAvailable", lambda: False)())
-    if isinstance(widget, QPlainTextEdit):
-        undo_available = bool(widget.document().isUndoAvailable())
-        redo_available = bool(widget.document().isRedoAvailable())
-
-    undo_action = menu.addAction("撤销")
-    undo_action.setEnabled(not read_only and undo_available)
-    undo_action.triggered.connect(widget.undo)
-    redo_action = menu.addAction("重做")
-    redo_action.setEnabled(not read_only and redo_available)
-    redo_action.triggered.connect(widget.redo)
-    menu.addSeparator()
-
-    cut_action = menu.addAction("剪切")
-    cut_action.setEnabled(not read_only and has_selection)
-    cut_action.triggered.connect(widget.cut)
-    copy_action = menu.addAction("复制")
-    copy_action.setEnabled(has_selection)
-    copy_action.triggered.connect(widget.copy)
-    paste_action = menu.addAction("粘贴")
-    paste_action.setEnabled(not read_only and clipboard_has_text)
-    paste_action.triggered.connect(widget.paste)
-    delete_action = menu.addAction("删除")
-    delete_action.setEnabled(not read_only and has_selection)
-    delete_action.triggered.connect(lambda _checked=False, w=widget: _text_widget_delete_selection(w))
-    menu.addSeparator()
-
-    select_all_action = menu.addAction("全选")
-    if isinstance(widget, QLineEdit):
-        has_text = bool(widget.text())
-    elif isinstance(widget, QPlainTextEdit):
-        has_text = bool(widget.toPlainText())
-    else:
-        has_text = True
-    select_all_action.setEnabled(has_text)
-    select_all_action.triggered.connect(widget.selectAll)
-    return menu
-
-
-def install_chinese_text_context_menu(widget: Any) -> None:
-    widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-
-    def show_menu(pos: Any, target: Any = widget) -> None:
-        menu = build_chinese_text_context_menu(target)
-        menu.exec(target.mapToGlobal(pos))
-
-    widget.customContextMenuRequested.connect(show_menu)
-
-
-class DropLineEdit(QLineEdit):
-    dropped = Signal(str)
-
-    def __init__(self, *, directory: bool = False) -> None:
-        super().__init__()
-        self.directory = directory
-        self.setAcceptDrops(True)
-        install_chinese_text_context_menu(self)
-
-    def dragEnterEvent(self, event) -> None:  # type: ignore[override]
-        if event.mimeData().hasUrls() or event.mimeData().hasText():
-            event.acceptProposedAction()
-        else:
-            event.ignore()
-
-    def dropEvent(self, event) -> None:  # type: ignore[override]
-        mime = event.mimeData()
-        value = ""
-        if mime.hasUrls():
-            value = mime.urls()[0].toLocalFile()
-        elif mime.hasText():
-            value = mime.text().strip()
-        if not value:
-            event.ignore()
-            return
-        path = Path(value)
-        if self.directory and path.is_file():
-            value = str(path.parent)
-        self.setText(value)
-        self.dropped.emit(value)
-        event.acceptProposedAction()
-
-
-class FileDropBox(QFrame):
-    clicked = Signal()
-    path_changed = Signal(str)
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.path = ""
-        self.setAcceptDrops(True)
-        self.setObjectName("FileDropBox")
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 20, 18, 20)
-        layout.setSpacing(8)
-        icon = QLabel("TXT")
-        icon.setObjectName("DropIcon")
-        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        if UI_UPLOAD_PATH.exists():
-            icon.setPixmap(QPixmap(str(UI_UPLOAD_PATH)).scaled(44, 44, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        self.icon = icon
-        self.label = QLabel("拖入账号文件或点击选择")
-        self.label.setObjectName("DropText")
-        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        suffix = QLabel("支持 .txt · 自动识别账号格式")
-        suffix.setObjectName("DropSuffix")
-        suffix.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addStretch(1)
-        layout.addWidget(icon, 0, Qt.AlignmentFlag.AlignHCenter)
-        layout.addWidget(self.label)
-        layout.addWidget(suffix)
-        layout.addStretch(1)
-
-    def _normalize_drop_value(self, value: str) -> str:
-        text = str(value or "").strip().strip('"').strip("'")
-        if text.startswith("file:///"):
-            return QUrl(text).toLocalFile()
-        return text
-
-    def set_path(self, value: str) -> None:
-        self.path = str(value or "").strip()
-        self.label.setText(Path(self.path).name if self.path else "拖入账号文件或点击选择")
-        self.setToolTip(self.path)
-        self.path_changed.emit(self.path)
-
-    def clear(self) -> None:
-        self.set_path("")
-
-    def dragEnterEvent(self, event) -> None:  # type: ignore[override]
-        if event.mimeData().hasUrls() or event.mimeData().hasText():
-            event.acceptProposedAction()
-        else:
-            event.ignore()
-
-    def dropEvent(self, event) -> None:  # type: ignore[override]
-        mime = event.mimeData()
-        value = ""
-        if mime.hasUrls():
-            value = mime.urls()[0].toLocalFile()
-        elif mime.hasText():
-            value = self._normalize_drop_value(mime.text())
-        if value and Path(value).is_file():
-            self.set_path(value)
-            event.acceptProposedAction()
-        else:
-            event.ignore()
-
-    def mouseReleaseEvent(self, event) -> None:  # type: ignore[override]
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit()
-            event.accept()
-        else:
-            super().mouseReleaseEvent(event)
-
-
-class SectionHeader(QWidget):
-    def __init__(self, icon: str | Path, title: str) -> None:
-        super().__init__()
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(9)
-        icon_label = QLabel()
-        icon_label.setObjectName("SectionIcon")
-        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_path = Path(icon) if not isinstance(icon, Path) else icon
-        if icon_path.exists():
-            icon_label.setPixmap(QPixmap(str(icon_path)).scaled(20, 20, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        else:
-            icon_label.setText(str(icon))
-        title_label = QLabel(title)
-        title_label.setObjectName("SectionTitle")
-        layout.addWidget(icon_label)
-        layout.addWidget(title_label)
-        layout.addStretch(1)
-
-
-class InlineStat(QFrame):
-    def __init__(self, icon: str | Path, title: str, color: str = "") -> None:
-        super().__init__()
-        self.setObjectName("StatCard")
-        icon_label = QLabel()
-        icon_label.setObjectName("StatIcon")
-        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_path = Path(icon) if isinstance(icon, (str, Path)) else Path()
-        if icon_path.exists():
-            icon_label.setPixmap(QPixmap(str(icon_path)).scaled(34, 34, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        else:
-            icon_label.setText(str(icon))
-            if color:
-                icon_label.setStyleSheet(f"background:{color};")
-        title_label = QLabel(title)
-        title_label.setObjectName("StatTitle")
-        self.value_label = QLabel("0")
-        self.value_label.setObjectName("StatValue")
-        text = QVBoxLayout()
-        text.setContentsMargins(0, 0, 0, 0)
-        text.setSpacing(0)
-        text.addWidget(title_label)
-        text.addWidget(self.value_label)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 6, 10, 6)
-        layout.setSpacing(8)
-        layout.addWidget(icon_label)
-        layout.addLayout(text, 1)
-
-    def set_value(self, value: int | str) -> None:
-        self.value_label.setText(str(value))
-
-
-class FileOutputRow(QFrame):
-    def __init__(self, filename: str, badge: str) -> None:
-        super().__init__()
-        self.setObjectName("OutputRow")
-        self.path = ""
-        self.default_filename = filename
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 0, 8, 0)
-        layout.setSpacing(10)
-        badge_label = QLabel(badge)
-        badge_label.setObjectName("OutputBadge")
-        badge_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.name_label = QLabel(filename)
-        self.name_label.setObjectName("OutputName")
-        self.name_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.open_btn = QToolButton()
-        self.open_btn.setObjectName("CopyButton")
-        self.open_btn.setText("所在位置")
-        self.open_btn.setToolTip("打开所在文件夹")
-        self.open_btn.setEnabled(False)
-        self.open_btn.clicked.connect(self.reveal_in_folder)
-        layout.addWidget(badge_label)
-        layout.addWidget(self.name_label, 1)
-        layout.addWidget(self.open_btn)
-
-    def set_path(self, path: str) -> None:
-        self.path = path
-        self.name_label.setText(Path(path).name if path else self.default_filename)
-        self.open_btn.setEnabled(bool(path))
-        self.setToolTip(path)
-
-    def reveal_in_folder(self) -> None:
-        if not self.path:
-            return
-        target = Path(self.path).resolve()
-        if sys.platform.startswith("win") and target.is_file():
-            subprocess.Popen(["explorer.exe", f"/select,{target}"])  # noqa: S603,S607
-            return
-        folder = target if target.is_dir() else target.parent
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
-
-
-class FormatCombo(QComboBox):
-    def __init__(self) -> None:
-        super().__init__()
-        self.setObjectName("FormatCombo")
-        self.setFixedHeight(38)
-
-
-class PresetNumberCombo(QComboBox):
-    def __init__(self, *, minimum: int, presets: list[int], auto_text: str = "自动", maximum: int | None = None) -> None:
-        super().__init__()
-        self.minimum = int(minimum)
-        self.maximum = int(maximum) if maximum is not None else None
-        self.auto_text = auto_text
-        self.setEditable(True)
-        self.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-        self.setObjectName("PresetNumberCombo")
-        self.setFixedHeight(38)
-        self.addItem(auto_text, 0)
-        for value in presets:
-            if self.minimum <= int(value) and (self.maximum is None or int(value) <= self.maximum):
-                self.addItem(str(int(value)), int(value))
-        self.setCurrentIndex(0)
-
-    def value(self) -> int:
-        text = self.currentText().strip()
-        if not text or text.lower() == "auto" or text == self.auto_text:
-            return 0
-        try:
-            value = int(text)
-        except Exception:
-            return 0
-        value = max(self.minimum, value)
-        return min(self.maximum, value) if self.maximum is not None else value
-
-    def setValue(self, value: int) -> None:
-        value = max(self.minimum, int(value or 0))
-        if self.maximum is not None:
-            value = min(self.maximum, value)
-        if value == 0:
-            self.setCurrentIndex(0)
-            self.setEditText(self.auto_text)
-            return
-        for index in range(self.count()):
-            if int(self.itemData(index) or 0) == value:
-                self.setCurrentIndex(index)
-                return
-        self.setEditText(str(value))
 
 
 class MainWindow(QMainWindow):

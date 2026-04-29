@@ -18,7 +18,9 @@ gpt2json/
 │  ├─ gui_log_style.py         # GUI 日志颜色与分类规则
 │  ├─ gui_paths.py             # GUI 设置路径、默认输出目录和单实例锁路径
 │  ├─ gui_resources.py         # GUI 应用常量与素材路径
+│  ├─ gui_text_menu.py         # 输入框 / 日志框中文右键菜单
 │  ├─ gui_theme.py             # 深浅色主题 token
+│  ├─ gui_widgets.py           # 拖拽输入、统计卡片、输出行等小型控件
 │  ├─ mail_backends.py         # IMAP / Graph / JMAP / POP3 / API backend 抽象
 │  ├─ mail_providers.py        # 邮箱 provider 与 backend hint
 │  ├─ models.py                # 批处理与登录结果数据模型

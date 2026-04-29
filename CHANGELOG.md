@@ -4,15 +4,6 @@
 
 ## [Unreleased]
 
-### Added
-
-- 新增 `scripts/clean_workspace.py`，用于安全清理本地构建缓存、旧 release 暂存产物和工具缓存；默认 dry-run，需显式 `--apply` 才会删除。
-
-### Changed
-
-- GUI 日志颜色与分类规则、主题 token、资源路径、设置路径和文件选择器样式拆成独立模块，降低 `gui.py` 维护成本；日志术语继续保持“自动重试 / 自动重跑补救 / 批次级自动补跑 / 重跑失败账号”。
-- `.gitignore` 增加 `GPT2JSON_*/`、`CPA_*/`、`_diagnostics/`、`*.safe.jsonl` 等兜底规则，避免误把导出结果放在仓库根目录后被提交。
-
 ### Planned
 
 - IMAP / IMAP XOAUTH2、Graph、JMAP、POP3、Provider API 等邮箱取码 backend。
@@ -26,11 +17,14 @@
 - 新增导出校验：导出完成后检查 Sub2API / CPA JSON 关键结构，并在 GUI 日志中标记“可导入 / 不建议导入”。
 - 新增批次级自动补跑：批次结束后自动读取 `failed_rerun.secret.txt`，只把可恢复失败账号作为新批次补跑；默认 1 次，高级选项可关闭或调到最多 3 次，GUI “重跑失败账号”继续作为手动入口读取同一清单。
 - 取码源解析增强：JSON / 文本多验证码会优先选择最新验证码；HTML 发现多个 API 时会跳过空结果继续尝试后续接口。
+- 新增 `scripts/clean_workspace.py`，用于安全清理本地构建缓存、旧 release 暂存产物和工具缓存；默认 dry-run，需显式 `--apply` 才会删除。
 
 ### Changed
 
 - 统一 GUI 日志、失败诊断与文档术语：明确区分“自动重试”“自动重跑补救”“批次级自动补跑”和“重跑失败账号”。
 - 输出目录更面向普通用户：主结果目录只保留 `sub2api_accounts.secret.json`、`CPA_<批次>/` 和必要的 `failed_rerun.secret.txt`；`summary.json`、`results.safe.jsonl`、`cpa_manifest.json`、`failure_report.safe.json` 统一收纳到 `_diagnostics/`。
+- GUI 日志颜色与分类规则、主题 token、资源路径、设置路径、文件选择器样式、中文右键菜单和小型通用控件拆成独立模块，降低 `gui.py` 维护成本；日志术语继续保持“自动重试 / 自动重跑补救 / 批次级自动补跑 / 重跑失败账号”。
+- `.gitignore` 增加 `GPT2JSON_*/`、`CPA_*/`、`_diagnostics/`、`*.safe.jsonl` 等兜底规则，避免误把导出结果放在仓库根目录后被提交。
 
 ### Fixed
 
