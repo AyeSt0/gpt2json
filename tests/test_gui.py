@@ -501,6 +501,23 @@ def test_gui_clear_input_preserves_current_tab_and_theme_toggle(tmp_path):
     _clear_settings()
 
 
+def test_main_window_shell_has_no_extra_outer_frame():
+    _clear_settings()
+    app = _app()
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+
+    margins = window.centralWidget().layout().contentsMargins()
+    assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (0, 0, 0, 0)
+    assert "#Shell {" in window.styleSheet()
+    assert "border:none; border-radius:18px" in window.styleSheet()
+    assert not window.shadow.isEnabled()
+
+    window.close()
+    _clear_settings()
+
+
 def test_rounded_pixmap_masks_logo_corners():
     _app()
     source = QtGui.QPixmap(50, 50)

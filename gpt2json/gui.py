@@ -299,15 +299,18 @@ class MainWindow(QMainWindow):
         outer.setObjectName("Outer")
         self.setCentralWidget(outer)
         outer_layout = QVBoxLayout(outer)
-        outer_layout.setContentsMargins(10, 10, 10, 10)
+        # No fake outer gutter: the frameless window itself is transparent and
+        # the shell paints the only visible surface.  Keeping an inset here
+        # makes the app look like it has a second rounded-rectangle frame.
+        outer_layout.setContentsMargins(0, 0, 0, 0)
 
         self.shell = QFrame()
         self.shell.setObjectName("Shell")
         self.shadow = QGraphicsDropShadowEffect(self.shell)
         # Disable the drop-shadow effect: on some Windows scaling / GPU
         # combinations QGraphicsDropShadowEffect shows a sharp rectangular
-        # halo around the rounded frameless window.  The shell border now
-        # carries the window edge, avoiding the “硬方框阴影” artifact.
+        # halo around the rounded frameless window.  The shell itself remains
+        # borderless so the top-level app does not show a stray outer frame.
         self.shadow.setEnabled(False)
         self.shadow.setBlurRadius(0)
         self.shadow.setOffset(0, 0)
@@ -1203,7 +1206,7 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(
             f"""
             #Outer {{ background: transparent; }}
-            #Shell {{ background:{p['shell']}; border:1px solid {p['border']}; border-radius:18px; }}
+            #Shell {{ background:{p['shell']}; border:none; border-radius:18px; }}
             #SizeGrip {{ width:18px; height:18px; }}
             #LogoImage {{ min-width:50px; max-width:50px; min-height:50px; max-height:50px; border-radius:14px; }}
             #Title {{ color:{p['text']}; font-size:26px; font-weight:900; letter-spacing:-0.6px; }}
