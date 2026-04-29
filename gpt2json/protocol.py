@@ -669,6 +669,21 @@ class ProtocolLoginClient:
             raise RuntimeError("sentinel req returned empty token")
         return self._build_sentinel_header(did, token, flow=flow)
 
+    def _sentinel_for_flow(self, did: str, *, flow: str, proxies: Any = None, fallback: str = "") -> str:
+        """Mint a Sentinel token for the concrete auth step.
+
+        auth.openai.com treats the login flow as a small state machine.  A
+        token minted for `authorize_continue` can be accepted for the email
+        step but later make `/password/verify` look like a credential failure
+        on some accounts.  Keep the flow-specific request best-effort so older
+        sandboxes that only understand one token shape can still fall back.
+        """
+
+        try:
+            return self.request_authorize_continue_sentinel(did, proxies=proxies, flow=flow)
+        except Exception:
+            return str(fallback or "").strip()
+
     def _follow_redirect_chain_to_callback(self, session: requests.Session, *, start_url: str, oauth_start: OAuthStart, proxies: Any = None) -> tuple[str | None, str]:
         current_url = str(start_url or "").strip()
         if not current_url:
@@ -914,7 +929,7 @@ class ProtocolLoginClient:
             result.stage = "sentinel"
             result.events.append({"stage": "sentinel", "did_present": bool(did)})
             self._emit_stage("sentinel", did_present=bool(did))
-            sentinel = self.request_authorize_continue_sentinel(did, proxies=proxies)
+            sentinel = self._sentinel_for_flow(did, flow="authorize_continue", proxies=proxies)
             result.meta["did_present"] = bool(did)
 
             authorize_resp = self._post_with_retry(
@@ -923,6 +938,7 @@ class ProtocolLoginClient:
                 headers=_headers(
                     AUTH_JSON_HEADERS,
                     referer="https://auth.openai.com/log-in",
+                    oai_device_id=did,
                     **{"openai-sentinel-token": sentinel},
                 ),
                 json_body={"username": {"value": row.login_email, "kind": "email"}, "screen_hint": "login"},
@@ -941,13 +957,16 @@ class ProtocolLoginClient:
                 result.reason = authorize_transition["error_code"] or f"http_{authorize_transition['status_code']}"
                 return result
 
+            password_sentinel = self._sentinel_for_flow(did, flow="password_verify", proxies=proxies, fallback=sentinel)
+            result.meta["password_sentinel_flow"] = "password_verify" if password_sentinel and password_sentinel != sentinel else "authorize_continue"
             pwd_resp = self._post_with_retry(
                 session,
                 "https://auth.openai.com/api/accounts/password/verify",
                 headers=_headers(
                     AUTH_JSON_HEADERS,
                     referer=authorize_transition["continue_url"] or "https://auth.openai.com/log-in/password",
-                    **{"openai-sentinel-token": sentinel},
+                    oai_device_id=did,
+                    **{"openai-sentinel-token": password_sentinel},
                 ),
                 json_body={"password": row.gpt_password},
                 proxies=proxies,
@@ -1012,13 +1031,16 @@ class ProtocolLoginClient:
                     status_code=otp_details.status_code,
                     code_present=True,
                 )
+                otp_sentinel = self._sentinel_for_flow(did, flow="email_otp_validate", proxies=proxies, fallback=password_sentinel or sentinel)
+                result.meta["otp_sentinel_flow"] = "email_otp_validate" if otp_sentinel and otp_sentinel not in {password_sentinel, sentinel} else result.meta.get("password_sentinel_flow", "authorize_continue")
                 otp_resp = self._post_with_retry(
                     session,
                     "https://auth.openai.com/api/accounts/email-otp/validate",
                     headers=_headers(
                         AUTH_JSON_HEADERS,
                         referer="https://auth.openai.com/email-verification",
-                        **{"openai-sentinel-token": sentinel},
+                        oai_device_id=did,
+                        **{"openai-sentinel-token": otp_sentinel},
                     ),
                     json_body={"code": code},
                     proxies=proxies,

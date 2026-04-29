@@ -33,6 +33,8 @@
 - 去除主窗口最外层多余圆角矩形框：取消 Shell 外描边和 10px 假外边距，保留无边框圆角窗口本体。
 - 将取码源 `curl: (52) Empty reply from server` 归类为可恢复空响应：现在会进入自动重试、单账号自动重跑补救和批次级自动补跑，而不是直接显示“运行异常”后停止。
 - 修正 GUI 完成摘要：只有引擎明确标记为可重跑的失败才显示“可恢复失败”，不可自动补跑的运行异常会提示查看失败诊断报告。
+- 协议链路修正：`authorize_continue`、`password_verify`、`email_otp_validate` 分别使用对应 flow 的 Sentinel token，并在认证 API 请求中带上 `oai-device-id`，降低密码阶段被误判为 `invalid_username_or_password` 的概率。
+- GUI 密码阶段日志优化：HTTP 401 会明确显示“密码验证被服务端拒绝，不会进入验证码阶段”，并提示检查第二段是否为 GPT/OpenAI 登录密码。
 
 ## [0.1.6] - 2026-04-29
 
