@@ -131,12 +131,12 @@ def create_hero() -> None:
     draw.text((316, 157), f"v{version}", font=font(24, bold=True), fill="#DCEBFF")
     draw.text((144, 280), "GPT2JSON", font=font(112, bold=True), fill="#FFFFFF")
     draw.text((149, 405), "Sub2API / CPA JSON 导出工具", font=font(43, bold=True), fill="#DBEAFE")
-    draw.text((151, 468), "本地生成 · 号商格式 A · 中文桌面体验 · 批次隔离", font=font(30), fill="#AFC4EA")
+    draw.text((151, 468), "本地生成 · 号商格式 · 中文桌面体验 · 批次隔离", font=font(30), fill="#AFC4EA")
 
     # Minimal capability row: fine separators instead of heavy badges.
     cap_layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
     cap_draw = ImageDraw.Draw(cap_layer)
-    cap_specs = [(151, "格式 A", "#60A5FA"), (286, "免登接码", "#22D3EE"), (452, "Sub2API", "#A78BFA"), (628, "CPA", "#34D399"), (738, "批次隔离", "#93C5FD")]
+    cap_specs = [(151, "号商格式", "#60A5FA"), (318, "免登接码", "#22D3EE"), (500, "Sub2API", "#A78BFA"), (676, "CPA", "#34D399"), (786, "批次隔离", "#93C5FD")]
     for index, (x, label, color) in enumerate(cap_specs):
         cap_draw.ellipse((x, 584, x + 10, 594), fill=color)
         cap_draw.text((x + 19, 574), label, font=font(22, bold=True), fill=(226, 239, 255, 218))
@@ -223,11 +223,11 @@ def create_installer_preview() -> None:
         label_font = font(max(12, int(14 * sy)))
         pill_font = font(max(11, int(13 * sy)), bold=True)
         draw.rounded_rectangle(
-            (int(174 * sx), int(428 * sy), int(398 * sx), int(452 * sy)),
+            (int(174 * sx), int(428 * sy), int(426 * sx), int(452 * sy)),
             radius=max(8, int(10 * sy)),
             fill=(16, 22, 49, 210),
         )
-        draw.text((int(178 * sx), int(433 * sy)), "格式 A · Sub2API / CPA JSON", font=label_font, fill="#B8CDEC")
+        draw.text((int(178 * sx), int(433 * sy)), "号商格式 · Sub2API / CPA JSON", font=label_font, fill="#B8CDEC")
 
         def installer_pill(x: int, icon: str, label: str) -> None:
             px = int(x * sx)
@@ -244,7 +244,7 @@ def create_installer_preview() -> None:
             draw.text((px + int(16 * sx), py + int(8 * sy)), icon, font=pill_font, fill="#6EE7FF")
             draw.text((px + int(36 * sx), py + int(8 * sy)), label, font=pill_font, fill="#E8F0FF")
 
-        installer_pill(486, "A", "格式 A")
+        installer_pill(486, "◇", "号商格式")
         installer_pill(596, "@", "免登接码")
         installer_pill(706, "↘", "本地导出")
         img.convert("RGB").save(preview, quality=96)

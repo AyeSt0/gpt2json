@@ -243,7 +243,7 @@ namespace GPT2JSON.Setup
 
             var sub = new TextBlock
             {
-                Text = "格式 A · Sub2API / CPA JSON",
+                Text = "号商格式 · Sub2API / CPA JSON",
                 Foreground = new SolidColorBrush(Color.FromRgb(184, 205, 236)),
                 FontSize = 14,
                 Margin = new Thickness(103, 354, 0, 0)
@@ -312,7 +312,7 @@ namespace GPT2JSON.Setup
             overlay.Children.Add(title);
 
             var features = new WrapPanel();
-            features.Children.Add(FeaturePill("A", "格式 A"));
+            features.Children.Add(FeaturePill("◇", "号商格式"));
             features.Children.Add(FeaturePill("@", "免登接码"));
             features.Children.Add(FeaturePill("↘", "本地导出"));
             Canvas.SetLeft(features, 410);

@@ -75,9 +75,9 @@ gpt2json --input accounts.txt --out-dir output --input-format auto
 
 | 格式 | 支持状态 | 字段结构 |
 | --- | --- | --- |
-| [号商格式 A](https://pay.ldxp.cn/shop/plus7) | ✅ 已支持 | GPT 账号 + GPT 登录密码 + 免登录接码源 |
+| [号商格式](https://pay.ldxp.cn/shop/plus7) | ✅ 已支持 | GPT 账号 + GPT 登录密码 + 免登录接码源 |
 
-当前版本只对 **号商格式 A** 做了适配；其它来源、其它字段顺序或其它接码方式暂不保证可识别。
+当前版本只对上面这个号商页面交付的账号格式做了适配；其它来源、其它字段顺序或其它接码方式暂不保证可识别。
 
 ### 支持的账号格式
 

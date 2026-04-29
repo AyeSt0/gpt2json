@@ -360,7 +360,7 @@ namespace GPT2JSON.Uninstall
             });
             shell.Children.Add(new TextBlock
             {
-                Text = "格式 A · Sub2API / CPA JSON",
+                Text = "号商格式 · Sub2API / CPA JSON",
                 Foreground = new SolidColorBrush(Color.FromRgb(184, 205, 236)),
                 FontSize = 14,
                 Margin = new Thickness(103, 354, 0, 0)
