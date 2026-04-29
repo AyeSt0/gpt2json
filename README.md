@@ -71,13 +71,13 @@ gpt2json --input accounts.txt --out-dir output --input-format auto
 
 ## 当前支持
 
-当前主要支持 **LDXP Plus7 三段式账号格式**：
+目前暂时只支持 **卡网 LDXP Plus7** 提供的账号格式：
 
 ```text
 GPT邮箱----GPT登录密码----免登录取码源
 ```
 
-格式来源：[`pay.ldxp.cn/shop/plus7`](https://pay.ldxp.cn/shop/plus7)
+格式来源：[`https://pay.ldxp.cn/shop/plus7`](https://pay.ldxp.cn/shop/plus7)
 
 | 字段 | 含义 |
 | --- | --- |
@@ -91,7 +91,7 @@ GPT邮箱----GPT登录密码----免登录取码源
 user@example.test----example-gpt-password----https://otp-service.test/latest?mail={email}
 ```
 
-> 后续会继续扩展 IMAP / Graph / JMAP / POP3 / API 等取码方式，以及更多常见账号文本格式。不同格式里的 GPT 密码、邮箱密码、邮箱令牌、API token 会明确区分，不会混用字段语义。
+> 后续格式适配敬请期待。后续会继续扩展 IMAP / Graph / JMAP / POP3 / API 等取码方式，以及更多常见账号文本格式；不同格式里的 GPT 密码、邮箱密码、邮箱令牌、API token 会明确区分，不会混用字段语义。
 
 ## 主要能力
 

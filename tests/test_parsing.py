@@ -26,7 +26,8 @@ def test_parse_account_lines_dedupes_and_normalizes():
 
 def test_input_format_registry_supports_auto_and_errors():
     dash_format = next(fmt for fmt in list_input_formats() if fmt.id == "dash_otp")
-    assert "LDXP" in dash_format.label
+    assert "Plus7" in dash_format.label
+    assert "pay.ldxp.cn/shop/plus7" in dash_format.description
     assert dash_format.placeholder
     future_presets = list_future_input_format_presets()
     assert future_presets
