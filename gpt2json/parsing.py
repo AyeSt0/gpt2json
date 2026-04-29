@@ -169,10 +169,10 @@ def parse_account_lines(lines: Iterable[str]) -> list[AccountRow]:
 INPUT_FORMATS: dict[str, InputFormat] = {
     "dash_otp": InputFormat(
         id="dash_otp",
-        label="号商格式 / 三段式",
+        label="号商格式 A / GPT账密+免登录接码",
         parser=parse_dash_otp_lines,
-        description="目前暂时只支持号商页面 https://pay.ldxp.cn/shop/plus7 提供的账号格式；第二段是 GPT/OpenAI 登录密码，后续格式适配敬请期待。",
-        placeholder="GPT邮箱----GPT登录密码----免登录取码源\n每行一个账号，粘贴内容优先于文件。",
+        description="目前暂时只支持号商页面 https://pay.ldxp.cn/shop/plus7 提供的账号格式；字段为 GPT 邮箱、GPT/OpenAI 登录密码、免登录接码源，后续格式适配敬请期待。",
+        placeholder="GPT邮箱----GPT登录密码----免登录接码源\n每行一个账号，粘贴内容优先于文件。",
     ),
 }
 

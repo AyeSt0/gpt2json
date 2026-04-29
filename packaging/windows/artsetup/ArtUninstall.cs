@@ -204,7 +204,7 @@ namespace GPT2JSON.Uninstall
 
             var desc = new TextBlock
             {
-                Text = "将移除程序文件与快捷方式，账号与导出文件不会被安装器主动删除。",
+                Text = "将移除程序文件与快捷方式，账号与导出文件不会被卸载器主动删除。",
                 Foreground = new SolidColorBrush(Color.FromRgb(166, 187, 220)),
                 FontSize = 14,
                 TextWrapping = TextWrapping.Wrap,
@@ -360,7 +360,7 @@ namespace GPT2JSON.Uninstall
             });
             shell.Children.Add(new TextBlock
             {
-                Text = "Sub2API / CPA JSON 导出工具",
+                Text = "格式 A · Sub2API / CPA JSON",
                 Foreground = new SolidColorBrush(Color.FromRgb(184, 205, 236)),
                 FontSize = 14,
                 Margin = new Thickness(103, 354, 0, 0)

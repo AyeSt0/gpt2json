@@ -25,7 +25,7 @@ gpt2json/
 │  ├─ mail_providers.py        # 号商/邮箱来源与取码实现排序提示
 │  ├─ models.py                # 批处理与登录结果数据模型
 │  ├─ oauth.py                 # OAuth 参数、PKCE 与 token 辅助函数
-│  ├─ otp.py                   # 免登录取码源解析与验证码提取
+│  ├─ otp.py                   # 免登录接码源解析与验证码提取
 │  ├─ parsing.py               # 输入格式识别与字段解析
 │  ├─ protocol.py              # 协议登录与 OAuth JSON 交换
 │  └─ updater.py               # GitHub Release 更新检查

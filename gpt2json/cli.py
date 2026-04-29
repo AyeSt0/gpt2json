@@ -15,7 +15,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="GPT2JSON：Sub2API / CPA JSON 导出工具。")
     supported_formats = ", ".join(["auto", *(fmt.id for fmt in list_input_formats())])
     parser.add_argument("--version", action="version", version=f"GPT2JSON {__version__}")
-    parser.add_argument("--input", help="账号文本文件：GPT邮箱----GPT登录密码----免登录取码源")
+    parser.add_argument("--input", help="账号文本文件：GPT邮箱----GPT登录密码----免登录接码源")
     parser.add_argument("--stdin", action="store_true", help="从标准输入读取账号文本；优先级高于 --input")
     parser.add_argument("--out-dir", required=True, help="输出目录")
     parser.add_argument("--concurrency", type=int, default=0, help="并发数；0 表示自动")
