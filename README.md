@@ -252,8 +252,6 @@ python scripts/generate_docs_assets.py
 
 ```bash
 python scripts/check_release.py
-python -m build
-python -m twine check dist/*
 ```
 
 完整流程见 [`docs/release.md`](docs/release.md)，贡献说明见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。

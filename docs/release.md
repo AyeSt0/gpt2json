@@ -20,8 +20,6 @@ python scripts/generate_docs_assets.py
 python -m ruff check gpt2json tests scripts
 python -m pytest -q
 python scripts/check_release.py
-python -m build
-python -m twine check dist/*
 ```
 
 如需本地构建 Windows 安装包：
@@ -43,9 +41,7 @@ python scripts/check_release.py --require-assets
    git push origin vX.Y.Z
    ```
 
-3. GitHub Actions 会自动构建：
-   - `gpt2json-X.Y.Z-py3-none-any.whl`
-   - `gpt2json-X.Y.Z.tar.gz`
+3. GitHub Actions 会自动构建并上传面向普通用户的 Windows 资产：
    - `GPT2JSON-Setup-vX.Y.Z.exe`
    - `GPT2JSON-vX.Y.Z-windows-x64.zip`
 
