@@ -194,11 +194,29 @@ def create_installer_preview() -> None:
     The installer is a transparent WPF shell, so a faithful preview is captured
     from the running installer and then sanitized to remove the local username
     from the install path.  Do not regenerate it as a synthetic mockup here.
+    The only deterministic edit this script applies is the version badge, so
+    README screenshots never drift behind the package version.
     """
 
     preview = ASSET_DIR / "installer-preview.png"
     if preview.exists():
-        print(f"Preserved real installer screenshot: {preview}")
+        version = project_version()
+        img = Image.open(preview).convert("RGBA")
+        draw = ImageDraw.Draw(img)
+        width, height = img.size
+        # The badge is part of the sanitized real screenshot.  Keep the same
+        # geometry proportionally so it survives small future screenshot crops.
+        x1 = int(width * 0.162)
+        y1 = int(height * 0.787)
+        x2 = int(width * 0.217)
+        y2 = int(height * 0.822)
+        draw.rounded_rectangle((x1, y1, x2, y2), radius=max(10, int(height * 0.017)), fill=(124, 147, 190, 245), outline=(205, 222, 255, 110), width=1)
+        text = f"v{version}"
+        text_font = font(max(15, int(height * 0.020)), bold=True)
+        bbox = draw.textbbox((0, 0), text, font=text_font)
+        draw.text((x1 + (x2 - x1 - (bbox[2] - bbox[0])) / 2, y1 + (y2 - y1 - (bbox[3] - bbox[1])) / 2 - 1), text, font=text_font, fill="#FFFFFF")
+        img.convert("RGB").save(preview, quality=96)
+        print(f"Preserved real installer screenshot and updated version badge: {preview}")
         return
     raise FileNotFoundError(
         "installer-preview.png is intentionally a sanitized real screenshot. "

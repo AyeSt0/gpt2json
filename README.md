@@ -5,24 +5,25 @@
 <h1 align="center">GPT2JSON</h1>
 
 <p align="center">
-  面向中文交付场景的 <b>Sub2API / CPA JSON 导出工具</b>：协议优先、本地生成、批次隔离，不直接写入后台。
+  面向中文交付场景的 <b>Sub2API / CPA JSON 导出工具</b>。协议优先、本地生成、批次隔离，不直接写入后台。
 </p>
 
 <p align="center">
-  <a href="https://github.com/AyeSt0/gpt2json/releases/latest"><img alt="下载 Windows 安装器" src="https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD-Windows%20%E5%AE%89%E8%A3%85%E5%99%A8-38BDF8?style=for-the-badge&logo=windows11&logoColor=white"></a>
-  <a href="https://github.com/AyeSt0/gpt2json/releases/latest"><img alt="下载 ZIP 便携包" src="https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD-ZIP%20%E4%BE%BF%E6%90%BA%E5%8C%85-8B5CF6?style=for-the-badge&logo=github&logoColor=white"></a>
+  <a href="https://github.com/AyeSt0/gpt2json/releases/latest"><img alt="最新版本" src="https://img.shields.io/badge/version-v0.1.4-60A5FA?style=for-the-badge"></a>
+  <a href="https://github.com/AyeSt0/gpt2json/releases/latest"><img alt="下载 Windows 安装器" src="https://img.shields.io/badge/Windows-%E5%AE%89%E8%A3%85%E5%99%A8-38BDF8?style=for-the-badge&logo=windows11&logoColor=white"></a>
+  <a href="https://github.com/AyeSt0/gpt2json/releases/latest"><img alt="下载 ZIP 便携包" src="https://img.shields.io/badge/ZIP-%E4%BE%BF%E6%90%BA%E5%8C%85-8B5CF6?style=for-the-badge&logo=github&logoColor=white"></a>
   <a href="https://github.com/AyeSt0/gpt2json/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/AyeSt0/gpt2json/ci.yml?branch=main&style=for-the-badge&label=tests"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/AyeSt0/gpt2json?style=for-the-badge"></a>
 </p>
 
 <p align="center">
   <a href="#-为什么用-gpt2json">为什么用</a> ·
+  <a href="#-v014-更新重点">更新重点</a> ·
   <a href="#-界面预览">界面预览</a> ·
   <a href="#-快速开始">快速开始</a> ·
   <a href="#-当前支持的输入">输入格式</a> ·
   <a href="#-输出结果">输出结果</a> ·
-  <a href="#-windows-发行包">Windows 发行包</a> ·
-  <a href="#-开发">开发</a>
+  <a href="#-开发与发版">开发</a>
 </p>
 
 ---
@@ -33,11 +34,12 @@
 
 | 设计点 | 用户收益 |
 | --- | --- |
-| **协议优先** | 默认走 HTTP/OAuth 流程，避免浏览器自动化带来的慢、重、不稳定。 |
-| **本地生成** | 不直连你的 Sub2API 后台；导出文件保存在本机，导入动作由你控制。 |
-| **批次隔离** | 每次运行创建唯一结果目录，历史文件不被覆盖，方便回溯。 |
-| **中文 GUI** | 粘贴、导入、导出、日志、失败报告都按中文使用习惯组织。 |
-| **可扩展输入** | 当前先适配 LDXP Plus7 三段式；后续 parser / OTP backend 可持续增加。 |
+| **协议优先** | 默认走 HTTP/OAuth 流程，尽量不依赖浏览器自动化，速度更快、资源占用更低。 |
+| **本地生成** | 只在本机处理账号文本与导出文件；不直接写入你的 Sub2API 管理后台。 |
+| **批次隔离** | 每次运行创建唯一结果目录，CPA 子目录也带唯一批次名，避免老文件被覆盖或误用。 |
+| **客户端事客户端毕** | 可恢复失败会自动重试，并追加自动重跑补救；用户不用靠手工翻日志兜底。 |
+| **中文桌面体验** | 粘贴、导入、导出、日志、失败报告都按中文使用习惯组织。 |
+| **可扩展输入** | 当前先适配 LDXP Plus7 三段式；后续 parser / OTP backend 可持续接入。 |
 
 ```mermaid
 flowchart LR
@@ -48,10 +50,20 @@ flowchart LR
   D -- "少数跳验证" --> E["免登录取码源 / OTP backend"]
   E --> F
   F --> G["Sub2API JSON"]
-  F --> H["CPA 唯一批次文件夹"]
+  F --> H["CPA_<批次>/ 单账号 JSON"]
   G --> I["打开本次结果目录"]
   H --> I
 ```
+
+## ✦ v0.1.4 更新重点
+
+| 类型 | 变化 |
+| --- | --- |
+| 自动恢复 | 新增“自动重跑补救”。普通自动重试仍失败时，会对验证码旧码、OTP 超时、Callback 超时、HTTP 429/5xx 等可恢复问题继续自动重跑。 |
+| 终态收敛 | 账号停用、锁定、不存在、凭据无效等服务端明确终态不再浪费重跑次数。 |
+| CPA 输出 | CPA 改为文件夹输出，不再额外打 ZIP；目录名为 `CPA_<批次>/`，一个账号一个 JSON。 |
+| 日志体验 | 日志增加账号序号、阶段、普通重试 / 补救重跑区别和完成摘要，先保证可读，再保留适度表情。 |
+| 文档与素材 | README、GUI 预览图、Hero 图和版本号同步到 v0.1.4。 |
 
 ## ✦ 当前能力
 
@@ -60,13 +72,14 @@ flowchart LR
 | 账号输入 | ✅ 已实现 | 支持粘贴多行，也支持导入 `.txt` 文件。 |
 | 自动识别 | ✅ 已实现 | 默认 `自动识别（推荐）`；未实现格式在界面中置灰展示。 |
 | 登录流程 | ✅ 已实现 | 账密优先；只有服务端要求时才进入验证码阶段。 |
-| 免登录取码 URL | ✅ 已实现 | 支持 JSON / 文本 / HTML 中自动提取验证码或发现接口。 |
-| 并发与重试 | ✅ 已实现 | 默认自动并发；可恢复失败会自动重试，并追加自动重跑补救。 |
-| Sub2API 导出 | ✅ 已实现 | 生成 `sub2api_accounts.secret.json`。 |
+| 免登录取码 URL | ✅ 已实现 | 支持从 JSON / 文本 / HTML 中提取验证码或发现接口。 |
+| 并发与重试 | ✅ 已实现 | 默认自动并发；高级选项可调整并发、超时、重试和自动重跑补救。 |
+| Sub2API 导出 | ✅ 已实现 | 生成 `sub2api_accounts.secret.json` 总包。 |
 | CPA 导出 | ✅ 已实现 | 每个账号一个 JSON，统一放在唯一 `CPA_<批次>/` 文件夹，并生成 manifest。 |
-| 取码协议扩展 | 🧭 规划中 | IMAP / Graph / JMAP / POP3 / Provider API。 |
+| 输出追踪 | ✅ 已实现 | `summary.json`、`results.safe.jsonl`、`failure_report.safe.json` 均为脱敏诊断信息。 |
+| 邮箱协议 backend | 🧭 规划中 | IMAP / IMAP XOAUTH2 / Graph / JMAP / POP3 / Provider API。 |
 
-> GPT2JSON 只负责生成 JSON 文件，不会直接写入你的 Sub2API 管理后台。这样更安全，也更适合批量交付前检查。
+> GPT2JSON 只负责生成 JSON 文件，不直接导入 Sub2API 后台。这样更安全，也更适合批量交付前检查。
 
 ## ✦ 界面预览
 
@@ -84,9 +97,10 @@ flowchart LR
 ### 方式 A：下载 Windows 发行包（推荐）
 
 1. 打开 [GitHub Releases](https://github.com/AyeSt0/gpt2json/releases/latest)。
-2. 普通用户下载 `GPT2JSON-Setup-vX.Y.Z.exe`。
-3. 免安装用户下载 `GPT2JSON-vX.Y.Z-windows-x64.zip`。
+2. 普通用户下载 `GPT2JSON-Setup-v0.1.4.exe`。
+3. 免安装用户下载 `GPT2JSON-v0.1.4-windows-x64.zip`。
 4. 启动后粘贴账号文本，选择 `Sub2API JSON`、`CPA JSON` 或二者同时导出。
+5. 任务完成后点击“所在位置”，检查本次结果目录后再导入目标系统。
 
 ### 方式 B：从源码运行
 
@@ -157,8 +171,20 @@ output/
 | `CPA_<批次>/<account-email>.json` | CPA 单账号 token 文件；一个账号一个 JSON；目录名随批次唯一化，避免误覆盖。 |
 | `cpa_manifest.json` | CPA 文件夹索引，只记录 CPA 目录名、文件列表和脱敏元数据。 |
 | `failure_report.safe.json` | 失败诊断报告，不包含原始密码、token 或取码源明文。 |
-| `summary.json` | 本次统计；包含输出根目录、结果目录和批次 ID。 |
-| `results.safe.jsonl` | 脱敏过程记录，方便定位账号阶段。 |
+| `summary.json` | 本次统计；包含输出根目录、结果目录、批次 ID 和导出路径。 |
+| `results.safe.jsonl` | 脱敏过程记录，方便定位每个账号的阶段和最终状态。 |
+
+## ✦ 自动重试与失败诊断
+
+GPT2JSON 的目标是让客户端尽可能自动处理可恢复问题：
+
+| 场景 | 处理方式 |
+| --- | --- |
+| 取码源慢、验证码旧码、OTP 超时 | 先自动重试，再进入额外自动重跑补救。 |
+| Callback / OAuth 换 JSON 超时 | 视为可恢复失败，按配置继续自动处理。 |
+| HTTP 429 / 5xx / 临时网络错误 | 自动重试或自动重跑，避免用户手动重跑整批。 |
+| 账号停用、锁定、不存在、凭据无效 | 归类为终态失败，不继续消耗重跑次数。 |
+| 仍失败的账号 | 写入 `failure_report.safe.json`，只保留脱敏账号、阶段、分类和建议。 |
 
 ## ✦ Windows 发行包
 
@@ -168,19 +194,19 @@ output/
 
 | 产物 | 适合场景 | 说明 |
 | --- | --- | --- |
-| `GPT2JSON-Setup-vX.Y.Z.exe` | 普通用户 | 定制安装界面 + 标准安装核心；安装到所选目录下的 `GPT2JSON` 子目录。 |
-| `GPT2JSON-vX.Y.Z-windows-x64.zip` | 便携 / 临时使用 | 解压后运行 `GPT2JSON.exe`，不需要安装。 |
+| `GPT2JSON-Setup-v0.1.4.exe` | 普通用户 | 定制安装界面 + 标准安装核心；安装到所选目录下的 `GPT2JSON` 子目录。 |
+| `GPT2JSON-v0.1.4-windows-x64.zip` | 便携 / 临时使用 | 解压后运行 `GPT2JSON.exe`，不需要安装。 |
 
 运行偏好保存到 `%LOCALAPPDATA%\GPT2JSON\settings.ini`。GUI 本身不写入业务注册表；安装器只创建 Windows 标准卸载项和快捷方式。需要完全免安装时，使用 ZIP 便携包即可。
 
-## ✦ 后续路线
+## ✦ 路线图
 
 GPT2JSON 的长期方向是 **backend-first**：优先沉到 IMAP / Graph / JMAP / POP3 / API 这类可复用协议层，而不是把能力写死在某个邮箱品牌名里。
 
 - [x] 协议优先 OAuth → JSON 导出
 - [x] 中文 GUI：粘贴 / 文件输入、深浅色主题、输出目录打开
-- [x] 自动并发、自动重试、失败诊断报告
-- [x] 唯一批次输出目录，避免覆盖历史导出
+- [x] 自动并发、自动重试、自动重跑补救、失败诊断报告
+- [x] 唯一批次输出目录与唯一 CPA 子目录，避免覆盖历史导出
 - [ ] IMAP / IMAP XOAUTH2 取码 backend
 - [ ] Graph / JMAP / POP3 backend
 - [ ] CSV / 表格列映射导入
@@ -197,10 +223,20 @@ GPT2JSON 的长期方向是 **backend-first**：优先沉到 IMAP / Graph / JMAP
 
 更多见 [`SECURITY.md`](SECURITY.md) 与 [`docs/privacy.md`](docs/privacy.md)。
 
-## ✦ 开发
+## ✦ 文档索引
+
+| 文档 | 内容 |
+| --- | --- |
+| [`docs/input-formats.md`](docs/input-formats.md) | 输入 parser 设计、字段语义和后续格式扩展约定。 |
+| [`docs/mail-backends.md`](docs/mail-backends.md) | IMAP / Graph / JMAP / POP3 / API 取码 backend 规划。 |
+| [`docs/troubleshooting.md`](docs/troubleshooting.md) | 常见失败、验证码超时、输出目录和注册表说明。 |
+| [`docs/privacy.md`](docs/privacy.md) | 本地保存、输出文件、日志脱敏和 GitHub 反馈注意事项。 |
+| [`docs/release.md`](docs/release.md) | 本地检查、Windows 打包、GitHub Release 流程。 |
+
+## ✦ 开发与发版
 
 ```bash
-python -m pip install -e .[dev,gui]
+python -m pip install -e .[dev,gui,release]
 python -m ruff check gpt2json tests scripts
 python -m pytest -q
 ```

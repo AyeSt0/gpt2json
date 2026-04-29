@@ -76,4 +76,4 @@ python scripts/check_release.py --require-assets
 
 1. 在 Release 页面标记说明；
 2. 删除或下架有问题的资产；
-3. 修复后发布新的 patch 版本，例如 `v0.1.3`，不要复用旧 tag。
+3. 修复后发布新的 patch 版本，例如 `v0.1.5`，不要复用旧 tag。

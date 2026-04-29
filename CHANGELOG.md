@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+### Planned
+
+- IMAP / IMAP XOAUTH2、Graph、JMAP、POP3、Provider API 等邮箱取码 backend。
+- CSV / 表格列映射导入。
+- 失败账号筛选后重跑。
+
+## [0.1.4] - 2026-04-29
+
 ### Added
 
 - 客户端新增“自动重跑补救”：常规自动重试仍未成功时，会继续对可恢复失败追加重跑；账号停用等终态失败不会重跑。
@@ -12,12 +20,7 @@
 
 - GUI 高级选项新增“自动重跑补救次数”，并在日志中区分普通自动重试和额外自动重跑。
 - CPA 导出改为只保留唯一 `CPA_<批次>/` 单账号 JSON 文件夹，不再额外生成 `cpa_tokens_*.zip`。
-
-### Planned
-
-- IMAP / IMAP XOAUTH2、Graph、JMAP、POP3、Provider API 等邮箱取码 backend。
-- CSV / 表格列映射导入。
-- 失败账号筛选后重跑。
+- GUI 日志进一步优化账号序号、阶段文案和完成摘要，优先保证用户可读性。
 
 ## [0.1.3] - 2026-04-29
 
