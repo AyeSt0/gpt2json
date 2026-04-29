@@ -9,6 +9,7 @@ def test_windows_installer_exposes_default_names_only():
     uninstaller_builder = (ROOT / "packaging" / "windows" / "build-art-uninstaller.ps1").read_text(encoding="utf-8")
     release_check = (ROOT / "scripts" / "check_release.py").read_text(encoding="utf-8")
     workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    portable_builder = (ROOT / "packaging" / "windows" / "build-portable.ps1").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "OutputBaseFilename=GPT2JSON-CoreSetup-v{#MyAppVersion}" in inno
@@ -22,6 +23,11 @@ def test_windows_installer_exposes_default_names_only():
     assert "GPT2JSON-ArtSetup-v{version}.exe" not in release_check
     assert '"release/GPT2JSON-ArtSetup' not in workflow
     assert "GPT2JSON-ArtSetup" not in readme
+    assert ".\\packaging\\windows\\build-portable.ps1" in workflow
+    assert '--paths "$root"' in portable_builder
+    assert "--hidden-import gpt2json.gui" in portable_builder
+    assert "--collect-submodules gpt2json" in portable_builder
+    assert "gpt2json\\.gui" in portable_builder
 
 
 def test_public_uninstaller_wrapper_delegates_to_private_inno_core():

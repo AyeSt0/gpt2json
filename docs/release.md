@@ -27,15 +27,7 @@ python -m twine check dist/*
 如需本地构建 Windows 安装包：
 
 ```powershell
-pyinstaller `
-  --noconfirm `
-  --clean `
-  --windowed `
-  --name GPT2JSON `
-  --icon gpt2json/assets/gpt2json_icon.ico `
-  --add-data "gpt2json/assets;gpt2json/assets" `
-  scripts/launch_gui.py
-
+.\packaging\windows\build-portable.ps1
 .\packaging\windows\build-installer.ps1
 Compress-Archive -Path dist\GPT2JSON\* -DestinationPath release\GPT2JSON-vX.Y.Z-windows-x64.zip -Force
 python scripts/check_release.py --require-assets

@@ -10,6 +10,14 @@
 - CSV / 表格列映射导入。
 - 失败账号筛选后重跑。
 
+## [0.1.5] - 2026-04-29
+
+### Fixed
+
+- 修复 Windows 发行包启动时报 `No module named 'gpt2json.gui'` 的问题。
+- 新增统一的 `packaging/windows/build-portable.ps1`，PyInstaller 构建时显式加入项目根目录、`gpt2json.gui` hidden import 和 `gpt2json` 子模块收集，避免入口脚本在 `scripts/` 目录下导致源码包漏收集。
+- GitHub Release workflow 和本地发版文档改为复用同一个便携包构建脚本，降低本地包和 CI 包不一致的风险。
+
 ## [0.1.4] - 2026-04-29
 
 ### Added

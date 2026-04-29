@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/AyeSt0/gpt2json/releases/latest"><img alt="最新版本" src="https://img.shields.io/badge/version-v0.1.4-60A5FA?style=for-the-badge"></a>
+  <a href="https://github.com/AyeSt0/gpt2json/releases/latest"><img alt="最新版本" src="https://img.shields.io/badge/version-v0.1.5-60A5FA?style=for-the-badge"></a>
   <a href="https://github.com/AyeSt0/gpt2json/releases/latest"><img alt="下载 Windows 安装器" src="https://img.shields.io/badge/Windows-%E5%AE%89%E8%A3%85%E5%99%A8-38BDF8?style=for-the-badge&logo=windows11&logoColor=white"></a>
   <a href="https://github.com/AyeSt0/gpt2json/releases/latest"><img alt="下载 ZIP 便携包" src="https://img.shields.io/badge/ZIP-%E4%BE%BF%E6%90%BA%E5%8C%85-8B5CF6?style=for-the-badge&logo=github&logoColor=white"></a>
   <a href="https://github.com/AyeSt0/gpt2json/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/AyeSt0/gpt2json/ci.yml?branch=main&style=for-the-badge&label=tests"></a>
@@ -18,7 +18,7 @@
 
 <p align="center">
   <a href="#-为什么用-gpt2json">为什么用</a> ·
-  <a href="#-v014-更新重点">更新重点</a> ·
+  <a href="#-v015-更新重点">更新重点</a> ·
   <a href="#-界面预览">界面预览</a> ·
   <a href="#-快速开始">快速开始</a> ·
   <a href="#-当前支持的输入">输入格式</a> ·
@@ -55,15 +55,16 @@ flowchart LR
   H --> I
 ```
 
-## ✦ v0.1.4 更新重点
+## ✦ v0.1.5 更新重点
 
 | 类型 | 变化 |
 | --- | --- |
+| 安装包修复 | 修复 v0.1.4 Windows 安装后启动时报 `No module named 'gpt2json.gui'` 的坏包问题；便携包和安装包均重新构建。 |
 | 自动恢复 | 新增“自动重跑补救”。普通自动重试仍失败时，会对验证码旧码、OTP 超时、Callback 超时、HTTP 429/5xx 等可恢复问题继续自动重跑。 |
 | 终态收敛 | 账号停用、锁定、不存在、凭据无效等服务端明确终态不再浪费重跑次数。 |
 | CPA 输出 | CPA 改为文件夹输出，不再额外打 ZIP；目录名为 `CPA_<批次>/`，一个账号一个 JSON。 |
 | 日志体验 | 日志增加账号序号、阶段、普通重试 / 补救重跑区别和完成摘要，先保证可读，再保留适度表情。 |
-| 文档与素材 | README、GUI 预览图、Hero 图和版本号同步到 v0.1.4。 |
+| 文档与素材 | README、GUI 预览图、Hero 图和版本号同步到 v0.1.5。 |
 
 ## ✦ 当前能力
 
@@ -97,8 +98,8 @@ flowchart LR
 ### 方式 A：下载 Windows 发行包（推荐）
 
 1. 打开 [GitHub Releases](https://github.com/AyeSt0/gpt2json/releases/latest)。
-2. 普通用户下载 `GPT2JSON-Setup-v0.1.4.exe`。
-3. 免安装用户下载 `GPT2JSON-v0.1.4-windows-x64.zip`。
+2. 普通用户下载 `GPT2JSON-Setup-v0.1.5.exe`。
+3. 免安装用户下载 `GPT2JSON-v0.1.5-windows-x64.zip`。
 4. 启动后粘贴账号文本，选择 `Sub2API JSON`、`CPA JSON` 或二者同时导出。
 5. 任务完成后点击“所在位置”，检查本次结果目录后再导入目标系统。
 
@@ -194,8 +195,8 @@ GPT2JSON 的目标是让客户端尽可能自动处理可恢复问题：
 
 | 产物 | 适合场景 | 说明 |
 | --- | --- | --- |
-| `GPT2JSON-Setup-v0.1.4.exe` | 普通用户 | 定制安装界面 + 标准安装核心；安装到所选目录下的 `GPT2JSON` 子目录。 |
-| `GPT2JSON-v0.1.4-windows-x64.zip` | 便携 / 临时使用 | 解压后运行 `GPT2JSON.exe`，不需要安装。 |
+| `GPT2JSON-Setup-v0.1.5.exe` | 普通用户 | 定制安装界面 + 标准安装核心；安装到所选目录下的 `GPT2JSON` 子目录。 |
+| `GPT2JSON-v0.1.5-windows-x64.zip` | 便携 / 临时使用 | 解压后运行 `GPT2JSON.exe`，不需要安装。 |
 
 运行偏好保存到 `%LOCALAPPDATA%\GPT2JSON\settings.ini`。GUI 本身不写入业务注册表；安装器只创建 Windows 标准卸载项和快捷方式。需要完全免安装时，使用 ZIP 便携包即可。
 

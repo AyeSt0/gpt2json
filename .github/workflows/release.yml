@@ -58,14 +58,7 @@ jobs:
       - name: Build portable GUI
         shell: pwsh
         run: |
-          pyinstaller `
-            --noconfirm `
-            --clean `
-            --windowed `
-            --name GPT2JSON `
-            --icon gpt2json/assets/gpt2json_icon.ico `
-            --add-data "gpt2json/assets;gpt2json/assets" `
-            scripts/launch_gui.py
+          .\packaging\windows\build-portable.ps1
 
       - name: Install Inno Setup
         shell: pwsh
