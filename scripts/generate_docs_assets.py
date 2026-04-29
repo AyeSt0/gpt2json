@@ -131,12 +131,12 @@ def create_hero() -> None:
     draw.text((316, 157), f"v{version}", font=font(24, bold=True), fill="#DCEBFF")
     draw.text((144, 280), "GPT2JSON", font=font(112, bold=True), fill="#FFFFFF")
     draw.text((149, 405), "Sub2API / CPA JSON 导出工具", font=font(43, bold=True), fill="#DBEAFE")
-    draw.text((151, 468), "协议优先 · 本地生成 · 中文桌面体验 · 批次隔离", font=font(30), fill="#AFC4EA")
+    draw.text((151, 468), "本地生成 · 按号商格式适配 · 中文桌面体验 · 批次隔离", font=font(30), fill="#AFC4EA")
 
     # Minimal capability row: fine separators instead of heavy badges.
     cap_layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
     cap_draw = ImageDraw.Draw(cap_layer)
-    cap_specs = [(151, "OAuth", "#60A5FA"), (292, "OTP", "#22D3EE"), (408, "Sub2API", "#A78BFA"), (584, "CPA", "#34D399"), (694, "Batch JSON", "#93C5FD")]
+    cap_specs = [(151, "Plus7", "#60A5FA"), (286, "本地导出", "#22D3EE"), (452, "Sub2API", "#A78BFA"), (628, "CPA", "#34D399"), (738, "批次隔离", "#93C5FD")]
     for index, (x, label, color) in enumerate(cap_specs):
         cap_draw.ellipse((x, 584, x + 10, 594), fill=color)
         cap_draw.text((x + 19, 574), label, font=font(22, bold=True), fill=(226, 239, 255, 218))
@@ -155,7 +155,7 @@ def create_hero() -> None:
     panel_draw.rounded_rectangle((990, 104, 1798, 638), 42, fill=(9, 16, 37, 185), outline=(186, 210, 255, 44), width=1)
     panel_draw.rounded_rectangle((1018, 132, 1770, 610), 28, fill=(255, 255, 255, 9), outline=(255, 255, 255, 18), width=1)
 
-    for i, (label, color) in enumerate([("INPUT", "#60A5FA"), ("OAUTH", "#A78BFA"), ("OTP", "#22D3EE"), ("JSON", "#34D399")]):
+    for i, (label, color) in enumerate([("INPUT", "#60A5FA"), ("LOGIN", "#A78BFA"), ("CODE", "#22D3EE"), ("JSON", "#34D399")]):
         y = 170 + i * 88
         panel_draw.rounded_rectangle((1056, y, 1185, y + 42), 20, fill=(255, 255, 255, 13), outline=(255, 255, 255, 20))
         panel_draw.ellipse((1074, y + 13, 1090, y + 29), fill=color)
@@ -184,7 +184,7 @@ def create_hero() -> None:
         arc_draw.arc((1430 - radius, 374 - radius, 1430 + radius, 374 + radius), 200, 330, fill=(191, 219, 254, opacity), width=2)
     img.alpha_composite(arcs)
 
-    draw.text((146, 681), "Local-first exporter  /  JSON pool preparation  /  Safe masked logs", font=font(21), fill="#7890BA")
+    draw.text((146, 681), "Local-first exporter  /  Supplier format adapter  /  Safe masked logs", font=font(21), fill="#7890BA")
     ASSET_DIR.mkdir(parents=True, exist_ok=True)
     img.convert("RGB").save(ASSET_DIR / "hero.png", quality=96)
 
@@ -262,7 +262,7 @@ def capture_gui_previews() -> None:
         window.cpa_row.set_path(r"output\GPT2JSON_20260429_043512_a1b2c3\CPA_20260429_043512_a1b2c3")
         window._refresh_output_format_state()
         window.log_edit.setPlainText(
-            "🚀 开始导出：配置已确认，正在按协议获取 JSON。\n"
+            "🚀 开始导出：配置已确认，正在生成导入 JSON。\n"
             "📁 输出根目录：output（本次会自动新建唯一批次目录，不覆盖旧文件）\n"
             "🗂️ 本次结果目录：output\\GPT2JSON_20260429_043512_a1b2c3\n"
             "📮 账号 #003 user03@example.test：密码验证通过，服务端要求邮箱验证码，准备访问取码源。\n"

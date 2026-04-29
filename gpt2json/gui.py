@@ -1810,7 +1810,7 @@ class MainWindow(QMainWindow):
             grid.addLayout(label_box, row, 0)
             grid.addWidget(spin, row, 1)
 
-        add_row(0, "HTTP 请求超时（秒）", "登录、OAuth、接口请求的单次等待时间。", http_spin)
+        add_row(0, "HTTP 请求超时（秒）", "登录和接口请求的单次等待时间。", http_spin)
         add_row(1, "验证码等待超时（秒）", "触发邮箱验证码后，最多轮询取码源多久。", otp_spin)
         add_row(2, "验证码轮询间隔（秒）", "两次取码请求之间的间隔，过低可能触发限流。", interval_spin)
         add_row(3, "自动重试次数", "单账号遇到可恢复失败时最多尝试几次，默认 3。", attempts_spin)
@@ -2165,7 +2165,7 @@ class MainWindow(QMainWindow):
             self.log_edit.clear()
             self._log_waiting = False
         self._set_status("运行中", "running")
-        self.append_log("🚀 开始导出：配置已确认，正在按协议获取 JSON。")
+        self.append_log("🚀 开始导出：配置已确认，正在生成导入 JSON。")
         self.append_log(f"🧩 运行配置：输入格式={self._input_format_label()}；导出={self._selected_output_labels()}；并发={'自动' if int(self.concurrency_spin.value()) == 0 else self.concurrency_spin.value()}。")
         total_attempts = int(self.max_attempts_spin.value()) + int(self.auto_rerun_spin.value())
         self.append_log(f"🔁 稳定性策略：可恢复失败先自动重试 {int(self.max_attempts_spin.value())} 次；仍未成功时进入单账号自动重跑补救 {int(self.auto_rerun_spin.value())} 次，最多 {total_attempts} 次。")
@@ -2174,7 +2174,7 @@ class MainWindow(QMainWindow):
             self.append_log(f"🔄 批次级自动补跑：批次结束后最多自动补跑 {batch_auto_limit} 次，只处理 failed_rerun.secret.txt 中的可恢复失败账号。")
         else:
             self.append_log("🔄 批次级自动补跑：当前已关闭；仍会生成失败清单并保留“重跑失败账号”手动入口。")
-        self.append_log("🧭 执行流程：OAuth 初始化 → 账号密码验证 → 按需获取邮箱验证码 → Callback 换取 JSON。")
+        self.append_log("🧭 执行流程：登录初始化 → 账号密码验证 → 按需获取邮箱验证码 → Callback 换取 JSON。")
         self.append_log("🔎 登录策略：优先账密登录；只有出现验证码页面时才启用取码源；全程不拉起浏览器。")
         self.append_log(f"📁 输出根目录：{Path(output_dir).resolve()}（本次会自动新建唯一批次目录，不覆盖旧文件）")
         self._cancel_event = threading.Event()
@@ -2248,7 +2248,7 @@ class MainWindow(QMainWindow):
 
     def _stage_display(self, value: Any) -> str:
         mapping = {
-            "oauth_start": "OAuth 初始化",
+            "oauth_start": "登录初始化",
             "entry": "授权入口",
             "sentinel": "风控票据",
             "authorize_continue": "账号识别",
@@ -2316,7 +2316,7 @@ class MainWindow(QMainWindow):
             "invalid_auth_step": "认证步骤状态不同步，客户端会自动刷新会话状态后重试。",
             "bad_request": "认证接口认为当前请求状态不完整，客户端会自动刷新页面状态后重试。",
             "otp_timeout": "在等待时间内没有获取到新的验证码。",
-            "callback_error": "没有拿到 OAuth Callback，可能是跳转链路未完成。",
+            "callback_error": "没有拿到 Callback，可能是跳转链路未完成。",
             "finalize_unresolved": "登录已推进到收尾阶段，但最终 Callback 没有解析成功。",
             "workspace_select_error": "工作区选择接口返回异常。",
             "workspace_select_continue_missing": "工作区选择完成后没有返回下一步地址。",
@@ -2392,7 +2392,7 @@ class MainWindow(QMainWindow):
         status = self._status_code_label(event.get("status_code"))
         page_type = str(event.get("page_type") or "").strip()
         if stage == "oauth_start":
-            return f"🧭 {account}：开始 OAuth 初始化，创建授权会话。"
+            return f"🧭 {account}：开始登录初始化，创建授权会话。"
         if stage == "entry":
             return f"🚪 {account}：授权入口已响应（{status}），正在保存会话状态。"
         if stage == "sentinel":

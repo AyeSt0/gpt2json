@@ -796,7 +796,7 @@ def test_log_line_classification_for_semantic_colors():
     assert classify_log_line("🚫 终态失败：账号 #001 服务端返回账号已停用") == "error"
     assert classify_log_line("🧾 失败诊断报告：failure_report.safe.json") == "output"
     assert classify_log_line("📦 任务已启动：共 3 个账号，并发=3。") == "start"
-    assert classify_log_line("🧭 执行流程：OAuth 初始化 → 账号密码验证 → 按需获取邮箱验证码 → Callback 换取 JSON。") == "info"
+    assert classify_log_line("🧭 执行流程：登录初始化 → 账号密码验证 → 按需获取邮箱验证码 → Callback 换取 JSON。") == "info"
     assert classify_log_line("🔎 登录策略：遇到验证码才启用取码源。") == "info"
 
 
