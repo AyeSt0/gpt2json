@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- 项目许可证统一为 AGPL-3.0-or-later。
+
 ### Planned
 
 - IMAP / IMAP XOAUTH2、Graph、JMAP、POP3、Provider API 等邮箱取码 backend。

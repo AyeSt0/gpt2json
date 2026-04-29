@@ -253,4 +253,5 @@ Windows 打包流程见 [`docs/release.md`](docs/release.md)。
 
 ## 许可证
 
-MIT，详见 [`LICENSE`](LICENSE)。
+AGPL-3.0-or-later，详见 [`LICENSE`](LICENSE)。
+
