@@ -330,6 +330,37 @@ def test_gui_does_not_call_non_rerunnable_runtime_error_recoverable(tmp_path, mo
     _clear_settings()
 
 
+def test_gui_counts_bad_password_as_terminal_not_unclassified(tmp_path, monkeypatch):
+    _clear_settings()
+    app = _app()
+    monkeypatch.setattr(gui_module.QMessageBox, "information", lambda *args, **kwargs: gui_module.QMessageBox.StandardButton.Ok)
+
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+
+    window.on_done(
+        {
+            "success_count": 0,
+            "failure_count": 3,
+            "cancelled": False,
+            "cancelled_count": 0,
+            "failed_rerun_file": "",
+            "rerunnable_failure_count": 0,
+            "non_rerunnable_failure_count": 3,
+            "failure_categories": {"密码验证失败": 3},
+            "failure_report": str(tmp_path / "failure_report.safe.json"),
+        }
+    )
+
+    log_text = window.log_edit.toPlainText()
+    assert "终态账号：3 个账号已被服务端明确拒绝" in log_text
+    assert "未自动补跑：3 个失败暂未归类为可恢复" not in log_text
+
+    window.close()
+    _clear_settings()
+
+
 def test_gui_rerun_failed_accounts_loads_secret_text_and_autostarts(tmp_path, monkeypatch):
     _clear_settings()
     app = _app()
@@ -712,6 +743,35 @@ def test_gui_runtime_logs_include_account_sequence(tmp_path):
     assert "自动重跑补救" in rerun_text
     assert "补救第 1/2 次" in rerun_text
     assert "总第 4/5 次" in rerun_text
+
+    window.log_edit.clear()
+    window.on_event(
+        {
+            "type": "row_stage",
+            "row_index": 4,
+            "email_masked": "ba***@example.com",
+            "stage": "password_verify",
+            "status_code": 401,
+            "page_type": "invalid_request_error",
+        }
+    )
+    window.on_event(
+        {
+            "type": "row_done",
+            "done": 2,
+            "total": 12,
+            "ok": False,
+            "row_index": 4,
+            "email_masked": "ba***@example.com",
+            "status": "bad_password",
+            "stage": "password_verify",
+            "reason": "invalid_username_or_password",
+        }
+    )
+    bad_password_text = window.log_edit.toPlainText()
+    assert "密码验证被服务端拒绝" in bad_password_text
+    assert "终态失败" in bad_password_text
+    assert "第二段是否为 GPT/OpenAI 登录密码" in bad_password_text
 
     window.close()
     _clear_settings()

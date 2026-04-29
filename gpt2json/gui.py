@@ -2304,6 +2304,7 @@ class MainWindow(QMainWindow):
             "account_not_found": "服务端未识别该登录邮箱，请检查账号文本或更换账号。",
             "user_not_found": "服务端未识别该登录邮箱，请检查账号文本或更换账号。",
             "invalid_credentials": "服务端返回凭据无效，请检查 GPT/OpenAI 邮箱和登录密码。",
+            "invalid_username_or_password": "服务端返回账号或密码不匹配，请检查第二段是否为 GPT/OpenAI 登录密码。",
             "otp_timeout": "在等待时间内没有获取到新的验证码。",
             "callback_error": "没有拿到 OAuth Callback，可能是跳转链路未完成。",
             "finalize_unresolved": "登录已推进到收尾阶段，但最终 Callback 没有解析成功。",
@@ -2336,6 +2337,7 @@ class MainWindow(QMainWindow):
             "account_not_found",
             "user_not_found",
             "invalid_credentials",
+            "invalid_username_or_password",
         }
 
     def _attempt_suffix(self, event: dict[str, Any]) -> str:
@@ -2388,6 +2390,12 @@ class MainWindow(QMainWindow):
         if stage == "authorize_continue":
             return f"📨 {account}：邮箱已提交到认证接口（{status}），正在确认下一步登录方式。"
         if stage == "password_verify":
+            try:
+                code = int(event.get("status_code") or 0)
+            except Exception:
+                code = 0
+            if code >= 400:
+                return f"🚫 {account}：密码验证被服务端拒绝（{status}），不会进入验证码阶段。"
             if bool(event.get("callback_url_present")):
                 return f"✅ {account}：密码验证通过，已直接获得 Callback。"
             if "otp" in page_type.lower() or "verify" in page_type.lower():
@@ -2576,7 +2584,7 @@ class MainWindow(QMainWindow):
         if failure_categories:
             parts = [f"{name} {count} 个" for name, count in failure_categories.items()]
             self.append_log(f"⚠️ 失败诊断：{'；'.join(parts)}。")
-            terminal_count = sum(int(failure_categories.get(name, 0) or 0) for name in ("账号状态不可用", "账号被锁定", "账号不存在", "凭据无效"))
+            terminal_count = sum(int(failure_categories.get(name, 0) or 0) for name in ("账号状态不可用", "账号被锁定", "账号不存在", "凭据无效", "密码验证失败"))
             unretryable_count = max(0, non_rerunnable_failure_count - terminal_count - cancelled_count)
             if terminal_count:
                 self.append_log(f"🚫 终态账号：{terminal_count} 个账号已被服务端明确拒绝，客户端不会继续消耗重跑次数。")
