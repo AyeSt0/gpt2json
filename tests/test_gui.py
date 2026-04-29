@@ -25,6 +25,7 @@ from gpt2json.gui import (  # noqa: E402
     create_app_settings,
     default_output_dir,
     rounded_pixmap,
+    single_instance_lock_path,
 )
 
 
@@ -48,6 +49,15 @@ def _wait_until(app, predicate, *, timeout_ms: int = 2500, interval_ms: int = 50
         QtTest.QTest.qWait(interval_ms)
     app.processEvents()
     return bool(predicate())
+
+
+def test_single_instance_lock_uses_settings_directory():
+    _clear_settings()
+    expected_settings = Path(os.environ["GPT2JSON_SETTINGS_PATH"])
+    lock_path = single_instance_lock_path()
+
+    assert lock_path.name == "gpt2json.instance.lock"
+    assert lock_path.parent == expected_settings.parent
 
 
 def _icon_average_brightness(icon) -> float:

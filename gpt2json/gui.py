@@ -12,6 +12,7 @@ from PySide6.QtCore import (
     QEvent,
     QIdentityProxyModel,
     QLibraryInfo,
+    QLockFile,
     QObject,
     QSettings,
     QSize,
@@ -145,6 +146,10 @@ def app_base_dir() -> Path:
 
 def default_output_dir() -> Path:
     return app_base_dir() / "output"
+
+
+def single_instance_lock_path() -> Path:
+    return settings_file_path().parent / "gpt2json.instance.lock"
 
 
 def install_qt_translations(app: QApplication | None) -> None:
@@ -3438,6 +3443,15 @@ def main() -> int:
     install_qt_translations(app)
     if APP_ICON_PATH.exists():
         app.setWindowIcon(QIcon(str(APP_ICON_PATH)))
+    lock_path = single_instance_lock_path()
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    instance_lock = QLockFile(str(lock_path))
+    if not instance_lock.tryLock(100):
+        instance_lock.removeStaleLockFile()
+        if not instance_lock.tryLock(100):
+            QMessageBox.information(None, "GPT2JSON 已在运行", "GPT2JSON 已经打开。\n\n为避免新旧版本或多个任务同时写入，请先关闭现有窗口后再启动。")
+            return 0
+    app._gpt2json_instance_lock = instance_lock  # type: ignore[attr-defined]
     window = MainWindow()
     window.show()
     return app.exec()

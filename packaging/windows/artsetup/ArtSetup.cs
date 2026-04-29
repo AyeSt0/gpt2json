@@ -575,6 +575,11 @@ namespace GPT2JSON.Setup
             SetBusy(true, _upgradeMode ? "正在准备升级核心…" : "正在释放安装核心…", 18);
             try
             {
+                SetBusy(true, _upgradeMode ? "正在关闭旧版 GPT2JSON…" : "正在确认没有旧客户端运行…", 24);
+                int closedCount = await Task.Run(delegate { return CloseRunningAppInstances(installDir); });
+                if (closedCount > 0)
+                    SetBusy(true, "已关闭正在运行的 GPT2JSON，继续写入新版文件…", 32);
+
                 string installerPath = ExtractInstaller();
                 Directory.CreateDirectory(installDir);
                 SetBusy(true, _upgradeMode ? "升级核心已就绪，正在覆盖写入文件…" : "安装核心已就绪，正在写入文件…", 42);
@@ -623,6 +628,79 @@ namespace GPT2JSON.Setup
                 _secondaryButton.Content = "关闭";
             if (_dirBox != null)
                 _dirBox.IsEnabled = false;
+        }
+
+        private static int CloseRunningAppInstances(string installDir)
+        {
+            int closed = 0;
+            string targetExe = NormalizePath(System.IO.Path.Combine(installDir, "GPT2JSON.exe"));
+            foreach (var process in Process.GetProcessesByName("GPT2JSON"))
+            {
+                try
+                {
+                    if (process.Id == Process.GetCurrentProcess().Id)
+                        continue;
+
+                    if (!ShouldCloseProcess(process, targetExe))
+                        continue;
+
+                    closed++;
+                    try
+                    {
+                        if (process.CloseMainWindow() && process.WaitForExit(5000))
+                            continue;
+                    }
+                    catch { }
+
+                    try
+                    {
+                        if (!process.HasExited)
+                        {
+                            process.Kill();
+                            process.WaitForExit(5000);
+                        }
+                    }
+                    catch { }
+                }
+                finally
+                {
+                    process.Dispose();
+                }
+            }
+            return closed;
+        }
+
+        private static bool ShouldCloseProcess(Process process, string targetExe)
+        {
+            try
+            {
+                string path = NormalizePath(process.MainModule.FileName);
+                if (string.Equals(path, targetExe, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            catch { }
+
+            try
+            {
+                string title = process.MainWindowTitle ?? "";
+                if (title.IndexOf(AppName, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
+            catch { }
+
+            return false;
+        }
+
+        private static string NormalizePath(string value)
+        {
+            try
+            {
+                return System.IO.Path.GetFullPath((value ?? "").Trim().Trim('"'));
+            }
+            catch
+            {
+                return (value ?? "").Trim().Trim('"');
+            }
         }
 
         private string ExtractInstaller()
