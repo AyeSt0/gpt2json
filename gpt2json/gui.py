@@ -2168,7 +2168,10 @@ class MainWindow(QMainWindow):
         self.append_log("🚀 开始导出：配置已确认，正在生成导入 JSON。")
         self.append_log(f"🧩 运行配置：输入格式={self._input_format_label()}；导出={self._selected_output_labels()}；并发={'自动' if int(self.concurrency_spin.value()) == 0 else self.concurrency_spin.value()}。")
         total_attempts = int(self.max_attempts_spin.value()) + int(self.auto_rerun_spin.value())
-        self.append_log(f"🔁 稳定性策略：可恢复失败先自动重试 {int(self.max_attempts_spin.value())} 次；仍未成功时进入单账号自动重跑补救 {int(self.auto_rerun_spin.value())} 次，最多 {total_attempts} 次。")
+        self.append_log(
+            f"🔁 稳定性策略：Callback 超时、旧验证码会先做会话内快速补救；仍未成功再自动重试 {int(self.max_attempts_spin.value())} 次，"
+            f"最后进入单账号自动重跑补救 {int(self.auto_rerun_spin.value())} 次，最多 {total_attempts} 次。"
+        )
         batch_auto_limit = self._batch_auto_rerun_limit()
         if batch_auto_limit:
             self.append_log(f"🔄 批次级自动补跑：批次结束后最多自动补跑 {batch_auto_limit} 次，只处理 failed_rerun.secret.txt 中的可恢复失败账号。")
@@ -2265,7 +2268,10 @@ class MainWindow(QMainWindow):
             "email_otp_validate_repair": "验证码链路修复",
             "email_otp_page_repair": "验证码页修复",
             "email_otp_validate_repair_result": "验证码修复结果",
+            "otp_refetch": "验证码换码",
+            "email_otp_resend": "验证码重发",
             "finalize": "Callback 换票",
+            "finalize_retry": "Callback 会话内重试",
             "callback": "JSON 回调",
             "runtime_exception": "单账号异常",
             "worker_future": "任务线程",
@@ -2443,6 +2449,8 @@ class MainWindow(QMainWindow):
         if stage == "otp_fetch":
             backend = self._backend_display(event.get("backend"))
             if bool(event.get("code_present")):
+                if event.get("otp_refetch_attempt"):
+                    return f"📬 {account}：已拿到新的验证码（来源：{backend}，{status}），将在当前验证码页直接重提。"
                 return f"📬 {account}：已获取验证码（来源：{backend}，{status}），准备提交验证。"
             return f"⌛ {account}：本轮未拿到新验证码（来源：{backend}，{status}），将先自动重试；仍未成功时进入自动重跑补救。"
         if stage == "email_otp_validate":
@@ -2477,8 +2485,36 @@ class MainWindow(QMainWindow):
             if code >= 400:
                 return f"🧾 {account}：验证码链路自动修复后仍返回异常（{status}），稍后会按自动重试策略处理。"
             return f"✅ {account}：验证码链路自动修复成功（{status}），继续进入收尾流程。"
+        if stage == "otp_refetch":
+            reason = self._reason_display(event.get("reason"))
+            try:
+                current = int(event.get("otp_refetch_attempt") or 1)
+                total = int(event.get("max_otp_refetch_attempts") or current)
+            except Exception:
+                current, total = 1, 1
+            suffix = f"；原因：{reason}" if reason else ""
+            return f"🔁 {account}：验证码可能是旧码/过期码，先不重走登录，正在当前验证码页重新取码 {current}/{total}{suffix}。"
+        if stage == "email_otp_resend":
+            if event.get("error"):
+                return f"📨 {account}：验证码重发请求未确认，继续从取码源等待新码。"
+            try:
+                code = int(event.get("status_code") or 0)
+            except Exception:
+                code = 0
+            if 0 < code < 400:
+                return f"📨 {account}：已请求服务端重新发送验证码（{status}），继续等待新码。"
+            return f"📨 {account}：验证码重发接口未确认（{status}），继续尝试从取码源获取新码。"
         if stage == "finalize":
             return f"🎫 {account}：正在完成 Callback 跳转并换取最终 JSON。"
+        if stage == "finalize_retry":
+            reason = self._reason_display(event.get("reason"))
+            try:
+                current = int(event.get("next_finalize_attempt") or 2)
+                total = int(event.get("max_finalize_attempts") or current)
+            except Exception:
+                current, total = 2, 2
+            suffix = f"；原因：{reason}" if reason else ""
+            return f"⚡ {account}：Callback 响应偏慢，先不重走登录，正在当前会话内快速重试 {current}/{total}{suffix}。"
         if stage == "callback":
             return f"📦 {account}：Callback 完成，JSON 已获取。"
         if stage == "runtime_exception":

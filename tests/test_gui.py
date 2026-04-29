@@ -726,6 +726,40 @@ def test_gui_runtime_logs_include_account_sequence(tmp_path):
     window.log_edit.clear()
     window.on_event(
         {
+            "type": "row_stage",
+            "row_index": 3,
+            "line_no": 9,
+            "email_masked": "te***@example.com",
+            "stage": "finalize_retry",
+            "reason": "TimeoutError: The read operation timed out",
+            "next_finalize_attempt": 2,
+            "max_finalize_attempts": 2,
+        }
+    )
+    finalize_retry_text = window.log_edit.toPlainText()
+    assert "当前会话内快速重试 2/2" in finalize_retry_text
+    assert "先不重走登录" in finalize_retry_text
+
+    window.log_edit.clear()
+    window.on_event(
+        {
+            "type": "row_stage",
+            "row_index": 3,
+            "line_no": 9,
+            "email_masked": "te***@example.com",
+            "stage": "otp_refetch",
+            "reason": "wrong_email_otp_code",
+            "otp_refetch_attempt": 1,
+            "max_otp_refetch_attempts": 1,
+        }
+    )
+    otp_refetch_text = window.log_edit.toPlainText()
+    assert "当前验证码页重新取码 1/1" in otp_refetch_text
+    assert "旧码/过期码" in otp_refetch_text
+
+    window.log_edit.clear()
+    window.on_event(
+        {
             "type": "row_retry",
             "row_index": 3,
             "line_no": 9,
@@ -787,6 +821,7 @@ def test_log_line_classification_for_semantic_colors():
     assert classify_log_line("🗂️ 本次结果目录：output/GPT2JSON_20260429_043512_a1b2c3") == "output"
     assert classify_log_line("🚀 开始导出：配置已确认") == "start"
     assert classify_log_line("🔁 自动重试：账号 #001 正在进行第 2/2 次尝试。") == "warning"
+    assert classify_log_line("⚡ 账号 #001：Callback 响应偏慢，正在当前会话内快速重试") == "warning"
     assert classify_log_line("🔄 自动重跑补救：账号 #001 正在进行第 4/5 次尝试。") == "warning"
     assert classify_log_line("🧮 自动重试 / 自动重跑补救统计：2 个账号触发自动重试") == "info"
     assert classify_log_line("🔍 导出校验：已检查导出的 JSON 是否可导入。") == "info"

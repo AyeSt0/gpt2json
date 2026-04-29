@@ -42,7 +42,7 @@ def classify_log_line(text: str) -> str:
         return "error"
     if line.startswith("🛑") or line.startswith("取消"):
         return "cancel"
-    if line.startswith(("🔁", "🔄 自动重跑补救", "🔄 批次级自动补跑", "🔄 重跑失败账号", "🟡")):
+    if line.startswith(("🔁", "⚡", "🔄 自动重跑补救", "🔄 批次级自动补跑", "🔄 重跑失败账号", "🟡")):
         return "warning"
     if line.startswith(("🚀", "🧩", "📦 任务")) or line.startswith(("开始导出：", "运行配置：")):
         return "start"

@@ -574,6 +574,34 @@ def _password_failure_status(transition: dict[str, Any]) -> str:
     return "bad_password" if status_code in {400, 401, 403} else "password_error"
 
 
+def _short_exception_reason(exc: Exception) -> str:
+    return f"{type(exc).__name__}: {str(exc)[:220]}"
+
+
+def _is_transient_finalize_reason(reason: str) -> bool:
+    lowered = str(reason or "").strip().lower()
+    if not lowered:
+        return False
+    transient_markers = (
+        "timeout",
+        "timed out",
+        "temporarily unavailable",
+        "connection reset",
+        "connection aborted",
+        "remote disconnected",
+        "empty reply",
+        "eof",
+        "curl: (28)",
+    )
+    if any(marker in lowered for marker in transient_markers):
+        return True
+    return lowered in {"callback_error", "finalize_unresolved", "workspace_select_error", "workspace_select_continue_missing"}
+
+
+def _is_otp_code_stale_reason(reason: str) -> bool:
+    return str(reason or "").strip().lower() in {"wrong_email_otp_code", "email_otp_expired"}
+
+
 ProtocolEventCallback = Callable[[dict[str, Any]], None]
 
 
@@ -603,12 +631,30 @@ class ProtocolLoginClient:
             return
 
     def _finalize_timeout(self) -> int:
-        # The post-OTP consent/callback chain is the slowest part of this flow:
-        # it may include consent, workspace/org selection, redirects, and the
-        # OAuth token exchange.  Keep normal login requests responsive, but do
-        # not let the final JSON exchange fail just because the GUI default HTTP
-        # timeout is 30 seconds.
-        return max(self.timeout, 60)
+        # Keep the final callback/token phase aligned with the user-selected
+        # HTTP timeout instead of silently stretching the GUI default 30s to
+        # 60s.  Slow callback chains are now handled by session-local retry
+        # below, which is much cheaper than re-running password + OTP.
+        return max(10, int(self.timeout or 30))
+
+    def _local_finalize_attempts(self) -> int:
+        raw = os.getenv("GPT2JSON_FINALIZE_ATTEMPTS", "").strip()
+        try:
+            value = int(raw) if raw else 2
+        except ValueError:
+            value = 2
+        return max(1, min(4, value))
+
+    def _otp_refetch_attempts(self) -> int:
+        raw = os.getenv("GPT2JSON_OTP_REFETCH_ATTEMPTS", "").strip()
+        try:
+            value = int(raw) if raw else 1
+        except ValueError:
+            value = 1
+        return max(0, min(3, value))
+
+    def _local_retry_sleep(self, attempt: int) -> None:
+        time.sleep(min(2.0, 0.45 + max(0, attempt - 1) * 0.35))
 
     def _request(self, session: requests.Session, method: str, url: str, *, proxies: Any = None, headers: dict[str, Any] | None = None, json_body: Any = None, data: Any = None, allow_redirects: bool = False, timeout: int | None = None) -> Any:
         kwargs = {
@@ -785,6 +831,64 @@ class ProtocolLoginClient:
             }
             self._emit_stage(stage, error=transition["error"], page_type=transition["page_type"], status_code=0)
             return transition
+
+    def _request_email_otp_resend(
+        self,
+        session: requests.Session,
+        *,
+        row: AccountRow,
+        referer: str,
+        did: str,
+        sentinel_token: str,
+        proxies: Any = None,
+    ) -> dict[str, Any]:
+        """Best-effort in-session request for a fresh email OTP.
+
+        Some accounts receive an old code from the no-login source on the first
+        poll.  A browser user would stay on the verification page and click
+        "send again" instead of restarting the whole OAuth flow; mirror that
+        behavior here.  The endpoint shape may differ between auth revisions,
+        so this remains non-fatal and falls back to polling the source again.
+        """
+
+        headers = _headers(
+            AUTH_JSON_HEADERS,
+            referer=referer or "https://auth.openai.com/email-verification",
+            oai_device_id=did,
+            **{"openai-sentinel-token": sentinel_token},
+        )
+        candidate_bodies: tuple[dict[str, Any], ...] = (
+            {},
+            {"email": row.login_email},
+            {"email": {"value": row.login_email, "kind": "email"}},
+        )
+        last_transition: dict[str, Any] = {}
+        last_error = ""
+        for body in candidate_bodies:
+            try:
+                resp = self._post_with_retry(
+                    session,
+                    "https://auth.openai.com/api/accounts/email-otp/send",
+                    headers=headers,
+                    proxies=proxies,
+                    json_body=body,
+                    timeout=min(self.timeout, 15),
+                    retries=0,
+                )
+                transition = _extract_transition_targets_from_response(resp, request_url="https://auth.openai.com/api/accounts/email-otp/send")
+                last_transition = transition
+                if transition["status_code"] < 400:
+                    event = _compact_transition_event("email_otp_resend", transition, body_shape="empty" if not body else "email")
+                    self._emit_stage("email_otp_resend", **{k: v for k, v in event.items() if k != "stage"})
+                    return transition
+            except Exception as exc:
+                last_error = _short_exception_reason(exc)
+        if last_error:
+            self._emit_stage("email_otp_resend", status_code=0, error=last_error)
+        elif last_transition:
+            event = _compact_transition_event("email_otp_resend", last_transition)
+            self._emit_stage("email_otp_resend", **{k: v for k, v in event.items() if k != "stage"})
+        return last_transition
 
     def _follow_redirect_chain_to_callback(self, session: requests.Session, *, start_url: str, oauth_start: OAuthStart, proxies: Any = None) -> tuple[str | None, str]:
         current_url = str(start_url or "").strip()
@@ -1247,20 +1351,142 @@ class ProtocolLoginClient:
                         page_type=current_transition["page_type"],
                         callback_url_present=bool(current_transition["callback_url"]),
                     )
+
+                otp_refetch_limit = self._otp_refetch_attempts()
+                otp_refetch_count = 0
+                while current_transition["status_code"] >= 400 and otp_refetch_count < otp_refetch_limit and _is_otp_code_stale_reason(_transition_reason(current_transition)):
+                    otp_refetch_count += 1
+                    result.meta["otp_refetch_attempted"] = otp_refetch_count
+                    reason = _transition_reason(current_transition)
+                    result.events.append(
+                        {
+                            "stage": "otp_refetch",
+                            "reason": reason,
+                            "otp_refetch_attempt": otp_refetch_count,
+                            "max_otp_refetch_attempts": otp_refetch_limit,
+                        }
+                    )
+                    self._emit_stage(
+                        "otp_refetch",
+                        reason=reason,
+                        otp_refetch_attempt=otp_refetch_count,
+                        max_otp_refetch_attempts=otp_refetch_limit,
+                    )
+                    resend_sentinel = self._sentinel_for_flow(did, flow="email_otp_send", proxies=proxies, fallback=otp_sentinel or password_sentinel or sentinel)
+                    resend_transition = self._request_email_otp_resend(
+                        session,
+                        row=row,
+                        referer=otp_referer,
+                        did=did,
+                        sentinel_token=resend_sentinel or otp_sentinel or password_sentinel or sentinel,
+                        proxies=proxies,
+                    )
+                    if resend_transition:
+                        result.events.append(_compact_transition_event("email_otp_resend", resend_transition))
+                    code = otp_fetcher.poll_row(row, proxies=proxies)
+                    if not code:
+                        otp_details = otp_fetcher.last_details_for_row(row)
+                        result.events.append(
+                            {
+                                "stage": "otp_fetch",
+                                "backend": otp_details.backend,
+                                "status_code": otp_details.status_code,
+                                "code_present": False,
+                                "signature": otp_details.signature[:12],
+                                "otp_refetch_attempt": otp_refetch_count,
+                            }
+                        )
+                        self._emit_stage(
+                            "otp_fetch",
+                            backend=otp_details.backend,
+                            status_code=otp_details.status_code,
+                            code_present=False,
+                            otp_refetch_attempt=otp_refetch_count,
+                        )
+                        break
+                    otp_details = otp_fetcher.last_details_for_row(row)
+                    result.events.append(
+                        {
+                            "stage": "otp_fetch",
+                            "backend": otp_details.backend,
+                            "status_code": otp_details.status_code,
+                            "code_present": True,
+                            "signature": otp_details.signature[:12],
+                            "otp_refetch_attempt": otp_refetch_count,
+                        }
+                    )
+                    self._emit_stage(
+                        "otp_fetch",
+                        backend=otp_details.backend,
+                        status_code=otp_details.status_code,
+                        code_present=True,
+                        otp_refetch_attempt=otp_refetch_count,
+                    )
+                    retry_otp_sentinel = self._sentinel_for_flow(did, flow="email_otp_validate", proxies=proxies, fallback=resend_sentinel or otp_sentinel or password_sentinel or sentinel)
+                    otp_resp = post_email_otp_validate(retry_otp_sentinel, otp_referer)
+                    current_transition = _extract_transition_targets_from_response(otp_resp, request_url="https://auth.openai.com/api/accounts/email-otp/validate")
+                    result.events.append(
+                        {
+                            "stage": "email_otp_validate",
+                            "status_code": current_transition["status_code"],
+                            "page_type": current_transition["page_type"],
+                            "continue_url": current_transition["continue_url"][:300],
+                            "callback_url_present": bool(current_transition["callback_url"]),
+                            "otp_refetch_attempt": otp_refetch_count,
+                        }
+                    )
+                    self._emit_stage(
+                        "email_otp_validate",
+                        status_code=current_transition["status_code"],
+                        page_type=current_transition["page_type"],
+                        callback_url_present=bool(current_transition["callback_url"]),
+                        otp_refetch_attempt=otp_refetch_count,
+                    )
                 if current_transition["status_code"] >= 400:
                     result.status = "email_otp_validate_error"
                     result.reason = current_transition["error_code"] or f"http_{current_transition['status_code']}"
                     return result
 
             result.stage = "finalize"
-            self._emit_stage("finalize")
-            token_json, finalize_reason, finalize_transition = self._finalize_transition(
-                session,
-                transition=current_transition,
-                oauth_start=oauth_start,
-                proxies=proxies,
-                sentinel=sentinel,
-            )
+            finalize_attempt_limit = self._local_finalize_attempts()
+            self._emit_stage("finalize", local_finalize_attempts=finalize_attempt_limit)
+            token_json = None
+            finalize_reason = ""
+            finalize_transition = current_transition
+            for finalize_attempt in range(1, finalize_attempt_limit + 1):
+                try:
+                    token_json, finalize_reason, finalize_transition = self._finalize_transition(
+                        session,
+                        transition=current_transition,
+                        oauth_start=oauth_start,
+                        proxies=proxies,
+                        sentinel=sentinel,
+                    )
+                except Exception as exc:
+                    token_json = None
+                    finalize_reason = _short_exception_reason(exc)
+                    finalize_transition = current_transition
+                if token_json:
+                    result.meta["finalize_local_attempt"] = finalize_attempt
+                    break
+                if finalize_attempt >= finalize_attempt_limit or not _is_transient_finalize_reason(finalize_reason):
+                    break
+                result.meta["finalize_local_retries"] = finalize_attempt
+                result.events.append(
+                    {
+                        "stage": "finalize_retry",
+                        "reason": finalize_reason,
+                        "next_finalize_attempt": finalize_attempt + 1,
+                        "max_finalize_attempts": finalize_attempt_limit,
+                    }
+                )
+                self._emit_stage(
+                    "finalize_retry",
+                    reason=finalize_reason,
+                    next_finalize_attempt=finalize_attempt + 1,
+                    max_finalize_attempts=finalize_attempt_limit,
+                )
+                self._local_retry_sleep(finalize_attempt)
             if token_json:
                 result.status = "success"
                 result.stage = "callback"

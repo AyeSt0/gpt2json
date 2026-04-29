@@ -246,7 +246,7 @@ def capture_gui_previews() -> None:
             "🗂️ 本次结果目录：output\\GPT2JSON_20260429_043512_a1b2c3\n"
             "📮 账号 #003 user03@example.test：密码验证通过，服务端要求邮箱验证码，准备访问取码源。\n"
             "✅ 成功：账号 #011 user11@example.test 已获取 JSON，稍后统一写入导出文件。\n"
-            "🔁 自动重试：账号 #012 上次停在「Callback 换 JSON」；原因：请求超时，正在进行第 2/3 次尝试。"
+            "⚡ 账号 #012 user12@example.test：Callback 响应偏慢，先不重走登录，正在当前会话内快速重试 2/2。"
         )
         window.run_btn.setEnabled(True)
         window.show()
